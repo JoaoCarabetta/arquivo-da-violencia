@@ -1,6 +1,7 @@
 import click
 import os
 from flask.cli import with_appcontext
+from loguru import logger
 from app import create_app
 from app.services.ingestion import run_ingestion
 from app.services.extraction import run_extraction, extract_event
@@ -23,10 +24,11 @@ def cli():
 @click.option('--expand', is_flag=True, help='Expand query with related topics')
 @click.option('--geo', is_flag=True, help='Expand query with specific Rio locations/neighborhoods')
 @click.option('--force', is_flag=True, help='Force update')
-def fetch(start_date, end_date, query, expand, geo, force):
+@click.option('--max-workers', default=10, help='Number of parallel workers for downloading (default: 10)')
+def fetch(start_date, end_date, query, expand, geo, force, max_workers):
     """Stage 1: Ingest RSS feeds and download content."""
     with app_instance.app_context():
-        run_ingestion(start_date=start_date, end_date=end_date, query=query, force=force, expand_queries=expand, expand_geo=geo)
+        run_ingestion(start_date=start_date, end_date=end_date, query=query, force=force, expand_queries=expand, expand_geo=geo, max_workers=max_workers)
 
 @cli.command()
 @click.option('--force', is_flag=True, help='Force re-extraction of processed items.')
@@ -97,16 +99,60 @@ def re_enrich(incident_id, all, dry_run):
             click.echo("Please specify --incident-id <id> or --all")
 
 @cli.command()
-@click.option('--force', is_flag=True)
-def run_all(force):
+@click.option('--force', is_flag=True, help='Force re-extraction of processed items')
+@click.option('--expand', is_flag=True, help='Expand query with related topics (extensive fetching)')
+@click.option('--geo', is_flag=True, help='Expand query with specific Rio locations/neighborhoods (extensive fetching)')
+@click.option('--start-date', help='Start date for fetching (YYYY-MM-DD)')
+@click.option('--end-date', help='End date for fetching (YYYY-MM-DD)')
+@click.option('--query', help='Search query for fetching')
+@click.option('--workers', default=10, help='Number of parallel workers for all stages (default: 10)')
+def run_all(force, expand, geo, start_date, end_date, query, workers):
     """Run full pipeline (Fetch -> Extract -> Enrich)."""
+    import time
+    from datetime import timedelta
+    
     with app_instance.app_context():
-        print("=== STAGE 1: FETCH ===")
-        run_ingestion()
-        print("\n=== STAGE 2: EXTRACT ===")
-        run_extraction(force=force)
-        print("\n=== STAGE 3: ENRICH ===")
-        run_enrichment(max_workers=10)
+        pipeline_start = time.time()
+        
+        logger.info("=" * 70)
+        logger.info("FULL PIPELINE STARTING")
+        logger.info("=" * 70)
+        logger.info(f"Workers: {workers} (applied to all stages)")
+        if expand or geo:
+            logger.info(f"Extensive fetching: expand={expand}, geo={geo}")
+        logger.info("=" * 70)
+        
+        # STAGE 1: FETCH
+        logger.info("\n=== STAGE 1: FETCH ===")
+        stage1_start = time.time()
+        run_ingestion(start_date=start_date, end_date=end_date, query=query, force=force, expand_queries=expand, expand_geo=geo, max_workers=workers)
+        stage1_elapsed = time.time() - stage1_start
+        logger.info(f"✅ Stage 1 complete in {stage1_elapsed:.1f}s ({timedelta(seconds=int(stage1_elapsed))})")
+        
+        # STAGE 2: EXTRACT
+        logger.info("\n=== STAGE 2: EXTRACT ===")
+        stage2_start = time.time()
+        run_extraction(force=force, max_workers=workers)
+        stage2_elapsed = time.time() - stage2_start
+        logger.info(f"✅ Stage 2 complete in {stage2_elapsed:.1f}s ({timedelta(seconds=int(stage2_elapsed))})")
+        
+        # STAGE 3: ENRICH
+        logger.info("\n=== STAGE 3: ENRICH ===")
+        stage3_start = time.time()
+        run_enrichment(max_workers=workers)
+        stage3_elapsed = time.time() - stage3_start
+        logger.info(f"✅ Stage 3 complete in {stage3_elapsed:.1f}s ({timedelta(seconds=int(stage3_elapsed))})")
+        
+        # SUMMARY
+        total_elapsed = time.time() - pipeline_start
+        logger.info("\n" + "=" * 70)
+        logger.info("PIPELINE COMPLETE")
+        logger.info("=" * 70)
+        logger.info(f"Stage 1 (Fetch):   {stage1_elapsed:.1f}s ({stage1_elapsed/total_elapsed*100:.1f}%)")
+        logger.info(f"Stage 2 (Extract): {stage2_elapsed:.1f}s ({stage2_elapsed/total_elapsed*100:.1f}%)")
+        logger.info(f"Stage 3 (Enrich):  {stage3_elapsed:.1f}s ({stage3_elapsed/total_elapsed*100:.1f}%)")
+        logger.info(f"Total time:        {total_elapsed:.1f}s ({timedelta(seconds=int(total_elapsed))})")
+        logger.info("=" * 70)
 
 @cli.command()
 @click.argument('message')
@@ -150,12 +196,12 @@ def reextract_all(workers, limit):
         total = len(source_ids)
         
         if total == 0:
-            print("No extractions found to re-extract.")
+            logger.info("No extractions found to re-extract.")
             return
         
-        print(f"Found {total} sources with extractions to re-extract.")
-        print(f"Using {workers} parallel workers...")
-        print("=" * 60)
+        logger.info(f"Found {total} sources with extractions to re-extract.")
+        logger.info(f"Using {workers} parallel workers...")
+        logger.info("=" * 60)
         
         # Process in parallel using ThreadPoolExecutor
         from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -175,23 +221,23 @@ def reextract_all(workers, limit):
                 try:
                     if future.result():
                         success_count += 1
-                        print(f"✓ [{i+1}/{total}] Re-extracted source {source_id}")
+                        logger.info(f"✓ [{i+1}/{total}] Re-extracted source {source_id}")
                     else:
                         error_count += 1
-                        print(f"✗ [{i+1}/{total}] Failed to re-extract source {source_id}")
+                        logger.warning(f"✗ [{i+1}/{total}] Failed to re-extract source {source_id}")
                 except Exception as e:
                     error_count += 1
-                    print(f"✗ [{i+1}/{total}] Error re-extracting source {source_id}: {e}")
+                    logger.exception(f"✗ [{i+1}/{total}] Error re-extracting source {source_id}: {e}")
                 
                 # Progress update every 10 items
                 if (i + 1) % 10 == 0:
-                    print(f"Progress: {i+1}/{total} (Success: {success_count}, Errors: {error_count})")
+                    logger.info(f"Progress: {i+1}/{total} (Success: {success_count}, Errors: {error_count})")
         
-        print("=" * 60)
-        print(f"Re-extraction complete!")
-        print(f"  Total: {total}")
-        print(f"  Successful: {success_count}")
-        print(f"  Errors: {error_count}")
+        logger.info("=" * 60)
+        logger.info(f"Re-extraction complete!")
+        logger.info(f"  Total: {total}")
+        logger.info(f"  Successful: {success_count}")
+        logger.info(f"  Errors: {error_count}")
 
 @cli.command()
 @click.option('--dry-run', is_flag=True, help='Preview changes without committing to database.')

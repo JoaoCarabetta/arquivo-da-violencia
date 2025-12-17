@@ -70,8 +70,10 @@ arquivo-da-violencia/
 │   ├── ingest_data.py       # Manual Data Entry CLI
 │   ├── migrate_db.py        # Database Migration Helper
 │   └── debug/               # Debugging scripts
-├── manage.py                # Main CLI Orchestrator
-├── run.py                   # Web Server Entry Point
+├── entrypoints/             # Application entry points
+│   ├── manage.py            # Main CLI Orchestrator
+│   ├── run.py               # Web Server Entry Point
+│   └── scheduler.py         # Docker scheduler service
 └── instance/
     └── violence.db          # SQLite Database
 ```
@@ -173,7 +175,7 @@ class TestFetchFeed:
 
 ## Data Pipeline
 
-The data ingestion follows a 3-stage pipeline orchestrated by `manage.py`:
+The data ingestion follows a 3-stage pipeline orchestrated by `entrypoints/manage.py`:
 
 1.  **Ingestion (`app/services/ingestion.py`)**:
     - Reads Google News RSS.
@@ -260,9 +262,9 @@ uv run pytest -s
 - Model methods (if any)
 
 ## Key Commands
-*   **Run Web Server**: `uv run run.py` (http://127.0.0.1:5000)
-*   **Run Full Pipeline**: `uv run manage.py run-all`
-*   **Run Full Pipeline (Force Update)**: `uv run manage.py run-all --force`
+*   **Run Web Server**: `uv run entrypoints/run.py` (http://127.0.0.1:5000)
+*   **Run Full Pipeline**: `uv run entrypoints/manage.py run-all`
+*   **Run Full Pipeline (Force Update)**: `uv run entrypoints/manage.py run-all --force`
 *   **Run Tests**: `uv run pytest`
 *   **Run Tests with Coverage**: `uv run pytest --cov=app`
 *   **Manual Data Entry**: `uv run scripts/ingest_data.py --help`

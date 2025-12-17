@@ -1,6 +1,7 @@
 import os
 import sys
 import json
+from loguru import logger
 
 # Add project root to path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -25,7 +26,7 @@ O motorista perdeu o controle e colidiu com um poste. A vítima morreu no local.
 """
 
 def test_extraction():
-    print("Testing Keyword Extraction and LLM Structured Extraction...")
+    logger.info("Testing Keyword Extraction and LLM Structured Extraction...")
     
     samples = [
         ("True Positive (Murder)", SAMPLE_TRUE_POSITIVE, True),
@@ -34,27 +35,27 @@ def test_extraction():
     ]
     
     for label, text, expected in samples:
-        print(f"\n--- Testing: {label} ---")
+        logger.info(f"\n--- Testing: {label} ---")
         matches = check_keywords_fast(text)
-        print(f"Keywords: {matches}")
+        logger.info(f"Keywords: {matches}")
         
         if not matches:
-            print("No keywords found (Fast Filter).")
+            logger.info("No keywords found (Fast Filter).")
             continue
             
         data, status = extract_with_llm(text, matches)
-        print(f"LLM Status: {status}")
+        logger.info(f"LLM Status: {status}")
         try:
-            print(f"Extracted Data:\n{json.dumps(data, indent=2, ensure_ascii=False)}")
+            logger.info(f"Extracted Data:\n{json.dumps(data, indent=2, ensure_ascii=False)}")
         except:
-            print(f"Extracted Data: {data}")
+            logger.info(f"Extracted Data: {data}")
         
         is_valid = data.get("is_valid", False)
         
         if is_valid == expected:
-            print("✅ PASS")
+            logger.info("✅ PASS")
         else:
-            print(f"❌ FAIL (Expected {expected})")
+            logger.warning(f"❌ FAIL (Expected {expected})")
 
 if __name__ == "__main__":
     test_extraction()

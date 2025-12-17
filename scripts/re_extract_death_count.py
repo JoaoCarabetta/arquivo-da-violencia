@@ -6,6 +6,7 @@ import sys
 import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from loguru import logger
 from app import create_app
 from app.models import Source, ExtractedEvent
 from app.services.extraction import extract_event
@@ -17,9 +18,9 @@ app = create_app()
 def re_extract_for_death_count(workers=10, limit=None):
     """Re-extract sources that have extractions without death_count."""
     with app.app_context():
-        print("=" * 70)
-        print("RE-EXTRACTION FOR DEATH_COUNT")
-        print("=" * 70)
+        logger.info("=" * 70)
+        logger.info("RE-EXTRACTION FOR DEATH_COUNT")
+        logger.info("=" * 70)
         
         # Get source IDs that have extractions without death_count
         query = db.session.query(ExtractedEvent.source_id).filter(
@@ -33,12 +34,12 @@ def re_extract_for_death_count(workers=10, limit=None):
         total = len(source_ids)
         
         if total == 0:
-            print("✅ No sources need re-extraction. All extractions already have death_count.")
+            logger.info("✅ No sources need re-extraction. All extractions already have death_count.")
             return
         
-        print(f"\nFound {total} sources with extractions missing death_count")
-        print(f"Using {workers} parallel workers...")
-        print("=" * 70)
+        logger.info(f"\nFound {total} sources with extractions missing death_count")
+        logger.info(f"Using {workers} parallel workers...")
+        logger.info("=" * 70)
         
         success_count = 0
         error_count = 0
@@ -75,38 +76,38 @@ def re_extract_for_death_count(workers=10, limit=None):
                     if result["status"] == "success":
                         success_count += 1
                         updated_count += 1
-                        print(f"✓ [{i}/{total}] Source {source_id}: death_count = {result.get('death_count')}")
+                        logger.info(f"✓ [{i}/{total}] Source {source_id}: death_count = {result.get('death_count')}")
                     elif result["status"] == "success_no_death_count":
                         success_count += 1
-                        print(f"⚠ [{i}/{total}] Source {source_id}: Re-extracted but no death_count found")
+                        logger.info(f"⚠ [{i}/{total}] Source {source_id}: Re-extracted but no death_count found")
                     else:
                         error_count += 1
-                        print(f"✗ [{i}/{total}] Source {source_id}: {result.get('error', 'Unknown error')}")
+                        logger.info(f"✗ [{i}/{total}] Source {source_id}: {result.get('error', 'Unknown error')}")
                     
                     # Progress update every 10 items
                     if i % 10 == 0:
-                        print(f"\n📊 Progress: {i}/{total} | Success: {success_count} | Updated: {updated_count} | Errors: {error_count}\n")
+                        logger.info(f"\n📊 Progress: {i}/{total} | Success: {success_count} | Updated: {updated_count} | Errors: {error_count}\n")
                         
                 except Exception as e:
                     error_count += 1
-                    print(f"✗ [{i}/{total}] Source {source_id}: Exception - {e}")
+                    logger.info(f"✗ [{i}/{total}] Source {source_id}: Exception - {e}")
         
-        print("\n" + "=" * 70)
-        print("RE-EXTRACTION COMPLETE")
-        print("=" * 70)
-        print(f"  Total processed:    {total}")
-        print(f"  Successful:         {success_count}")
-        print(f"  With death_count:   {updated_count}")
-        print(f"  Errors:             {error_count}")
-        print("=" * 70)
+        logger.info("\n" + "=" * 70)
+        logger.info("RE-EXTRACTION COMPLETE")
+        logger.info("=" * 70)
+        logger.info(f"  Total processed:    {total}")
+        logger.info(f"  Successful:         {success_count}")
+        logger.info(f"  With death_count:   {updated_count}")
+        logger.info(f"  Errors:             {error_count}")
+        logger.info("=" * 70)
         
         # Final statistics
         final_count = ExtractedEvent.query.filter(ExtractedEvent.death_count.isnot(None)).count()
         total_extractions = ExtractedEvent.query.count()
-        print(f"\nFinal statistics:")
-        print(f"  Total extractions:           {total_extractions}")
-        print(f"  With death_count:            {final_count} ({final_count/total_extractions*100:.1f}%)")
-        print(f"  Without death_count:          {total_extractions - final_count}")
+        logger.info(f"\nFinal statistics:")
+        logger.info(f"  Total extractions:           {total_extractions}")
+        logger.info(f"  With death_count:            {final_count} ({final_count/total_extractions*100:.1f}%)")
+        logger.info(f"  Without death_count:          {total_extractions - final_count}")
 
 if __name__ == '__main__':
     import argparse

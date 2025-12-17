@@ -6,6 +6,7 @@ from google.oauth2 import service_account
 import os
 import re
 from bs4 import BeautifulSoup
+from loguru import logger
 from app.extensions import db
 from app.models import Source, Keyword, ExtractedEvent
 from app.services.keywords import MURDER_KEYWORDS
@@ -21,12 +22,12 @@ try:
             scopes=["https://www.googleapis.com/auth/cloud-platform"]
         )
         vertexai.init(project=credentials.project_id, location="us-central1", credentials=credentials)
-        print(f"✅ Vertex AI initialized for {credentials.service_account_email} (Project: {credentials.project_id})")
+        logger.info(f"✅ Vertex AI initialized for {credentials.service_account_email} (Project: {credentials.project_id})")
     else:
-        print(f"⚠️ Service Account file not found at {SA_PATH}. LLM will be skipped.")
+        logger.warning(f"⚠️ Service Account file not found at {SA_PATH}. LLM will be skipped.")
         credentials = None
 except Exception as e:
-    print(f"⚠️ Error initializing Vertex AI: {e}")
+    logger.error(f"⚠️ Error initializing Vertex AI: {e}")
     credentials = None
 
 def resolve_url(url):
@@ -39,7 +40,7 @@ def resolve_url(url):
         if res.get('status'):
             return res.get('decoded_url')
     except Exception as e:
-        print(f"Error resolving {url}: {e}")
+        logger.error(f"Error resolving {url}: {e}")
     return url
 
 def check_keywords_fast(text):
@@ -329,11 +330,11 @@ def extract_content_and_metadata(downloaded_html):
         if date_str:
             publication_date = parse_and_validate_date(date_str)
             if publication_date:
-                print(f"  -> Extracted publication date from article: {publication_date.strftime('%Y-%m-%d')}")
+                logger.debug(f"  -> Extracted publication date from article: {publication_date.strftime('%Y-%m-%d')}")
         
         return content, metadata, publication_date
     except Exception as e:
-        print(f"  -> Error extracting metadata: {e}")
+        logger.error(f"  -> Error extracting metadata: {e}")
         # Fallback to simple extract with favor_recall
         try:
             result = trafilatura.bare_extraction(
@@ -427,7 +428,7 @@ JSON Response:
         return data, "Extracted by LLM"
             
     except Exception as e:
-        print(f"LLM Error: {e}")
+        logger.exception(f"LLM Error: {e}")
         # Fallback
         return {"is_valid": True, "summary": "LLM Error (Fallback)", "confidence": 0.5}, f"LLM Error: {e}"
 
@@ -445,7 +446,7 @@ def process_source_extraction(source, force=False):
     # 1. Resolve URL
     if not source.resolved_url or force:
         if not source.resolved_url: 
-             print(f"Resolving {source.url}")
+             logger.debug(f"Resolving {source.url}")
         resolved = resolve_url(source.url)
         if resolved != source.url:
             source.resolved_url = resolved
@@ -472,11 +473,11 @@ def process_source_extraction(source, force=False):
                             source.fetched_at
                         )
                         if best_date and best_date != source.published_at:
-                            print(f"  -> Updated publication date from {source.published_at} to {best_date.strftime('%Y-%m-%d')}")
+                            logger.info(f"  -> Updated publication date from {source.published_at} to {best_date.strftime('%Y-%m-%d')}")
                             source.published_at = best_date
                             changed = True
         except Exception as e:
-             print(f"Download error: {e}")
+             logger.error(f"Download error: {e}")
 
     # 3. Identify Extractions (The Core Logic)
     if source.content:
@@ -489,7 +490,7 @@ def process_source_extraction(source, force=False):
             pub_date = source.published_at
             if not pub_date:
                 # Log warning if we have to use fetched_at (shouldn't happen with proper date extraction)
-                print(f"  -> Warning: No publication date found, using fetched_at for LLM context only")
+                logger.warning(f"  -> Warning: No publication date found, using fetched_at for LLM context only")
                 pub_date = source.fetched_at
             data, status = extract_with_llm(source.content, matches, pub_date)
             
@@ -512,10 +513,10 @@ def process_source_extraction(source, force=False):
                     death_count=data.get("death_count")
                 )
                 db.session.add(extraction)
-                print(f"[+] Extraction Created: {source.title[:30]}... (Victim: {data.get('victim_name')})")
+                logger.info(f"[+] Extraction Created: {source.title[:30]}... (Victim: {data.get('victim_name')})")
                 changed = True
             else:
-                print(f"[-] Ignored (Invalid): {source.title[:30]}...")
+                logger.debug(f"[-] Ignored (Invalid): {source.title[:30]}...")
         
         # Mark processed
         if source.status != 'processed':
@@ -539,7 +540,7 @@ def process_single_source(app_obj, source_id, force):
                 # process_source_extraction commits its own changes
                 return True
             except Exception as e:
-                print(f"Error processing source {source_id}: {e}")
+                logger.exception(f"Error processing source {source_id}: {e}")
                 return False
     return False
 
@@ -610,7 +611,7 @@ def extract_event(source_id, force=False):
         # Try to download content first (or re-download if force=True)
         target_url = source.resolved_url or source.url
         if force and source.content:
-            print(f"  -> Force re-extraction: Re-downloading content from {target_url}")
+            logger.info(f"  -> Force re-extraction: Re-downloading content from {target_url}")
         try:
             downloaded = trafilatura.fetch_url(target_url)
             if downloaded:
@@ -627,7 +628,7 @@ def extract_event(source_id, force=False):
                             source.fetched_at
                         )
                         if best_date and best_date != source.published_at:
-                            print(f"  -> Updated publication date from {source.published_at} to {best_date.strftime('%Y-%m-%d')}")
+                            logger.info(f"  -> Updated publication date from {source.published_at} to {best_date.strftime('%Y-%m-%d')}")
                             source.published_at = best_date
                     
                     db.session.commit()
@@ -665,7 +666,7 @@ def extract_event(source_id, force=False):
     pub_date = source.published_at
     if not pub_date:
         # Log warning if we have to use fetched_at (shouldn't happen with proper date extraction)
-        print(f"  -> Warning: No publication date found, using fetched_at for LLM context only")
+        logger.warning(f"  -> Warning: No publication date found, using fetched_at for LLM context only")
         pub_date = source.fetched_at
     data, status = extract_with_llm(source.content, matches, pub_date)
     
@@ -762,25 +763,49 @@ def run_extraction(force=False, limit=None, max_workers=10):
         
     source_ids = [s.id for s in sources]
     total = len(source_ids)
-    print(f"Processing {total} sources (Limit={limit}, Force={force}, Threads={max_workers})...")
+    logger.info(f"Processing {total} sources (Limit={limit}, Force={force}, Threads={max_workers})...")
+    
+    if total == 0:
+        logger.info("No sources to process.")
+        return 0
+    
+    import time
+    from datetime import timedelta
+    extraction_start = time.time()
     
     count = 0
+    errors = 0
     with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
         # Submit all tasks
         futures = {executor.submit(process_single_source, app_obj, sid, force): sid for sid in source_ids}
         
-        # Process as they complete
+        # Process as they complete with time estimates
         for i, future in enumerate(concurrent.futures.as_completed(futures)):
             sid = futures[future]
             try:
                 if future.result():
                     count += 1
             except Exception as e:
-                print(f"Thread error for source {sid}: {e}")
+                errors += 1
+                logger.exception(f"Thread error for source {sid}: {e}")
             
-            # Simple progress log
-            if (i + 1) % 10 == 0:
-                print(f"Progress: {i + 1}/{total}")
+            # Progress log with time estimates
+            if (i + 1) % 10 == 0 or (i + 1) == total:
+                elapsed = time.time() - extraction_start
+                if (i + 1) > 0:
+                    avg_time_per_item = elapsed / (i + 1)
+                    remaining = total - (i + 1)
+                    estimated_remaining = avg_time_per_item * remaining
+                    estimated_total = elapsed + estimated_remaining
+                    
+                    logger.info(
+                        f"Progress: {i + 1}/{total} ({(i+1)/total*100:.1f}%) | "
+                        f"Elapsed: {elapsed:.1f}s | "
+                        f"ETA: {estimated_remaining:.1f}s | "
+                        f"Est. total: {estimated_total:.1f}s | "
+                        f"Updated: {count}, Errors: {errors}"
+                    )
             
-    print(f"Extraction complete. Updated {count} sources.")
+    total_elapsed = time.time() - extraction_start
+    logger.info(f"Extraction complete. Updated {count} sources, Errors: {errors}, Time: {total_elapsed:.1f}s ({timedelta(seconds=int(total_elapsed))})")
     return count

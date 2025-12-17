@@ -8,6 +8,7 @@ import os
 import time
 from flask import current_app
 import googlemaps
+from loguru import logger
 from app.models import Incident
 
 
@@ -22,14 +23,14 @@ def get_gmaps_client():
     if _gmaps_client is None:
         api_key = current_app.config.get('GOOGLE_MAPS_API_KEY')
         if not api_key:
-            print("⚠️ GOOGLE_MAPS_API_KEY not configured, geocoding will be skipped")
+            logger.warning("⚠️ GOOGLE_MAPS_API_KEY not configured, geocoding will be skipped")
             return None
         
         try:
             _gmaps_client = googlemaps.Client(key=api_key)
-            print("✅ Google Maps client initialized")
+            logger.info("✅ Google Maps client initialized")
         except Exception as e:
-            print(f"⚠️ Error initializing Google Maps client: {e}")
+            logger.error(f"⚠️ Error initializing Google Maps client: {e}")
             return None
     
     return _gmaps_client
@@ -161,16 +162,16 @@ def geocode_incident(incident, retry_count=3, retry_delay=1):
     
     # Skip if already geocoded (unless we want to re-geocode)
     if incident.latitude is not None and incident.longitude is not None:
-        print(f"    [Geocoding] Incident {incident.id} already geocoded, skipping")
+        logger.debug(f"    [Geocoding] Incident {incident.id} already geocoded, skipping")
         return incident.latitude, incident.longitude, incident.location_precision
     
     # Build query
     query = build_geocoding_query(incident)
     if not query:
-        print(f"    [Geocoding] Incident {incident.id}: insufficient location data, skipping")
+        logger.debug(f"    [Geocoding] Incident {incident.id}: insufficient location data, skipping")
         return None, None, None
     
-    print(f"    [Geocoding] Geocoding Incident {incident.id}: {query}")
+    logger.debug(f"    [Geocoding] Geocoding Incident {incident.id}: {query}")
     
     # Retry logic
     for attempt in range(retry_count):
@@ -179,7 +180,7 @@ def geocode_incident(incident, retry_count=3, retry_delay=1):
             results = client.geocode(query)
             
             if not results:
-                print(f"    [Geocoding] No results found for: {query}")
+                logger.warning(f"    [Geocoding] No results found for: {query}")
                 return None, None, None
             
             # Use first result (most relevant)
@@ -191,27 +192,27 @@ def geocode_incident(incident, retry_count=3, retry_delay=1):
             longitude = location.get('lng')
             
             if latitude is None or longitude is None:
-                print(f"    [Geocoding] Invalid coordinates in API response")
+                logger.warning(f"    [Geocoding] Invalid coordinates in API response")
                 return None, None, None
             
             # Determine precision
             precision = determine_precision(result)
             
-            print(f"    [Geocoding] ✅ Geocoded: ({latitude}, {longitude}), precision: {precision}")
+            logger.info(f"    [Geocoding] ✅ Geocoded: ({latitude}, {longitude}), precision: {precision}")
             return latitude, longitude, precision
             
         except googlemaps.exceptions.HTTPError as e:
             if e.status_code == 429:  # Rate limit exceeded
                 wait_time = retry_delay * (2 ** attempt)  # Exponential backoff
-                print(f"    [Geocoding] Rate limit exceeded, waiting {wait_time}s before retry...")
+                logger.warning(f"    [Geocoding] Rate limit exceeded, waiting {wait_time}s before retry...")
                 time.sleep(wait_time)
                 continue
             else:
-                print(f"    [Geocoding] HTTP error: {e}")
+                logger.error(f"    [Geocoding] HTTP error: {e}")
                 return None, None, None
                 
         except Exception as e:
-            print(f"    [Geocoding] Error geocoding incident {incident.id}: {e}")
+            logger.exception(f"    [Geocoding] Error geocoding incident {incident.id}: {e}")
             if attempt < retry_count - 1:
                 time.sleep(retry_delay)
                 continue

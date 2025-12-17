@@ -6,6 +6,7 @@ import sys
 import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from loguru import logger
 from app import create_app
 from app.models import Incident, ExtractedEvent
 from app.services.enrichment import llm_match_extraction_to_incident
@@ -18,14 +19,14 @@ app = create_app()
 def test_edge_cases():
     """Test the prompt with various edge cases."""
     with app.app_context():
-        print("=" * 70)
-        print("TESTING PROMPT ROBUSTNESS WITH EDGE CASES")
-        print("=" * 70)
+        logger.info("=" * 70)
+        logger.info("TESTING PROMPT ROBUSTNESS WITH EDGE CASES")
+        logger.info("=" * 70)
         
         # Test case 1: Same victim, date, location, but different descriptions
-        print("\n" + "=" * 70)
-        print("TEST CASE 1: Same victim/date/location, different crime methods")
-        print("=" * 70)
+        logger.info("\n" + "=" * 70)
+        logger.info("TEST CASE 1: Same victim/date/location, different crime methods")
+        logger.info("=" * 70)
         
         incident1 = Incident(
             id=9991,
@@ -46,14 +47,14 @@ def test_edge_cases():
         )
         
         matched, conf, reason = llm_match_extraction_to_incident(extraction1, [incident1])
-        print(f"Result: {'✅ MATCH' if matched and matched.id == incident1.id else '❌ NO MATCH'}")
-        print(f"Confidence: {conf:.2f}")
-        print(f"Reasoning: {reason}")
+        logger.info(f"Result: {'✅ MATCH' if matched and matched.id == incident1.id else '❌ NO MATCH'}")
+        logger.info(f"Confidence: {conf:.2f}")
+        logger.info(f"Reasoning: {reason}")
         
         # Test case 2: Same victim, date, location, but one mentions more details
-        print("\n" + "=" * 70)
-        print("TEST CASE 2: Same victim/date/location, one has more details")
-        print("=" * 70)
+        logger.info("\n" + "=" * 70)
+        logger.info("TEST CASE 2: Same victim/date/location, one has more details")
+        logger.info("=" * 70)
         
         incident2 = Incident(
             id=9992,
@@ -74,14 +75,14 @@ def test_edge_cases():
         )
         
         matched, conf, reason = llm_match_extraction_to_incident(extraction2, [incident2])
-        print(f"Result: {'✅ MATCH' if matched and matched.id == incident2.id else '❌ NO MATCH'}")
-        print(f"Confidence: {conf:.2f}")
-        print(f"Reasoning: {reason}")
+        logger.info(f"Result: {'✅ MATCH' if matched and matched.id == incident2.id else '❌ NO MATCH'}")
+        logger.info(f"Confidence: {conf:.2f}")
+        logger.info(f"Reasoning: {reason}")
         
         # Test case 3: Different victims (should NOT match)
-        print("\n" + "=" * 70)
-        print("TEST CASE 3: Different victims, same date/location (should NOT match)")
-        print("=" * 70)
+        logger.info("\n" + "=" * 70)
+        logger.info("TEST CASE 3: Different victims, same date/location (should NOT match)")
+        logger.info("=" * 70)
         
         incident3 = Incident(
             id=9993,
@@ -102,9 +103,9 @@ def test_edge_cases():
         )
         
         matched, conf, reason = llm_match_extraction_to_incident(extraction3, [incident3])
-        print(f"Result: {'❌ WRONG MATCH' if matched else '✅ CORRECTLY NO MATCH'}")
-        print(f"Confidence: {conf:.2f}")
-        print(f"Reasoning: {reason}")
+        logger.info(f"Result: {'❌ WRONG MATCH' if matched else '✅ CORRECTLY NO MATCH'}")
+        logger.info(f"Confidence: {conf:.2f}")
+        logger.info(f"Reasoning: {reason}")
 
 if __name__ == '__main__':
     test_edge_cases()

@@ -15,6 +15,7 @@ from difflib import SequenceMatcher
 from datetime import datetime, timedelta
 import concurrent.futures
 from flask import current_app
+from loguru import logger
 import vertexai
 from vertexai.generative_models import GenerativeModel
 from google.oauth2 import service_account
@@ -33,12 +34,12 @@ try:
             scopes=["https://www.googleapis.com/auth/cloud-platform"]
         )
         vertexai.init(project=credentials.project_id, location="us-central1", credentials=credentials)
-        print(f"✅ Vertex AI initialized for enrichment: {credentials.service_account_email} (Project: {credentials.project_id})")
+        logger.info(f"✅ Vertex AI initialized for enrichment: {credentials.service_account_email} (Project: {credentials.project_id})")
     else:
-        print(f"⚠️ Service Account file not found at {SA_PATH}. LLM enrichment will be skipped.")
+        logger.warning(f"⚠️ Service Account file not found at {SA_PATH}. LLM enrichment will be skipped.")
         credentials = None
 except Exception as e:
-    print(f"⚠️ Error initializing Vertex AI for enrichment: {e}")
+    logger.error(f"⚠️ Error initializing Vertex AI for enrichment: {e}")
     credentials = None
 
 
@@ -180,16 +181,16 @@ def llm_match_extraction_to_incident(extraction, candidate_incidents):
         Tuple: (matched_incident, confidence_score, reasoning) or (None, 0.0, None)
     """
     if not candidate_incidents:
-        print(f"    [LLM Match] No candidates to check")
+        logger.debug(f"    [LLM Match] No candidates to check")
         return None, 0.0, None
     
-    print(f"    [LLM Match] Checking {len(candidate_incidents)} candidate incident(s)...")
+    logger.debug(f"    [LLM Match] Checking {len(candidate_incidents)} candidate incident(s)...")
     start_time = time.time()
     
     model = get_llm_model()
     if not model:
         # Fallback to fuzzy matching if LLM not available
-        print(f"    [LLM Match] ⚠️ LLM not available, skipping")
+        logger.warning(f"    [LLM Match] ⚠️ LLM not available, skipping")
         return None, 0.0, "LLM not available"
     
     # Build extraction summary
@@ -304,19 +305,19 @@ Se nenhum incidente corresponder claramente, retorne match: false.
                 None
             )
             if matched_incident:
-                print(f"    [LLM Match] ✅ Match found: Incident {matched_incident.id} (confidence: {data.get('confidence', 0.0):.2f}, {elapsed:.1f}s)")
+                logger.info(f"    [LLM Match] ✅ Match found: Incident {matched_incident.id} (confidence: {data.get('confidence', 0.0):.2f}, {elapsed:.1f}s)")
                 return (
                     matched_incident,
                     float(data.get("confidence", 0.0)),
                     data.get("reasoning", "")
                 )
         
-        print(f"    [LLM Match] ❌ No match found (confidence: {data.get('confidence', 0.0):.2f}, {elapsed:.1f}s)")
+        logger.debug(f"    [LLM Match] ❌ No match found (confidence: {data.get('confidence', 0.0):.2f}, {elapsed:.1f}s)")
         return None, float(data.get("confidence", 0.0)), data.get("reasoning", "")
         
     except Exception as e:
         elapsed = time.time() - start_time
-        print(f"    [LLM Match] ⚠️ Error: {e} ({elapsed:.1f}s)")
+        logger.exception(f"    [LLM Match] ⚠️ Error: {e} ({elapsed:.1f}s)")
         return None, 0.0, f"LLM error: {e}"
 
 
@@ -362,25 +363,25 @@ def find_matching_incident(extraction):
     
     Returns (incident, confidence_score) if match found, (None, 0.0) otherwise.
     """
-    print(f"  [Match] Searching for matching incidents...")
+    logger.debug(f"  [Match] Searching for matching incidents...")
     candidates = find_candidate_incidents(extraction)
     
     if not candidates:
-        print(f"  [Match] No candidates found in date range")
+        logger.debug(f"  [Match] No candidates found in date range")
         return None, 0.0
     
-    print(f"  [Match] Found {len(candidates)} candidate(s) in date range")
+    logger.debug(f"  [Match] Found {len(candidates)} candidate(s) in date range")
     
     # Use LLM to determine if any candidate matches
     matched_incident, confidence, reasoning = llm_match_extraction_to_incident(extraction, candidates)
     
     if matched_incident:
-        print(f"  [Match] ✅ Match confirmed: Incident {matched_incident.id}")
+        logger.info(f"  [Match] ✅ Match confirmed: Incident {matched_incident.id}")
         return matched_incident, confidence
     
     # Log if LLM considered candidates but found no match
     if reasoning and "not available" not in reasoning:
-        print(f"  [Match] ❌ No match found")
+        logger.debug(f"  [Match] ❌ No match found")
     
     return None, 0.0
 
@@ -427,7 +428,7 @@ def match_extraction_against_existing(extraction):
                 "confidence": 0.0
             }
     except Exception as e:
-        print(f"  ❌ ERROR matching extraction {extraction.id}: {e}")
+        logger.exception(f"  ❌ ERROR matching extraction {extraction.id}: {e}")
         return {
             "status": "error",
             "extraction_id": extraction.id,
@@ -450,23 +451,23 @@ def llm_enrich_incident(incident):
     Returns:
         Updated incident object (not saved to database yet)
     """
-    print(f"    [Enrichment] Starting enrichment for Incident {incident.id}...")
+    logger.debug(f"    [Enrichment] Starting enrichment for Incident {incident.id}...")
     start_time = time.time()
     
     model = get_llm_model()
     if not model:
-        print(f"    [Enrichment] ⚠️ LLM not available, skipping")
+        logger.warning(f"    [Enrichment] ⚠️ LLM not available, skipping")
         return incident
     
     # Collect all related extractions
     extractions = incident.extractions
     if not extractions:
-        print(f"    [Enrichment] ⚠️ No extractions found, skipping")
+        logger.warning(f"    [Enrichment] ⚠️ No extractions found, skipping")
         return incident
     
     # Collect all related sources
     sources = [ext.source for ext in extractions if ext.source]
-    print(f"    [Enrichment] Found {len(extractions)} extraction(s) and {len(sources)} source(s)")
+    logger.debug(f"    [Enrichment] Found {len(extractions)} extraction(s) and {len(sources)} source(s)")
     
     # Build current incident state
     current_state = {
@@ -642,20 +643,20 @@ Instruções importantes:
                 incident.location_precision = precision
         except Exception as e:
             # Don't block enrichment if geocoding fails
-            print(f"    [Enrichment] ⚠️ Geocoding failed (non-blocking): {e}")
+            logger.warning(f"    [Enrichment] ⚠️ Geocoding failed (non-blocking): {e}")
         
         elapsed = time.time() - start_time
-        print(f"    [Enrichment] ✅ Completed in {elapsed:.1f}s")
-        print(f"    [Enrichment]   Title: {incident.title[:60]}...")
+        logger.info(f"    [Enrichment] ✅ Completed in {elapsed:.1f}s")
+        logger.debug(f"    [Enrichment]   Title: {incident.title[:60]}...")
         if incident.victims:
-            print(f"    [Enrichment]   Victims: {incident.victims[:60]}...")
+            logger.debug(f"    [Enrichment]   Victims: {incident.victims[:60]}...")
         if incident.neighborhood:
-            print(f"    [Enrichment]   Location: {incident.neighborhood}, {incident.city}")
+            logger.debug(f"    [Enrichment]   Location: {incident.neighborhood}, {incident.city}")
         return incident
         
     except Exception as e:
         elapsed = time.time() - start_time
-        print(f"    [Enrichment] ⚠️ Error: {e} ({elapsed:.1f}s)")
+        logger.exception(f"    [Enrichment] ⚠️ Error: {e} ({elapsed:.1f}s)")
         # Return incident unchanged on error
         return incident
 
@@ -694,16 +695,16 @@ def process_single_extraction(extraction_id, auto_create, dry_run):
                 "error": None
             }
         
-        print(f"\n[Extraction {extraction.id}] Processing")
-        print(f"  Victim: {extraction.extracted_victim_name or 'Unknown'}")
-        print(f"  Date: {extraction.extracted_date.strftime('%Y-%m-%d') if extraction.extracted_date else 'N/A'}")
-        print(f"  Location: {extraction.extracted_location or 'N/A'}")
+        logger.debug(f"\n[Extraction {extraction.id}] Processing")
+        logger.debug(f"  Victim: {extraction.extracted_victim_name or 'Unknown'}")
+        logger.debug(f"  Date: {extraction.extracted_date.strftime('%Y-%m-%d') if extraction.extracted_date else 'N/A'}")
+        logger.debug(f"  Location: {extraction.extracted_location or 'N/A'}")
         
         # 1. Try to find existing match
         match, score = find_matching_incident(extraction)
         
         if match:
-            print(f"  ✅ MATCHED to Incident {match.id}: '{match.title}' (Confidence: {score:.2f})")
+            logger.info(f"  ✅ MATCHED to Incident {match.id}: '{match.title}' (Confidence: {score:.2f})")
             if not dry_run:
                 extraction.incident = match
                 db.session.commit()
@@ -726,7 +727,7 @@ def process_single_extraction(extraction_id, auto_create, dry_run):
             # 2. Create new incident - no match found
             if not dry_run:
                 new_incident = create_incident_from_extraction(extraction)
-                print(f"  🆕 CREATED new Incident: '{new_incident.title}'")
+                logger.info(f"  🆕 CREATED new Incident: '{new_incident.title}'")
                 db.session.add(new_incident)
                 db.session.flush()  # Get the ID
                 extraction.incident = new_incident
@@ -748,7 +749,7 @@ def process_single_extraction(extraction_id, auto_create, dry_run):
             else:
                 # Dry run - just create without committing
                 new_incident = create_incident_from_extraction(extraction)
-                print(f"  🆕 CREATED new Incident: '{new_incident.title}' (DRY RUN)")
+                logger.info(f"  🆕 CREATED new Incident: '{new_incident.title}' (DRY RUN)")
                 return {
                     "status": "created",
                     "extraction_id": extraction.id,
@@ -757,7 +758,7 @@ def process_single_extraction(extraction_id, auto_create, dry_run):
                 }
         
         else:
-            print(f"  ⏭️ SKIPPED (no match, auto_create=False)")
+            logger.debug(f"  ⏭️ SKIPPED (no match, auto_create=False)")
             return {
                 "status": "skipped",
                 "extraction_id": extraction.id,
@@ -766,7 +767,7 @@ def process_single_extraction(extraction_id, auto_create, dry_run):
             }
             
     except Exception as e:
-        print(f"  ❌ ERROR processing extraction {extraction_id}: {e}")
+        logger.exception(f"  ❌ ERROR processing extraction {extraction_id}: {e}")
         db.session.rollback()
         return {
             "status": "error",
@@ -867,12 +868,12 @@ def llm_match_extractions_within_group(extractions):
         # Single extraction - no matching needed
         return [[extractions[0]]]
     
-    print(f"    [Group Match] Matching {len(extractions)} extractions within group...")
+    logger.debug(f"    [Group Match] Matching {len(extractions)} extractions within group...")
     
     model = get_llm_model()
     if not model:
         # Fallback: treat each extraction as separate if LLM not available
-        print(f"    [Group Match] ⚠️ LLM not available, treating as separate incidents")
+        logger.warning(f"    [Group Match] ⚠️ LLM not available, treating as separate incidents")
         return [[ext] for ext in extractions]
     
     # Build extraction summaries
@@ -944,14 +945,14 @@ Retorne os IDs das extrações (1-indexed) agrupadas por evento.
         
         # If clustering failed or returned empty, treat each as separate
         if not clusters:
-            print(f"    [Group Match] ⚠️ Clustering returned empty, treating as separate")
+            logger.warning(f"    [Group Match] ⚠️ Clustering returned empty, treating as separate")
             return [[ext] for ext in extractions]
         
-        print(f"    [Group Match] ✅ Found {len(clusters)} distinct incident(s) from {len(extractions)} extraction(s)")
+        logger.info(f"    [Group Match] ✅ Found {len(clusters)} distinct incident(s) from {len(extractions)} extraction(s)")
         return clusters
         
     except Exception as e:
-        print(f"    [Group Match] ⚠️ Error: {e}, treating as separate incidents")
+        logger.exception(f"    [Group Match] ⚠️ Error: {e}, treating as separate incidents")
         # Fallback: treat each as separate
         return [[ext] for ext in extractions]
 
@@ -984,7 +985,7 @@ def process_group_worker(app_obj, group_key, extraction_ids, dry_run=False):
                 }
             
             date_bucket, location_key = group_key
-            print(f"\n  [Group {date_bucket}/{location_key}] Processing {len(extractions)} extraction(s)")
+            logger.debug(f"\n  [Group {date_bucket}/{location_key}] Processing {len(extractions)} extraction(s)")
             
             # Match extractions within the group
             clusters = llm_match_extractions_within_group(extractions)
@@ -1003,7 +1004,7 @@ def process_group_worker(app_obj, group_key, extraction_ids, dry_run=False):
                 
                 if not dry_run:
                     new_incident = create_incident_from_extraction(base_extraction)
-                    print(f"    [Group] 🆕 Creating Incident: '{new_incident.title}'")
+                    logger.info(f"    [Group] 🆕 Creating Incident: '{new_incident.title}'")
                     db.session.add(new_incident)
                     db.session.flush()  # Get the ID
                     
@@ -1017,7 +1018,7 @@ def process_group_worker(app_obj, group_key, extraction_ids, dry_run=False):
                     created_count += 1
                 else:
                     new_incident = create_incident_from_extraction(base_extraction)
-                    print(f"    [Group] 🆕 Would create Incident: '{new_incident.title}' (DRY RUN)")
+                    logger.info(f"    [Group] 🆕 Would create Incident: '{new_incident.title}' (DRY RUN)")
                     result_extraction_ids.extend([ext.id for ext in cluster])
                     created_count += 1
             
@@ -1027,7 +1028,7 @@ def process_group_worker(app_obj, group_key, extraction_ids, dry_run=False):
                 "incident_ids": incident_ids
             }
         except Exception as e:
-            print(f"  ❌ Error processing group {group_key}: {e}")
+            logger.exception(f"  ❌ Error processing group {group_key}: {e}")
             db.session.rollback()
             return {
                 "created": 0,
@@ -1164,13 +1165,13 @@ def run_enrichment(auto_create=True, dry_run=False, max_workers=10):
         dry_run: If True, don't commit changes to database, just log what would happen
         max_workers: Number of parallel workers (default: 10)
     """
-    print(f"\n{'='*70}")
-    print(f"ENRICHMENT PROCESS STARTING (PARALLEL)")
-    print(f"{'='*70}")
-    print(f"Mode: {'DRY RUN' if dry_run else 'LIVE'}")
-    print(f"Auto-create: {auto_create}")
-    print(f"Max workers: {max_workers}")
-    print(f"{'='*70}\n")
+    logger.info(f"\n{'='*70}")
+    logger.info(f"ENRICHMENT PROCESS STARTING (PARALLEL)")
+    logger.info(f"{'='*70}")
+    logger.info(f"Mode: {'DRY RUN' if dry_run else 'LIVE'}")
+    logger.info(f"Auto-create: {auto_create}")
+    logger.info(f"Max workers: {max_workers}")
+    logger.info(f"{'='*70}\n")
     
     start_time = time.time()
     
@@ -1182,10 +1183,10 @@ def run_enrichment(auto_create=True, dry_run=False, max_workers=10):
     unlinked_ids = [row[0] for row in unlinked_query.with_entities(ExtractedEvent.id).all()]
     total = len(unlinked_ids)
     
-    print(f"📊 Found {total} unlinked extraction(s) with dates")
+    logger.info(f"📊 Found {total} unlinked extraction(s) with dates")
     
     if total == 0:
-        print("✅ No extractions to process. Exiting.")
+        logger.info("✅ No extractions to process. Exiting.")
         return {
             "linked": 0,
             "created": 0,
@@ -1198,16 +1199,17 @@ def run_enrichment(auto_create=True, dry_run=False, max_workers=10):
     existing_incident_ids = set(
         row[0] for row in Incident.query.with_entities(Incident.id).all()
     )
-    print(f"📊 Found {len(existing_incident_ids)} existing incident(s) to match against")
+    logger.info(f"📊 Found {len(existing_incident_ids)} existing incident(s) to match against")
     
     # Get Flask app object for threading
     app_obj = current_app._get_current_object()
     
     # ===== PHASE 1a: Parallel Matching Against Existing Incidents =====
-    print(f"\n{'='*70}")
-    print(f"PHASE 1a: Matching Against Existing Incidents (Parallel)")
-    print(f"{'='*70}\n")
+    logger.info(f"\n{'='*70}")
+    logger.info(f"PHASE 1a: Matching Against Existing Incidents (Parallel)")
+    logger.info(f"{'='*70}\n")
     
+    phase1a_start = time.time()
     linked_count = 0
     skipped_count = 0
     error_count = 0
@@ -1243,26 +1245,39 @@ def run_enrichment(auto_create=True, dry_run=False, max_workers=10):
                     skipped_count += 1
                 elif result["status"] == "error":
                     error_count += 1
-                    print(f"  ❌ Error processing extraction {ext_id}: {result.get('error', 'Unknown error')}")
+                    logger.error(f"  ❌ Error processing extraction {ext_id}: {result.get('error', 'Unknown error')}")
                 
-                # Progress update
+                # Progress update with time estimates
                 if i % 10 == 0 or i == total:
-                    print(f"📊 Progress: {i}/{total} | Linked: {linked_count} | Unmatched: {len(unmatched_extraction_ids)} | Skipped: {skipped_count} | Errors: {error_count}")
+                    elapsed = time.time() - phase1a_start
+                    if i > 0:
+                        avg_time_per_item = elapsed / i
+                        remaining = total - i
+                        estimated_remaining = avg_time_per_item * remaining
+                        estimated_total = elapsed + estimated_remaining
+                        
+                        logger.info(
+                            f"📊 Progress: {i}/{total} ({i/total*100:.1f}%) | "
+                            f"Elapsed: {elapsed:.1f}s | "
+                            f"ETA: {estimated_remaining:.1f}s | "
+                            f"Est. total: {estimated_total:.1f}s | "
+                            f"Linked: {linked_count} | Unmatched: {len(unmatched_extraction_ids)} | Skipped: {skipped_count} | Errors: {error_count}"
+                        )
                     
             except Exception as e:
                 error_count += 1
-                print(f"  ❌ Error processing extraction {ext_id}: {e}")
+                logger.exception(f"  ❌ Error processing extraction {ext_id}: {e}")
     
-    print(f"\n✅ Phase 1a complete: {linked_count} linked, {len(unmatched_extraction_ids)} unmatched")
+    logger.info(f"\n✅ Phase 1a complete: {linked_count} linked, {len(unmatched_extraction_ids)} unmatched")
     
     # ===== PHASE 1b: Grouped Creation for New Incidents =====
     created_count = 0
     new_incident_ids = []
     
     if auto_create and unmatched_extraction_ids:
-        print(f"\n{'='*70}")
-        print(f"PHASE 1b: Creating New Incidents (Grouped)")
-        print(f"{'='*70}\n")
+        logger.info(f"\n{'='*70}")
+        logger.info(f"PHASE 1b: Creating New Incidents (Grouped)")
+        logger.info(f"{'='*70}\n")
         
         # Load unmatched extractions
         with app_obj.app_context():
@@ -1272,7 +1287,7 @@ def run_enrichment(auto_create=True, dry_run=False, max_workers=10):
         
         # Group by date and location
         groups = group_unmatched_extractions(unmatched_extractions)
-        print(f"📊 Grouped {len(unmatched_extractions)} unmatched extraction(s) into {len(groups)} group(s)")
+        logger.info(f"📊 Grouped {len(unmatched_extractions)} unmatched extraction(s) into {len(groups)} group(s)")
         
         # Process groups in parallel (different groups are independent)
         with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
@@ -1296,19 +1311,20 @@ def run_enrichment(auto_create=True, dry_run=False, max_workers=10):
                     incidents_to_enrich.update(result["incident_ids"])
                 except Exception as e:
                     error_count += 1
-                    print(f"  ❌ Error processing group {group_key}: {e}")
+                    logger.exception(f"  ❌ Error processing group {group_key}: {e}")
         
-        print(f"✅ Phase 1b complete: {created_count} new incident(s) created")
+        logger.info(f"✅ Phase 1b complete: {created_count} new incident(s) created")
     
     # ===== PHASE 2: Batch Enrichment (Parallel) =====
     enrichment_count = 0
     enrichment_errors = 0
     
     if incidents_to_enrich and not dry_run:
-        print(f"\n{'='*70}")
-        print(f"PHASE 2: Batch Enrichment (Parallel)")
-        print(f"{'='*70}\n")
-        print(f"📊 Enriching {len(incidents_to_enrich)} incident(s)...")
+        logger.info(f"\n{'='*70}")
+        logger.info(f"PHASE 2: Batch Enrichment (Parallel)")
+        logger.info(f"{'='*70}\n")
+        logger.info(f"📊 Enriching {len(incidents_to_enrich)} incident(s)...")
+        phase2_start = time.time()
         
         with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
             futures = {
@@ -1324,43 +1340,56 @@ def run_enrichment(auto_create=True, dry_run=False, max_workers=10):
                         enrichment_count += 1
                     else:
                         enrichment_errors += 1
-                        print(f"  ⚠️ Enrichment error for incident {incident_id}: {result.get('error', 'Unknown')}")
+                        logger.warning(f"  ⚠️ Enrichment error for incident {incident_id}: {result.get('error', 'Unknown')}")
                     
                     if i % 10 == 0 or i == len(incidents_to_enrich):
-                        print(f"📊 Enrichment progress: {i}/{len(incidents_to_enrich)} | Success: {enrichment_count} | Errors: {enrichment_errors}")
+                        elapsed = time.time() - phase2_start
+                        if i > 0:
+                            avg_time_per_item = elapsed / i
+                            remaining = len(incidents_to_enrich) - i
+                            estimated_remaining = avg_time_per_item * remaining
+                            estimated_total = elapsed + estimated_remaining
+                            
+                            logger.info(
+                                f"📊 Enrichment progress: {i}/{len(incidents_to_enrich)} ({i/len(incidents_to_enrich)*100:.1f}%) | "
+                                f"Elapsed: {elapsed:.1f}s | "
+                                f"ETA: {estimated_remaining:.1f}s | "
+                                f"Est. total: {estimated_total:.1f}s | "
+                                f"Success: {enrichment_count} | Errors: {enrichment_errors}"
+                            )
                         
                 except Exception as e:
                     enrichment_errors += 1
-                    print(f"  ❌ Error enriching incident {incident_id}: {e}")
+                    logger.exception(f"  ❌ Error enriching incident {incident_id}: {e}")
         
-        print(f"✅ Phase 2 complete: {enrichment_count} enriched, {enrichment_errors} errors")
+        logger.info(f"✅ Phase 2 complete: {enrichment_count} enriched, {enrichment_errors} errors")
     
     elapsed = time.time() - start_time
     
-    print(f"\n{'='*70}")
-    print(f"ENRICHMENT COMPLETE {'(DRY RUN)' if dry_run else ''}")
-    print(f"{'='*70}")
-    print(f"  ⏱️  Total time: {elapsed:.1f}s")
-    print(f"  📈 Linked to existing: {linked_count}")
-    print(f"  🆕 Created new:        {created_count}")
-    print(f"  ⏭️  Skipped:            {skipped_count}")
-    print(f"  ❌ Errors:              {error_count}")
-    print(f"  📊 Total processed:    {total}")
+    logger.info(f"\n{'='*70}")
+    logger.info(f"ENRICHMENT COMPLETE {'(DRY RUN)' if dry_run else ''}")
+    logger.info(f"{'='*70}")
+    logger.info(f"  ⏱️  Total time: {elapsed:.1f}s")
+    logger.info(f"  📈 Linked to existing: {linked_count}")
+    logger.info(f"  🆕 Created new:        {created_count}")
+    logger.info(f"  ⏭️  Skipped:            {skipped_count}")
+    logger.info(f"  ❌ Errors:              {error_count}")
+    logger.info(f"  📊 Total processed:    {total}")
     if incidents_to_enrich:
-        print(f"  ✨ Enriched:           {enrichment_count} (errors: {enrichment_errors})")
-    print(f"{'='*70}\n")
+        logger.info(f"  ✨ Enriched:           {enrichment_count} (errors: {enrichment_errors})")
+    logger.info(f"{'='*70}\n")
     
     # Post-processing: Deduplicate any incidents that were created
     # Only run if new incidents were created (saves time on subsequent runs)
     merged_count = 0
     if not dry_run and created_count > 0:
-        print(f"\n⚠️  Running deduplication on recent incidents (created {created_count} new incident(s))...")
+        logger.info(f"\n⚠️  Running deduplication on recent incidents (created {created_count} new incident(s))...")
         dedup_result = deduplicate_incidents(dry_run=dry_run, only_recent_days=7)
         merged_count = dedup_result.get("merged", 0)
         if merged_count > 0:
-            print(f"✅ Merged {merged_count} duplicate incident(s)")
+            logger.info(f"✅ Merged {merged_count} duplicate incident(s)")
     elif not dry_run and created_count == 0:
-        print(f"\n✅ Skipping deduplication (no new incidents created)")
+        logger.info(f"\n✅ Skipping deduplication (no new incidents created)")
     
     return {
         "linked": linked_count,
@@ -1387,21 +1416,21 @@ def deduplicate_incidents(dry_run=False, only_recent_days=7):
     Returns:
         dict with deduplication results
     """
-    print(f"\n{'='*70}")
-    print(f"DEDUPLICATION PASS")
-    print(f"{'='*70}\n")
+    logger.info(f"\n{'='*70}")
+    logger.info(f"DEDUPLICATION PASS")
+    logger.info(f"{'='*70}\n")
     
     # Get incidents to check (only recent ones by default for performance)
     if only_recent_days:
         cutoff_date = datetime.utcnow() - timedelta(days=only_recent_days)
         query = Incident.query.filter(Incident.date >= cutoff_date)
-        print(f"Checking incidents from the last {only_recent_days} days only (for performance)...")
+        logger.info(f"Checking incidents from the last {only_recent_days} days only (for performance)...")
     else:
         query = Incident.query
-        print(f"Checking ALL incidents (this may take a while)...")
+        logger.info(f"Checking ALL incidents (this may take a while)...")
     
     all_incidents = query.all()
-    print(f"Checking {len(all_incidents)} incident(s) for duplicates...")
+    logger.info(f"Checking {len(all_incidents)} incident(s) for duplicates...")
     
     merged_count = 0
     duplicates_found = []
@@ -1446,9 +1475,9 @@ def deduplicate_incidents(dry_run=False, only_recent_days=7):
                 )
                 
                 if matched_incident and matched_incident.id == incident1.id and confidence > 0.8:
-                    print(f"\n🔗 Found duplicate: Incident {incident2.id} matches Incident {incident1.id} (confidence: {confidence:.2f})")
-                    print(f"   Keeping: Incident {incident1.id} - {incident1.title}")
-                    print(f"   Merging: Incident {incident2.id} - {incident2.title}")
+                    logger.info(f"\n🔗 Found duplicate: Incident {incident2.id} matches Incident {incident1.id} (confidence: {confidence:.2f})")
+                    logger.info(f"   Keeping: Incident {incident1.id} - {incident1.title}")
+                    logger.info(f"   Merging: Incident {incident2.id} - {incident2.title}")
                     
                     if not dry_run:
                         # Move all extractions from incident2 to incident1
@@ -1467,10 +1496,10 @@ def deduplicate_incidents(dry_run=False, only_recent_days=7):
                     merged_count += 1
                     break
     
-    print(f"\n{'='*70}")
-    print(f"DEDUPLICATION COMPLETE {'(DRY RUN)' if dry_run else ''}")
-    print(f"  Merged duplicates: {merged_count}")
-    print(f"{'='*70}\n")
+    logger.info(f"\n{'='*70}")
+    logger.info(f"DEDUPLICATION COMPLETE {'(DRY RUN)' if dry_run else ''}")
+    logger.info(f"  Merged duplicates: {merged_count}")
+    logger.info(f"{'='*70}\n")
     
     return {
         "merged": merged_count
@@ -1496,8 +1525,8 @@ def re_enrich_incident(incident_id, dry_run=False):
             "message": f"Incident {incident_id} not found"
         }
     
-    print(f"\nRe-enriching Incident {incident_id}: '{incident.title}'")
-    print(f"  Current extractions: {len(incident.extractions)}")
+    logger.info(f"\nRe-enriching Incident {incident_id}: '{incident.title}'")
+    logger.debug(f"  Current extractions: {len(incident.extractions)}")
     
     # Enrich the incident
     enriched_incident = llm_enrich_incident(incident)

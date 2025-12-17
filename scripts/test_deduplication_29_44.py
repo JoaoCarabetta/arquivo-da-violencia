@@ -6,6 +6,7 @@ import sys
 import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from loguru import logger
 from app import create_app
 from app.models import Incident, ExtractedEvent
 from app.services.enrichment import llm_match_extraction_to_incident
@@ -22,15 +23,15 @@ def test_deduplication_logic():
         incident44 = Incident.query.options(joinedload(Incident.extractions)).get(44)
         
         if not incident29:
-            print("❌ Incident 29 not found")
+            logger.error("❌ Incident 29 not found")
             return
         if not incident44:
-            print("❌ Incident 44 not found")
+            logger.error("❌ Incident 44 not found")
             return
         
-        print("=" * 70)
-        print("TESTING DEDUPLICATION LOGIC (as used in deduplicate_incidents)")
-        print("=" * 70)
+        logger.info("=" * 70)
+        logger.info("TESTING DEDUPLICATION LOGIC (as used in deduplicate_incidents)")
+        logger.info("=" * 70)
         
         # Simulate what deduplicate_incidents does
         # Create a dummy extraction from incident44 to check against incident29
@@ -42,13 +43,13 @@ def test_deduplication_logic():
             summary=incident44.description or incident44.title
         )
         
-        print(f"\nCreating dummy extraction from Incident 44:")
-        print(f"  Date: {dummy_extraction.extracted_date}")
-        print(f"  Victim: {dummy_extraction.extracted_victim_name}")
-        print(f"  Location: {dummy_extraction.extracted_location}")
-        print(f"  Summary: {dummy_extraction.summary[:100]}...")
+        logger.info(f"\nCreating dummy extraction from Incident 44:")
+        logger.info(f"  Date: {dummy_extraction.extracted_date}")
+        logger.info(f"  Victim: {dummy_extraction.extracted_victim_name}")
+        logger.info(f"  Location: {dummy_extraction.extracted_location}")
+        logger.info(f"  Summary: {dummy_extraction.summary[:100]}...")
         
-        print(f"\nTesting if Incident 44 matches Incident 29...")
+        logger.info(f"\nTesting if Incident 44 matches Incident 29...")
         
         # Check if incident44 matches incident29 using LLM (same logic as deduplicate_incidents)
         matched_incident, confidence, reasoning = llm_match_extraction_to_incident(
@@ -56,25 +57,25 @@ def test_deduplication_logic():
             [incident29]
         )
         
-        print(f"\n{'='*70}")
-        print("RESULTS:")
-        print(f"{'='*70}")
-        print(f"   Matched Incident ID: {matched_incident.id if matched_incident else None}")
-        print(f"   Target Incident ID: {incident29.id}")
-        print(f"   Confidence: {confidence:.2f}")
-        print(f"   Threshold: 0.8")
-        print(f"   Reasoning: {reasoning}")
+        logger.info(f"\n{'='*70}")
+        logger.info("RESULTS:")
+        logger.info(f"{'='*70}")
+        logger.info(f"   Matched Incident ID: {matched_incident.id if matched_incident else None}")
+        logger.info(f"   Target Incident ID: {incident29.id}")
+        logger.info(f"   Confidence: {confidence:.2f}")
+        logger.info(f"   Threshold: 0.8")
+        logger.info(f"   Reasoning: {reasoning}")
         
         if matched_incident and matched_incident.id == incident29.id and confidence > 0.8:
-            print(f"\n✅ WOULD BE MERGED by deduplicate_incidents")
+            logger.info(f"\n✅ WOULD BE MERGED by deduplicate_incidents")
         else:
-            print(f"\n❌ WOULD NOT BE MERGED by deduplicate_incidents")
+            logger.warning(f"\n❌ WOULD NOT BE MERGED by deduplicate_incidents")
             if not matched_incident:
-                print(f"   Reason: No match returned")
+                logger.info(f"   Reason: No match returned")
             elif matched_incident.id != incident29.id:
-                print(f"   Reason: Matched wrong incident")
+                logger.info(f"   Reason: Matched wrong incident")
             elif confidence <= 0.8:
-                print(f"   Reason: Confidence {confidence:.2f} <= 0.8 threshold")
+                logger.info(f"   Reason: Confidence {confidence:.2f} <= 0.8 threshold")
 
 if __name__ == '__main__':
     test_deduplication_logic()

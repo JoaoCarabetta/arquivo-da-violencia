@@ -3,7 +3,9 @@ import trafilatura
 import googlenewsdecoder
 import urllib.parse
 import concurrent.futures
+import time
 from datetime import datetime, timedelta
+from loguru import logger
 from app.extensions import db
 from app.models import Source
 from flask import current_app
@@ -25,9 +27,9 @@ def fetch_feed(query=None, after_date=None, before_date=None):
     encoded_query = urllib.parse.quote(full_query)
     url = f"https://news.google.com/rss/search?q={encoded_query}&hl=pt-BR&gl=BR&ceid=BR:pt-419"
     
-    print(f"Fetching feed for query: '{full_query}'...")
+    logger.info(f"Fetching feed for query: '{full_query}'...")
     feed = feedparser.parse(url)
-    print(f"Found {len(feed.entries)} entries.")
+    logger.info(f"Found {len(feed.entries)} entries.")
     return feed.entries
 
 def fetch_all_feeds(start_date=None, end_date=None, query=None):
@@ -62,7 +64,7 @@ def resolve_url(url):
         if res.get('status'):
             return res.get('decoded_url')
     except Exception as e:
-        print(f"Error resolving {url}: {e}")
+        logger.error(f"Error resolving {url}: {e}")
     return url
 
 def process_source_task(app, source_id, force=False):
@@ -102,7 +104,7 @@ def process_source_task(app, source_id, force=False):
                                 source.fetched_at
                             )
                             if best_date and best_date != source.published_at:
-                                print(f"  -> Updated publication date from {source.published_at} to {best_date.strftime('%Y-%m-%d')}")
+                                logger.info(f"  -> Updated publication date from {source.published_at} to {best_date.strftime('%Y-%m-%d')}")
                                 source.published_at = best_date
                                 changed = True
                     else:
@@ -110,7 +112,7 @@ def process_source_task(app, source_id, force=False):
                 else:
                     pass # Download failed
             except Exception as e:
-                print(f"  -> Error downloading {target_url}: {e}")
+                logger.error(f"  -> Error downloading {target_url}: {e}")
 
         if changed:
             db.session.commit()
@@ -122,7 +124,7 @@ EXPANSION_TERMS = [
     "corpo encontrado", "polícia", "milícia", "tráfico"
 ]
 
-def run_ingestion(start_date=None, end_date=None, query=None, force=False, expand_queries=False, expand_geo=False):
+def run_ingestion(start_date=None, end_date=None, query=None, force=False, expand_queries=False, expand_geo=False, max_workers=10):
     """Stage 1: Ingestion - Fetch RSS, Save Sources, Download Content."""
     
     # Date parsing
@@ -133,25 +135,25 @@ def run_ingestion(start_date=None, end_date=None, query=None, force=False, expan
     queries = [base_query]
     
     if expand_queries:
-        print(f"Expanding query '{base_query}' with {len(EXPANSION_TERMS)} topics...")
+        logger.info(f"Expanding query '{base_query}' with {len(EXPANSION_TERMS)} topics...")
         for term in EXPANSION_TERMS:
             queries.append(f'{base_query} "{term}"')
 
     if expand_geo:
         geo_queries = get_geo_queries()
-        print(f"Expanding with {len(geo_queries)} geo-locations...")
+        logger.info(f"Expanding with {len(geo_queries)} geo-locations...")
         queries.extend(geo_queries)
 
     # 1. Fetch from RSS
     all_entries = []
-    print(f"Starting ingestion fetch job for {len(queries)} queries...")
+    logger.info(f"Starting ingestion fetch job for {len(queries)} queries...")
     
     for q in queries:
-        print(f"--- Query: {q} ---")
+        logger.info(f"--- Query: {q} ---")
         for entries in fetch_all_feeds(s_date, e_date, q):
             all_entries.extend(entries)
     
-    print(f"Total entries fetched: {len(all_entries)}")
+    logger.info(f"Total entries fetched: {len(all_entries)}")
     
     source_ids_to_process = []
     new_count = 0
@@ -193,20 +195,54 @@ def run_ingestion(start_date=None, end_date=None, query=None, force=False, expan
         # Actually logic above: if force or status='pending'. 
         # If status='downloaded' and not force, we ignore. Correct.
     
-    print(f"Ingestion complete. Added {new_count} new sources.")
-    print(f"Queuing {len(source_ids_to_process)} sources for content download (Parallel)...")
+    logger.info(f"Ingestion complete. Added {new_count} new sources.")
+    logger.info(f"Queuing {len(source_ids_to_process)} sources for content download (Parallel, {max_workers} workers)...")
 
     # 3. Parallel Download
     # Capture real app object for threads
     real_app = current_app._get_current_object()
     
-    with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
-        futures = [
-            executor.submit(process_source_task, real_app, sid, force) 
+    completed = 0
+    errors = 0
+    total = len(source_ids_to_process)
+    download_start = time.time()
+    
+    if total == 0:
+        logger.info("No sources to download.")
+        return
+    
+    with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+        futures = {
+            executor.submit(process_source_task, real_app, sid, force): sid
             for sid in source_ids_to_process
-        ]
+        }
         
-        # Simple wait
-        concurrent.futures.wait(futures)
+        # Process as they complete with progress tracking and time estimates
+        for future in concurrent.futures.as_completed(futures):
+            sid = futures[future]
+            try:
+                future.result()  # Wait for completion
+                completed += 1
+            except Exception as e:
+                errors += 1
+                logger.warning(f"Error processing source {sid}: {e}")
+            
+            # Progress update with time estimates
+            if completed % 10 == 0 or completed == total:
+                elapsed = time.time() - download_start
+                if completed > 0:
+                    avg_time_per_item = elapsed / completed
+                    remaining = total - completed
+                    estimated_remaining = avg_time_per_item * remaining
+                    estimated_total = elapsed + estimated_remaining
+                    
+                    logger.info(
+                        f"Download progress: {completed}/{total} ({completed/total*100:.1f}%) | "
+                        f"Elapsed: {elapsed:.1f}s | "
+                        f"ETA: {estimated_remaining:.1f}s | "
+                        f"Est. total: {estimated_total:.1f}s | "
+                        f"Errors: {errors}"
+                    )
 
-    print("Content download complete.")
+    total_elapsed = time.time() - download_start
+    logger.info(f"Content download complete. Processed: {completed}/{total}, Errors: {errors}, Time: {total_elapsed:.1f}s")

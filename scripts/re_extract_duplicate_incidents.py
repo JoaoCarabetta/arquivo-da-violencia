@@ -7,6 +7,7 @@ import sys
 import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from loguru import logger
 from app import create_app
 from app.models import Source, ExtractedEvent, Incident
 from app.services.extraction import extract_event
@@ -42,9 +43,9 @@ def find_duplicate_incidents():
 def re_extract_for_incidents(incident_ids=None):
     """Re-extract sources related to specific incidents."""
     with app.app_context():
-        print("=" * 70)
-        print("RE-EXTRACTION FOR DUPLICATE INCIDENTS")
-        print("=" * 70)
+        logger.info("=" * 70)
+        logger.info("RE-EXTRACTION FOR DUPLICATE INCIDENTS")
+        logger.info("=" * 70)
         
         if incident_ids:
             incidents = Incident.query.options(joinedload(Incident.extractions)).filter(Incident.id.in_(incident_ids)).all()
@@ -56,16 +57,16 @@ def re_extract_for_incidents(incident_ids=None):
             incidents = Incident.query.options(joinedload(Incident.extractions)).filter(Incident.id.in_(incident_ids_list)).all()
         
         if not incidents:
-            print("No matching incidents found.")
+            logger.info("No matching incidents found.")
             return
         
-        print(f"\nFound {len(incidents)} incident(s) to check:")
+        logger.info(f"\nFound {len(incidents)} incident(s) to check:")
         for incident in incidents:
-            print(f"  - Incident {incident.id}: {incident.title}")
-            print(f"    Date: {incident.date.strftime('%Y-%m-%d') if incident.date else 'N/A'}")
-            print(f"    Death count: {incident.death_count}")
-            print(f"    Location: {incident.neighborhood or 'N/A'}")
-            print(f"    Extractions: {len(incident.extractions)}")
+            logger.info(f"  - Incident {incident.id}: {incident.title}")
+            logger.info(f"    Date: {incident.date.strftime('%Y-%m-%d') if incident.date else 'N/A'}")
+            logger.info(f"    Death count: {incident.death_count}")
+            logger.info(f"    Location: {incident.neighborhood or 'N/A'}")
+            logger.info(f"    Extractions: {len(incident.extractions)}")
         
         # Get all extractions from these incidents
         extraction_ids = []
@@ -74,7 +75,7 @@ def re_extract_for_incidents(incident_ids=None):
                 extraction_ids.append(extraction.id)
         
         if not extraction_ids:
-            print("\nNo extractions found for these incidents.")
+            logger.info("\nNo extractions found for these incidents.")
             return
         
         # Get all source IDs from these extractions
@@ -84,21 +85,21 @@ def re_extract_for_incidents(incident_ids=None):
         
         source_ids = list(set([ext.source_id for ext in extractions]))
         
-        print(f"\nFound {len(source_ids)} unique source(s) to re-extract")
-        print("=" * 70)
+        logger.info(f"\nFound {len(source_ids)} unique source(s) to re-extract")
+        logger.info("=" * 70)
         
         # Show current extraction dates
-        print("\nBEFORE RE-EXTRACTION:")
+        logger.info("\nBEFORE RE-EXTRACTION:")
         for extraction in extractions:
-            print(f"  Extraction {extraction.id} (Source {extraction.source_id}):")
-            print(f"    Date: {extraction.extracted_date.strftime('%Y-%m-%d') if extraction.extracted_date else 'N/A'}")
-            print(f"    Death count: {extraction.death_count}")
-            print(f"    Location: {extraction.extracted_location or 'N/A'}")
-            print(f"    Summary: {extraction.summary[:80] if extraction.summary else 'N/A'}...")
+            logger.info(f"  Extraction {extraction.id} (Source {extraction.source_id}):")
+            logger.info(f"    Date: {extraction.extracted_date.strftime('%Y-%m-%d') if extraction.extracted_date else 'N/A'}")
+            logger.info(f"    Death count: {extraction.death_count}")
+            logger.info(f"    Location: {extraction.extracted_location or 'N/A'}")
+            logger.info(f"    Summary: {extraction.summary[:80] if extraction.summary else 'N/A'}...")
         
-        print("\n" + "=" * 70)
-        print("RE-EXTRACTING...")
-        print("=" * 70)
+        logger.info("\n" + "=" * 70)
+        logger.info("RE-EXTRACTING...")
+        logger.info("=" * 70)
         
         success_count = 0
         error_count = 0
@@ -127,46 +128,46 @@ def re_extract_for_incidents(incident_ids=None):
                                 "new_date": new_date.strftime('%Y-%m-%d') if new_date else 'N/A',
                                 "death_count": extraction.death_count
                             })
-                            print(f"✓ [{i}/{len(source_ids)}] Source {source_id}: Date changed from {old_date.strftime('%Y-%m-%d') if old_date else 'N/A'} to {new_date.strftime('%Y-%m-%d') if new_date else 'N/A'}")
+                            logger.info(f"✓ [{i}/{len(source_ids)}] Source {source_id}: Date changed from {old_date.strftime('%Y-%m-%d') if old_date else 'N/A'} to {new_date.strftime('%Y-%m-%d') if new_date else 'N/A'}")
                         else:
-                            print(f"  [{i}/{len(source_ids)}] Source {source_id}: Date unchanged ({new_date.strftime('%Y-%m-%d') if new_date else 'N/A'})")
+                            logger.info(f"  [{i}/{len(source_ids)}] Source {source_id}: Date unchanged ({new_date.strftime('%Y-%m-%d') if new_date else 'N/A'})")
                         
                         success_count += 1
                     else:
-                        print(f"⚠ [{i}/{len(source_ids)}] Source {source_id}: No extraction found after re-extraction")
+                        logger.info(f"⚠ [{i}/{len(source_ids)}] Source {source_id}: No extraction found after re-extraction")
                 else:
                     error_count += 1
-                    print(f"✗ [{i}/{len(source_ids)}] Source {source_id}: {result.get('message', 'Unknown error')}")
+                    logger.info(f"✗ [{i}/{len(source_ids)}] Source {source_id}: {result.get('message', 'Unknown error')}")
             except Exception as e:
                 error_count += 1
-                print(f"✗ [{i}/{len(source_ids)}] Source {source_id}: Exception - {e}")
+                logger.info(f"✗ [{i}/{len(source_ids)}] Source {source_id}: Exception - {e}")
         
-        print("\n" + "=" * 70)
-        print("RE-EXTRACTION COMPLETE")
-        print("=" * 70)
-        print(f"  Total sources:      {len(source_ids)}")
-        print(f"  Successful:         {success_count}")
-        print(f"  Errors:             {error_count}")
-        print(f"  Dates changed:      {len(updated_dates)}")
+        logger.info("\n" + "=" * 70)
+        logger.info("RE-EXTRACTION COMPLETE")
+        logger.info("=" * 70)
+        logger.info(f"  Total sources:      {len(source_ids)}")
+        logger.info(f"  Successful:         {success_count}")
+        logger.info(f"  Errors:             {error_count}")
+        logger.info(f"  Dates changed:      {len(updated_dates)}")
         
         if updated_dates:
-            print("\n  DATE CHANGES:")
+            logger.info("\n  DATE CHANGES:")
             for change in updated_dates:
-                print(f"    Source {change['source_id']}: {change['old_date']} → {change['new_date']} (death_count: {change['death_count']})")
+                logger.info(f"    Source {change['source_id']}: {change['old_date']} → {change['new_date']} (death_count: {change['death_count']})")
         
         # Show updated extraction dates
-        print("\nAFTER RE-EXTRACTION:")
+        logger.info("\nAFTER RE-EXTRACTION:")
         updated_extractions = ExtractedEvent.query.filter(
             ExtractedEvent.id.in_(extraction_ids)
         ).all()
         
         for extraction in updated_extractions:
-            print(f"  Extraction {extraction.id} (Source {extraction.source_id}):")
-            print(f"    Date: {extraction.extracted_date.strftime('%Y-%m-%d') if extraction.extracted_date else 'N/A'}")
-            print(f"    Death count: {extraction.death_count}")
-            print(f"    Location: {extraction.extracted_location or 'N/A'}")
+            logger.info(f"  Extraction {extraction.id} (Source {extraction.source_id}):")
+            logger.info(f"    Date: {extraction.extracted_date.strftime('%Y-%m-%d') if extraction.extracted_date else 'N/A'}")
+            logger.info(f"    Death count: {extraction.death_count}")
+            logger.info(f"    Location: {extraction.extracted_location or 'N/A'}")
         
-        print("=" * 70)
+        logger.info("=" * 70)
 
 if __name__ == '__main__':
     import argparse

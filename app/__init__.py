@@ -55,7 +55,36 @@ def create_app(config_class=Config):
     # Setup logging
     setup_logging(app)
 
+    # Initialize database
     db.init_app(app)
+    
+    # Ensure database directory exists for SQLite
+    if app.config['SQLALCHEMY_DATABASE_URI'].startswith('sqlite'):
+        db_path = app.config['SQLALCHEMY_DATABASE_URI'].replace('sqlite:///', '')
+        if db_path and db_path != ':memory:':
+            db_dir = os.path.dirname(db_path)
+            if db_dir:
+                os.makedirs(db_dir, exist_ok=True)
+    
+    # Configure SQLite for better concurrency (WAL mode)
+    # This must be done after db.init_app() but before first use
+    if app.config['SQLALCHEMY_DATABASE_URI'].startswith('sqlite'):
+        with app.app_context():
+            try:
+                # Enable WAL mode for better concurrent access
+                # WAL mode allows multiple readers and one writer simultaneously
+                with db.engine.connect() as conn:
+                    result = conn.execute(db.text("PRAGMA journal_mode=WAL"))
+                    journal_mode = result.scalar()
+                    conn.execute(db.text("PRAGMA synchronous=NORMAL"))
+                    conn.execute(db.text("PRAGMA busy_timeout=30000"))  # 30 second timeout
+                    conn.commit()
+                if journal_mode == 'wal':
+                    logger.info("SQLite WAL mode enabled for better concurrency")
+                else:
+                    logger.warning(f"SQLite WAL mode not enabled, current mode: {journal_mode}")
+            except Exception as e:
+                logger.warning(f"Could not enable SQLite WAL mode: {e}")
 
     with app.app_context():
         # Import models to ensure they are registered with SQLAlchemy

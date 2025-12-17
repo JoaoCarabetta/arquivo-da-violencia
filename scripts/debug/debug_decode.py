@@ -1,3 +1,5 @@
+from loguru import logger
+
 import base64
 import re
 
@@ -7,7 +9,7 @@ url = "https://news.google.com/rss/articles/CBMisAFBVV95cUxQbEZ3RzR4UDk4VFV3Wnlz
 match = re.search(r'articles/([^?]+)', url)
 if match:
     encoded = match.group(1)
-    print(f"Encoded part: {encoded}")
+    logger.info(f"Encoded part: {encoded}")
     
     # Needs padding correction
     padding = len(encoded) % 4
@@ -16,13 +18,13 @@ if match:
         
     try:
         decoded = base64.urlsafe_b64decode(encoded)
-        print(f"Decoded (raw): {decoded}")
+        logger.info(f"Decoded (raw): {decoded}")
         
         # Often it's a binary blob (protobuf), but might contain the URL as a string.
         # Let's search for http strings.
         import string
         printable = set(string.printable.encode('ascii'))
         strings = re.findall(rb'(https?://[^\s\x00]+)', decoded)
-        print(f"Found URLs in decoded: {strings}")
+        logger.info(f"Found URLs in decoded: {strings}")
     except Exception as e:
-        print(f"Decoding error: {e}")
+        logger.info(f"Decoding error: {e}")
