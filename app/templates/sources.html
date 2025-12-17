@@ -24,6 +24,22 @@
     </div>
 </div>
 
+<!-- Result Modal -->
+<div class="modal fade" id="result-modal" tabindex="-1" aria-labelledby="resultModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="resultModalLabel">Extraction Result</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body" id="result-content"></div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+            </div>
+        </div>
+    </div>
+</div>
+
 <script>
 var sourcesTable;
 
@@ -74,29 +90,12 @@ document.addEventListener('DOMContentLoaded', function() {
         order: [[4, 'desc']], // Default sort by fetched_at descending
         pageLength: 25,
         language: {
-            url: '//cdn.datatables.net/plug-ins/1.13.7/i18n/pt-BR.json'
+            url: 'https://cdn.datatables.net/plug-ins/1.13.7/i18n/pt-BR.json'
         },
         responsive: true
     });
 });
 
-<!-- Result Modal -->
-<div class="modal fade" id="result-modal" tabindex="-1" aria-labelledby="resultModalLabel" aria-hidden="true">
-    <div class="modal-dialog">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h5 class="modal-title" id="resultModalLabel">Extraction Result</h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-            </div>
-            <div class="modal-body" id="result-content"></div>
-            <div class="modal-footer">
-                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
-            </div>
-        </div>
-    </div>
-</div>
-
-<script>
     async function extractEvent(sourceId) {
         const btn = document.getElementById(`btn-${sourceId}`);
         const originalText = btn.textContent;

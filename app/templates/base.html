@@ -334,11 +334,16 @@
                     <li class="nav-item">
                         <a class="nav-link" href="/">Incidentes</a>
                     </li>
+                    {% if not config.PUBLIC_MODE %}
                     <li class="nav-item">
                         <a class="nav-link" href="/sources">Fontes</a>
                     </li>
                     <li class="nav-item">
                         <a class="nav-link" href="/extractions">Eventos</a>
+                    </li>
+                    {% endif %}
+                    <li class="nav-item">
+                        <a class="nav-link" href="/download">Download</a>
                     </li>
                     <li class="nav-item">
                         <a class="nav-link" href="/sobre">Sobre</a>
@@ -363,6 +368,9 @@
     <!-- DataTables JS with Bootstrap 5 styling -->
     <script src="https://cdn.datatables.net/1.13.7/js/jquery.dataTables.min.js"></script>
     <script src="https://cdn.datatables.net/1.13.7/js/dataTables.bootstrap5.min.js"></script>
+    
+    <!-- Chart.js for charts -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 </body>
 
 </html>

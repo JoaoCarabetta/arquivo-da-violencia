@@ -1,11 +1,20 @@
 from datetime import datetime, timedelta
-from flask import Blueprint, render_template, jsonify, request
+from flask import Blueprint, render_template, jsonify, request, abort, current_app, make_response
 from app.models import Incident, Source, ExtractedEvent
 from app.services.extraction import extract_event
 from app.extensions import db
-from sqlalchemy import func, or_, and_
+from sqlalchemy import func, or_, and_, text
+import csv
+import io
+import json
 
 main = Blueprint('main', __name__)
+
+
+def check_public_mode():
+    """Check if route should be accessible in public mode."""
+    if current_app.config.get('PUBLIC_MODE', False):
+        abort(404)
 
 
 def parse_datatables_params():
@@ -40,21 +49,9 @@ def apply_search_filter(query, search_value, searchable_columns):
 
 @main.route('/')
 def index():
-    # Calculate death statistics
-    now = datetime.utcnow()
-    last_24h = now - timedelta(hours=24)
-    last_7d = now - timedelta(days=7)
-    last_30d = now - timedelta(days=30)
-    
-    deaths_24h = Incident.query.filter(Incident.date >= last_24h).count()
-    deaths_7d = Incident.query.filter(Incident.date >= last_7d).count()
-    deaths_30d = Incident.query.filter(Incident.date >= last_30d).count()
-    
     # Incidents will be loaded via DataTables AJAX
-    return render_template('index.html', 
-                           deaths_24h=deaths_24h,
-                           deaths_7d=deaths_7d,
-                           deaths_30d=deaths_30d)
+    # Chart data will be loaded via AJAX from /api/data/deaths-by-day
+    return render_template('index.html')
 
 @main.route('/incident/<int:incident_id>')
 def incident_detail(incident_id):
@@ -73,12 +70,14 @@ def incident_detail(incident_id):
 
 @main.route('/sources')
 def sources():
+    check_public_mode()
     # Sources will be loaded via DataTables AJAX
     return render_template('sources.html')
 
 @main.route('/api/extract/<int:source_id>', methods=['POST'])
 def api_extract(source_id):
     """Trigger extraction for a single source."""
+    check_public_mode()
     force = request.args.get('force', 'false').lower() == 'true'
     result = extract_event(source_id, force=force)
     return jsonify(result)
@@ -86,6 +85,7 @@ def api_extract(source_id):
 @main.route('/extractions')
 def extractions():
     """Display all extracted events."""
+    check_public_mode()
     # Extractions will be loaded via DataTables AJAX
     return render_template('extractions.html')
 
@@ -93,6 +93,86 @@ def extractions():
 def about():
     """Display the about page."""
     return render_template('about.html')
+
+@main.route('/download')
+def download():
+    """Display the download page."""
+    # Get total count of incidents for display
+    # Use a simple count query that doesn't select columns
+    # Filter for Rio de Janeiro state - exclude all other states/countries
+    # Include: (state == 'Rio de Janeiro' OR (state IS NULL AND city == 'Rio de Janeiro'))
+    # AND (country IS NULL OR country == 'Brasil')
+    # AND exclude known non-RJ states/cities (handle NULLs properly)
+    try:
+        total_incidents = db.session.query(func.count(Incident.id)).filter(
+            or_(
+                Incident.state == 'Rio de Janeiro',
+                and_(Incident.state.is_(None), Incident.city == 'Rio de Janeiro')
+            ),
+            or_(
+                Incident.country.is_(None),
+                Incident.country == 'Brasil'
+            )
+        ).scalar()
+    except Exception:
+        # Fallback if query fails
+        total_incidents = 0
+    return render_template('download.html', total_incidents=total_incidents)
+
+
+@main.route('/api/data/deaths-by-day')
+def api_data_deaths_by_day():
+    """Data endpoint for deaths by day chart."""
+    # Get number of days from query parameter, default to 30
+    days = int(request.args.get('days', 30))
+    
+    # Calculate date range (start of day)
+    end_date = datetime.utcnow().replace(hour=23, minute=59, second=59, microsecond=999999)
+    start_date = (end_date - timedelta(days=days)).replace(hour=0, minute=0, second=0, microsecond=0)
+    
+    # Query: get only date and death_count fields to avoid loading columns that may not exist
+    # Filter permanently for Rio de Janeiro state - exclude all other states/countries
+    # Include: (state == 'Rio de Janeiro' OR (state IS NULL AND city == 'Rio de Janeiro'))
+    # AND (country IS NULL OR country == 'Brasil')
+    # AND exclude known non-RJ states/cities (handle NULLs properly)
+    results = db.session.query(
+        func.date(Incident.date).label('incident_date'),
+        func.sum(func.coalesce(Incident.death_count, 0)).label('total_deaths')
+    ).filter(
+        or_(
+            Incident.state == 'Rio de Janeiro',
+            and_(Incident.state.is_(None), Incident.city == 'Rio de Janeiro')
+        ),
+        or_(
+            Incident.country.is_(None),
+            Incident.country == 'Brasil'
+        ),
+        Incident.date.isnot(None),
+        Incident.date >= start_date,
+        Incident.date <= end_date
+    ).group_by(
+        func.date(Incident.date)
+    ).all()
+    
+    # Create a dictionary with all dates in range (fill missing dates with 0)
+    deaths_by_date = {}
+    current_date = start_date.date()
+    end_date_only = end_date.date()
+    while current_date <= end_date_only:
+        deaths_by_date[current_date.isoformat()] = 0
+        current_date += timedelta(days=1)
+    
+    # Update with actual data from query results
+    for row in results:
+        date_str = row.incident_date
+        deaths = int(row.total_deaths) if row.total_deaths else 0
+        if date_str and date_str in deaths_by_date:
+            deaths_by_date[date_str] = deaths
+    
+    # Convert to list format
+    data = [{'date': date, 'deaths': deaths} for date, deaths in sorted(deaths_by_date.items())]
+    
+    return jsonify({'data': data})
 
 
 @main.route('/api/data/incidents')
@@ -113,8 +193,33 @@ def api_data_incidents():
         Incident.death_count
     ]
     
-    # Base query
-    query = Incident.query
+    # Base query - use with_entities to load only needed columns to avoid errors with missing columns
+    # Load only the columns we actually need
+    # Filter permanently for Rio de Janeiro state - exclude all other states/countries
+    # Include: (state == 'Rio de Janeiro' OR (state IS NULL AND city == 'Rio de Janeiro'))
+    # AND (country IS NULL OR country == 'Brasil')
+    # AND exclude known non-RJ states/cities (handle NULLs properly)
+    query = db.session.query(
+        Incident.id,
+        Incident.title,
+        Incident.date,
+        Incident.street,
+        Incident.neighborhood,
+        Incident.city,
+        Incident.description,
+        Incident.death_count
+    ).filter(
+        # Must be Rio de Janeiro state or NULL state with Rio de Janeiro city
+        or_(
+            Incident.state == 'Rio de Janeiro',
+            and_(Incident.state.is_(None), Incident.city == 'Rio de Janeiro')
+        ),
+        # Country must be NULL or Brasil
+        or_(
+            Incident.country.is_(None),
+            Incident.country == 'Brasil'
+        )
+    )
     
     # Apply search filter
     searchable_columns = [
@@ -123,8 +228,21 @@ def api_data_incidents():
     ]
     query = apply_search_filter(query, params['search'], searchable_columns)
     
-    # Get total count before filtering
-    records_total = Incident.query.count()
+    # Get total count before filtering (count doesn't load columns)
+    # Filter for Rio de Janeiro state - exclude all other states/countries
+    # Include: (state == 'Rio de Janeiro' OR (state IS NULL AND city == 'Rio de Janeiro'))
+    # AND (country IS NULL OR country == 'Brasil')
+    # AND exclude known non-RJ states/cities (handle NULLs properly)
+    records_total = db.session.query(Incident.id).filter(
+        or_(
+            Incident.state == 'Rio de Janeiro',
+            and_(Incident.state.is_(None), Incident.city == 'Rio de Janeiro')
+        ),
+            or_(
+                Incident.country.is_(None),
+                Incident.country == 'Brasil'
+            )
+        ).count()
     
     # Get filtered count
     records_filtered = query.count()
@@ -142,10 +260,10 @@ def api_data_incidents():
         query = query.order_by(Incident.date.desc())
     
     # Apply pagination
-    incidents = query.offset(params['start']).limit(params['length']).all()
+    incident_rows = query.offset(params['start']).limit(params['length']).all()
     
     # Count unique sources per incident (batch query for performance)
-    incident_ids = [inc.id for inc in incidents]
+    incident_ids = [row.id for row in incident_rows]
     incident_source_counts = {}
     if incident_ids:
         source_counts = db.session.query(
@@ -158,28 +276,30 @@ def api_data_incidents():
         ).all()
         incident_source_counts = {incident_id: count for incident_id, count in source_counts}
     
-    # Serialize data
+    # Serialize data - incident_rows is now a list of tuples/Row objects
     data = []
-    for incident in incidents:
+    for row in incident_rows:
+        # row is a Row object with named attributes
+        incident_id = row.id
         location_parts = []
-        if incident.street:
-            location_parts.append(incident.street)
-        if incident.neighborhood:
-            location_parts.append(incident.neighborhood)
-        if incident.city:
-            location_parts.append(incident.city)
+        if row.street:
+            location_parts.append(row.street)
+        if row.neighborhood:
+            location_parts.append(row.neighborhood)
+        if row.city:
+            location_parts.append(row.city)
         location_str = ', '.join(location_parts) if location_parts else '-'
         
-        description_preview = incident.description[:150] + '...' if incident.description and len(incident.description) > 150 else (incident.description or '-')
+        description_preview = row.description[:150] + '...' if row.description and len(row.description) > 150 else (row.description or '-')
         
         data.append({
-            'id': incident.id,
-            'title': incident.title or '-',
-            'date': incident.date.strftime('%d/%m/%Y') if incident.date else 'Desconhecida',
+            'id': incident_id,
+            'title': row.title or '-',
+            'date': row.date.strftime('%d/%m/%Y') if row.date else 'Desconhecida',
             'location': location_str,
             'description': description_preview,
-            'source_count': incident_source_counts.get(incident.id, 0),
-            'death_count': incident.death_count if incident.death_count is not None else (len(incident.extractions) if incident.extractions else 0)
+            'source_count': incident_source_counts.get(incident_id, 0),
+            'death_count': row.death_count if row.death_count is not None else 0
         })
     
     return jsonify({
@@ -193,6 +313,7 @@ def api_data_incidents():
 @main.route('/api/data/sources')
 def api_data_sources():
     """DataTables server-side processing endpoint for sources."""
+    check_public_mode()
     params = parse_datatables_params()
     
     # Column mapping
@@ -263,6 +384,7 @@ def api_data_sources():
 @main.route('/api/data/extractions')
 def api_data_extractions():
     """DataTables server-side processing endpoint for extractions."""
+    check_public_mode()
     params = parse_datatables_params()
     
     # Column mapping
@@ -352,4 +474,208 @@ def api_data_extractions():
         'recordsFiltered': records_filtered,
         'data': data
     })
+
+
+@main.route('/api/download/incidents')
+def api_download_incidents():
+    """Download all incidents as CSV or JSON."""
+    format_type = request.args.get('format', 'csv').lower()
+    
+    # Check if geocoding columns exist in the database
+    has_geocoding = False
+    try:
+        # For SQLite, use PRAGMA to check if columns exist
+        result = db.session.execute(text("PRAGMA table_info(incident)"))
+        columns = [row[1] for row in result]  # Column name is at index 1
+        has_geocoding = 'latitude' in columns and 'longitude' in columns and 'location_precision' in columns
+    except Exception:
+        # If check fails, assume columns don't exist
+        has_geocoding = False
+    
+    # Get all incidents - query only fields that exist
+    # Filter permanently for Rio de Janeiro state - exclude all other states/countries
+    # Include: (state == 'Rio de Janeiro' OR (state IS NULL AND city == 'Rio de Janeiro'))
+    # AND (country IS NULL OR country == 'Brasil')
+    # AND exclude known non-RJ states/cities (handle NULLs properly)
+    if has_geocoding:
+        incidents = Incident.query.filter(
+            or_(
+                Incident.state == 'Rio de Janeiro',
+                and_(Incident.state.is_(None), Incident.city == 'Rio de Janeiro')
+            ),
+            or_(
+                Incident.country.is_(None),
+                Incident.country == 'Brasil'
+            )
+        ).order_by(Incident.date.desc()).all()
+    else:
+        # Query without geocoding fields to avoid errors
+        # Filter permanently for Rio de Janeiro state - exclude all other states/countries
+        # Include: (state == 'Rio de Janeiro' OR (state IS NULL AND city == 'Rio de Janeiro'))
+        # AND (country IS NULL OR country == 'Brasil')
+        # AND exclude known non-RJ states/cities (handle NULLs properly)
+        results = db.session.query(
+            Incident.id, Incident.title, Incident.date, Incident.victims,
+            Incident.country, Incident.state, Incident.city, Incident.neighborhood,
+            Incident.street, Incident.location_extra_info, Incident.description,
+            Incident.confirmed, Incident.death_count
+        ).filter(
+            or_(
+                Incident.state == 'Rio de Janeiro',
+                and_(Incident.state.is_(None), Incident.city == 'Rio de Janeiro')
+            ),
+            or_(
+                Incident.country.is_(None),
+                Incident.country == 'Brasil'
+            )
+        ).order_by(Incident.date.desc()).all()
+        
+        # Create a simple class to hold the data
+        class SimpleIncident:
+            def __init__(self, row):
+                self.id = row.id
+                self.title = row.title
+                self.date = row.date
+                self.victims = row.victims
+                self.country = row.country
+                self.state = row.state
+                self.city = row.city
+                self.neighborhood = row.neighborhood
+                self.street = row.street
+                self.location_extra_info = row.location_extra_info
+                self.description = row.description
+                self.confirmed = row.confirmed
+                self.death_count = row.death_count
+                self.latitude = None
+                self.longitude = None
+                self.location_precision = None
+        
+        incidents = [SimpleIncident(row) for row in results]
+    
+    # Count unique sources per incident (batch query for performance)
+    incident_ids = [inc.id for inc in incidents]
+    incident_source_counts = {}
+    if incident_ids:
+        source_counts = db.session.query(
+            ExtractedEvent.incident_id,
+            func.count(func.distinct(ExtractedEvent.source_id)).label('source_count')
+        ).filter(
+            ExtractedEvent.incident_id.in_(incident_ids)
+        ).group_by(
+            ExtractedEvent.incident_id
+        ).all()
+        incident_source_counts = {incident_id: count for incident_id, count in source_counts}
+    
+    # Helper functions to safely get geocoding fields
+    def get_latitude(incident):
+        if has_geocoding:
+            return getattr(incident, 'latitude', None)
+        return None
+    
+    def get_longitude(incident):
+        if has_geocoding:
+            return getattr(incident, 'longitude', None)
+        return None
+    
+    def get_location_precision(incident):
+        if has_geocoding:
+            return getattr(incident, 'location_precision', None)
+        return None
+    
+    if format_type == 'json':
+        # Generate JSON
+        data = []
+        for incident in incidents:
+            location_parts = []
+            if incident.street:
+                location_parts.append(incident.street)
+            if incident.neighborhood:
+                location_parts.append(incident.neighborhood)
+            if incident.city:
+                location_parts.append(incident.city)
+            location_str = ', '.join(location_parts) if location_parts else None
+            
+            latitude = get_latitude(incident)
+            longitude = get_longitude(incident)
+            location_precision = get_location_precision(incident)
+            
+            data.append({
+                'id': incident.id,
+                'title': incident.title,
+                'date': incident.date.isoformat() if incident.date else None,
+                'victims': incident.victims,
+                'country': incident.country,
+                'state': incident.state,
+                'city': incident.city,
+                'neighborhood': incident.neighborhood,
+                'street': incident.street,
+                'location_extra_info': incident.location_extra_info,
+                'location_full': location_str,
+                'latitude': float(latitude) if latitude else None,
+                'longitude': float(longitude) if longitude else None,
+                'location_precision': location_precision,
+                'description': incident.description,
+                'confirmed': incident.confirmed,
+                'death_count': incident.death_count,
+                'source_count': incident_source_counts.get(incident.id, 0)
+            })
+        
+        response = make_response(json.dumps(data, ensure_ascii=False, indent=2))
+        response.headers['Content-Type'] = 'application/json; charset=utf-8'
+        response.headers['Content-Disposition'] = f'attachment; filename=incidentes_{datetime.now().strftime("%Y%m%d")}.json'
+        return response
+    
+    else:  # CSV
+        # Generate CSV
+        output = io.StringIO()
+        writer = csv.writer(output)
+        
+        # Write header
+        writer.writerow([
+            'ID', 'Título', 'Data', 'Vítimas', 'País', 'Estado', 'Cidade', 
+            'Bairro', 'Rua', 'Informações Extras de Localização', 'Localização Completa',
+            'Latitude', 'Longitude', 'Precisão da Localização', 'Descrição', 
+            'Confirmado', 'Número de Mortes', 'Número de Fontes'
+        ])
+        
+        # Write data
+        for incident in incidents:
+            location_parts = []
+            if incident.street:
+                location_parts.append(incident.street)
+            if incident.neighborhood:
+                location_parts.append(incident.neighborhood)
+            if incident.city:
+                location_parts.append(incident.city)
+            location_str = ', '.join(location_parts) if location_parts else ''
+            
+            latitude = get_latitude(incident)
+            longitude = get_longitude(incident)
+            location_precision = get_location_precision(incident)
+            
+            writer.writerow([
+                incident.id,
+                incident.title or '',
+                incident.date.strftime('%Y-%m-%d %H:%M:%S') if incident.date else '',
+                incident.victims or '',
+                incident.country or '',
+                incident.state or '',
+                incident.city or '',
+                incident.neighborhood or '',
+                incident.street or '',
+                incident.location_extra_info or '',
+                location_str,
+                float(latitude) if latitude else '',
+                float(longitude) if longitude else '',
+                location_precision or '',
+                incident.description or '',
+                'Sim' if incident.confirmed else 'Não',
+                incident.death_count if incident.death_count is not None else '',
+                incident_source_counts.get(incident.id, 0)
+            ])
+        
+        response = make_response(output.getvalue())
+        response.headers['Content-Type'] = 'text/csv; charset=utf-8'
+        response.headers['Content-Disposition'] = f'attachment; filename=incidentes_{datetime.now().strftime("%Y%m%d")}.csv'
+        return response
 

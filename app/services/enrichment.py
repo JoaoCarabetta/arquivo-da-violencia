@@ -18,6 +18,7 @@ from vertexai.generative_models import GenerativeModel
 from google.oauth2 import service_account
 from app.extensions import db
 from app.models import ExtractedEvent, Incident
+from app.services.geocoding import geocode_incident
 
 # Configure Vertex AI (Gemini) - same as extraction.py
 SA_PATH = "/Users/joaoc/Documents/service_accounts/rj-ia-desenvolvimento-bb81db62d872.json"
@@ -251,11 +252,32 @@ Responda APENAS com um objeto JSON válido no seguinte formato:
   "reasoning": "explicação breve do motivo"
 }
 
-Considere:
-- Nomes de vítimas similares (mesma pessoa)
-- Localizações próximas ou iguais
-- Datas próximas (mesmo dia ou dia seguinte/anterior)
-- Descrições que mencionam o mesmo evento
+REGRAS CRÍTICAS DE MATCHING:
+1. MESMA VÍTIMA + MESMA DATA + MESMO LOCAL = MESMO EVENTO
+   - Se a vítima, data e local forem os mesmos (ou muito similares), considere como o mesmo evento,
+     MESMO QUE as descrições mencionem aspectos diferentes do crime.
+   - Exemplo: uma fonte menciona "envenenamento com chumbinho" e outra menciona "feijoada envenenada"
+     - Se for a mesma vítima, mesma data e mesmo local → É O MESMO EVENTO
+   - Exemplo: uma fonte foca em "serial killers contratadas" e outra em "filha orquestrou assassinato"
+     - Se for a mesma vítima, mesma data e mesmo local → É O MESMO EVENTO
+
+2. DIFERENTES FONTES PODEM FOCAR EM ASPECTOS DIFERENTES
+   - Fontes de notícias diferentes podem destacar aspectos diferentes do mesmo crime:
+     * Método do crime (ex: "chumbinho" vs "feijoada envenenada")
+     * Envolvidos (ex: foco na filha vs foco nas assassinas contratadas)
+     * Detalhes da investigação (ex: data da prisão, qualificadoras do crime)
+   - Essas diferenças NÃO impedem o matching se vítima, data e local coincidem
+
+3. CRITÉRIOS DE MATCHING (em ordem de importância):
+   - Vítima: Nomes similares indicam a mesma pessoa (ex: "Neil Corrêa da Silva" = "Neil Corrêa da Silva")
+   - Data: Mesmo dia ou dia seguinte/anterior (±1 dia)
+   - Local: Mesma cidade/bairro (ex: "Duque de Caxias" = "Duque de Caxias, RJ")
+   - Descrição: Útil para confirmar, mas não deve impedir matching se vítima/data/local coincidem
+
+4. CONFIANÇA:
+   - Use confiança alta (0.8-1.0) quando vítima + data + local coincidem claramente
+   - Use confiança média (0.6-0.8) quando 2 dos 3 critérios coincidem
+   - Use confiança baixa (<0.6) apenas quando há dúvida significativa
 
 Se nenhum incidente corresponder claramente, retorne match: false.
 """
@@ -556,6 +578,17 @@ Instruções importantes:
         
         if data.get("description"):
             incident.description = data["description"]
+        
+        # Geocode the incident after location fields are populated
+        try:
+            latitude, longitude, precision = geocode_incident(incident)
+            if latitude is not None and longitude is not None:
+                incident.latitude = latitude
+                incident.longitude = longitude
+                incident.location_precision = precision
+        except Exception as e:
+            # Don't block enrichment if geocoding fails
+            print(f"    [Enrichment] ⚠️ Geocoding failed (non-blocking): {e}")
         
         elapsed = time.time() - start_time
         print(f"    [Enrichment] ✅ Completed in {elapsed:.1f}s")

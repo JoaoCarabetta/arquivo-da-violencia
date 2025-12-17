@@ -16,5 +16,10 @@ def create_app(config_class=Config):
 
     from app.routes import main as main_blueprint
     app.register_blueprint(main_blueprint)
+    
+    # Make config available to templates
+    @app.context_processor
+    def inject_config():
+        return dict(config=app.config)
 
     return app

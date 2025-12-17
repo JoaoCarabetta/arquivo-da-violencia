@@ -11,6 +11,7 @@ dependencies = [
     "flask-sqlalchemy>=3.1.1",
     "gnews>=0.4.2",
     "google-cloud-aiplatform>=1.130.0",
+    "googlemaps>=4.10.0",
     "googlenewsdecoder>=0.1.7",
     "newspaper3k>=0.2.8",
     "requests>=2.32.5",

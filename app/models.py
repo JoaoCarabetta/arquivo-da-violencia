@@ -47,6 +47,11 @@ class Incident(db.Model):
     description = db.Column(db.Text, nullable=True)
     confirmed = db.Column(db.Boolean, default=False)
     death_count = db.Column(db.Integer, nullable=True)
+    
+    # Geocoding fields
+    latitude = db.Column(db.Numeric(10, 8), nullable=True)  # ~1.1mm precision
+    longitude = db.Column(db.Numeric(11, 8), nullable=True)  # ~1.1mm precision
+    location_precision = db.Column(db.String(50), nullable=True)  # 'exact', 'approximate', 'neighborhood_center', 'city_center'
 
     # Relationships
     extractions = db.relationship('ExtractedEvent', backref='incident', lazy=True)

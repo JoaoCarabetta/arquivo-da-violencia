@@ -1,31 +1,13 @@
 {% extends "base.html" %}
 
 {% block content %}
-<!-- Stats Cards -->
-<div class="row g-3 mb-4">
-    <div class="col-md-4">
-        <div class="card stat-card stat-card-danger h-100">
-            <div class="card-body text-center">
-                <div class="stat-number">{{ deaths_24h }}</div>
-                <div class="stat-label text-muted">Mortes nas últimas 24h</div>
-            </div>
-        </div>
+<!-- Deaths by Day Chart -->
+<div class="card mb-4">
+    <div class="card-header">
+        <h5 class="mb-0">Mortes por Dia (últimos 30 dias)</h5>
     </div>
-    <div class="col-md-4">
-        <div class="card stat-card stat-card-warning h-100">
-            <div class="card-body text-center">
-                <div class="stat-number">{{ deaths_7d }}</div>
-                <div class="stat-label text-muted">Mortes nos últimos 7 dias</div>
-            </div>
-        </div>
-    </div>
-    <div class="col-md-4">
-        <div class="card stat-card stat-card-info h-100">
-            <div class="card-body text-center">
-                <div class="stat-number">{{ deaths_30d }}</div>
-                <div class="stat-label text-muted">Mortes nos últimos 30 dias</div>
-            </div>
-        </div>
+    <div class="card-body">
+        <canvas id="deathsChart" style="height: 300px;"></canvas>
     </div>
 </div>
 
@@ -57,6 +39,62 @@ document.addEventListener('DOMContentLoaded', function() {
         console.error('jQuery is not loaded');
         return;
     }
+    
+    // Initialize deaths chart
+    fetch('/api/data/deaths-by-day?days=30')
+        .then(response => response.json())
+        .then(chartData => {
+            const dates = chartData.data.map(item => {
+                // Format date from YYYY-MM-DD to DD/MM
+                const date = new Date(item.date);
+                return date.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' });
+            });
+            const deaths = chartData.data.map(item => item.deaths);
+            
+            const ctx = document.getElementById('deathsChart').getContext('2d');
+            new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: dates,
+                    datasets: [{
+                        label: 'Mortes',
+                        data: deaths,
+                        backgroundColor: 'rgba(220, 53, 69, 0.8)',
+                        borderColor: 'rgba(220, 53, 69, 1)',
+                        borderWidth: 1
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            display: false
+                        },
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    return 'Mortes: ' + context.parsed.y;
+                                }
+                            }
+                        }
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            ticks: {
+                                stepSize: 1
+                            }
+                        }
+                    }
+                }
+            });
+        })
+        .catch(error => {
+            console.error('Error loading chart data:', error);
+        });
+    
+    // Initialize DataTable
     $('#incidents-table').DataTable({
         serverSide: true,
         ajax: {
@@ -94,7 +132,7 @@ document.addEventListener('DOMContentLoaded', function() {
         order: [[2, 'desc']], // Default sort by date descending
         pageLength: 25,
         language: {
-            url: '//cdn.datatables.net/plug-ins/1.13.7/i18n/pt-BR.json'
+            url: 'https://cdn.datatables.net/plug-ins/1.13.7/i18n/pt-BR.json'
         },
         responsive: true
     });

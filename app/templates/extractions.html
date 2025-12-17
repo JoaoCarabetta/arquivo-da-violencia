@@ -26,14 +26,6 @@
         </table>
     </div>
 </div>
-{% else %}
-<div class="card">
-    <div class="card-body text-center py-5">
-        <p class="text-muted mb-2">Nenhum evento foi extraído ainda.</p>
-        <p class="text-muted mb-0">Vá para <a href="/sources" class="link-primary">Fontes</a> e clique em "Extract" nos artigos de notícias para gerar eventos.</p>
-    </div>
-</div>
-{% endif %}
 
 <!-- Extraction Details Modal -->
 <div class="modal fade" id="extraction-modal" tabindex="-1" aria-labelledby="extractionModalLabel" aria-hidden="true">
@@ -178,7 +170,7 @@
             order: [[5, 'desc']], // Default sort by confidence_score descending
             pageLength: 25,
             language: {
-                url: '//cdn.datatables.net/plug-ins/1.13.7/i18n/pt-BR.json'
+                url: 'https://cdn.datatables.net/plug-ins/1.13.7/i18n/pt-BR.json'
             },
             responsive: true,
             drawCallback: function() {
