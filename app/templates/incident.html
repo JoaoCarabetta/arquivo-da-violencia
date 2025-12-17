@@ -16,7 +16,7 @@
     <ul>
         {% for extraction in incident.extractions %}
         <li>
-            <strong>Fonte:</strong> <a href="{{ extraction.source.url }}" target="_blank">{{ extraction.source.url
+            <strong>Fonte:</strong> <a href="{{ extraction.source.resolved_url or extraction.source.url }}" target="_blank" rel="noopener noreferrer">{{ extraction.source.resolved_url or extraction.source.url
                 }}</a><br>
             <strong>Confiança:</strong> {{ extraction.confidence_score }}<br>
             <strong>Resumo:</strong> {{ extraction.summary }}
