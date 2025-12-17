@@ -16,11 +16,12 @@
                 <th>Confidence</th>
                 <th>Summary</th>
                 <th>Source</th>
+                <th>Actions</th>
             </tr>
         </thead>
         <tbody>
             {% for extraction in extractions %}
-            <tr>
+            <tr class="clickable-row" onclick="showExtractionDetails({{ extraction.id }})" style="cursor: pointer;">
                 <td>{{ extraction.id }}</td>
                 <td>
                     {% if extraction.extracted_victim_name %}
@@ -42,10 +43,20 @@
                 <td>
                     {% if extraction.source %}
                     <a href="{{ extraction.source.resolved_url or extraction.source.url }}" target="_blank"
-                        rel="noopener noreferrer" title="{{ extraction.source.title }}">
+                        rel="noopener noreferrer" title="{{ extraction.source.title }}" onclick="event.stopPropagation();">
                         {{ extraction.source.title[:30] if extraction.source.title else 'View' }}{{ '...' if
                         extraction.source.title and extraction.source.title|length > 30 else '' }}
                     </a>
+                    {% else %}
+                    —
+                    {% endif %}
+                </td>
+                <td onclick="event.stopPropagation();">
+                    {% if extraction.source %}
+                    <button class="btn btn-extract" onclick="reExtract({{ extraction.source.id }}, {{ extraction.id }})" 
+                            id="btn-re-extract-{{ extraction.id }}" title="Re-extract from source">
+                        Re-extract
+                    </button>
                     {% else %}
                     —
                     {% endif %}
@@ -61,4 +72,280 @@
     <p>Go to <a href="/sources">Sources</a> and click "Extract" on news articles to generate events.</p>
 </div>
 {% endif %}
+
+<!-- Extraction Details Modal -->
+<div id="extraction-modal" class="modal hidden">
+    <div class="modal-content" style="max-width: 900px;">
+        <span class="modal-close" onclick="closeExtractionModal()">&times;</span>
+        <div id="extraction-modal-body"></div>
+    </div>
+</div>
+
+<!-- Re-extraction Result Modal -->
+<div id="re-extract-modal" class="modal hidden">
+    <div class="modal-content">
+        <span class="modal-close" onclick="closeReExtractModal()">&times;</span>
+        <h3>Re-extraction Result</h3>
+        <div id="re-extract-content"></div>
+    </div>
+</div>
+
+<script>
+    // Store extraction data in a global object
+    const extractionData = {
+        {% for extraction in extractions %}
+        {{ extraction.id }}: {
+            id: {{ extraction.id }},
+            victim_name: {{ extraction.extracted_victim_name|tojson if extraction.extracted_victim_name else 'null' }},
+            location: {{ extraction.extracted_location|tojson if extraction.extracted_location else 'null' }},
+            date: {{ extraction.extracted_date.strftime('%Y-%m-%d')|tojson if extraction.extracted_date else 'null' }},
+            confidence: {{ extraction.confidence_score }},
+            summary: {{ extraction.summary|tojson if extraction.summary else 'null' }},
+            source: {% if extraction.source %}{
+                id: {{ extraction.source.id }},
+                title: {{ extraction.source.title|tojson if extraction.source.title else 'null' }},
+                url: {{ extraction.source.url|tojson }},
+                resolved_url: {{ extraction.source.resolved_url|tojson if extraction.source.resolved_url else 'null' }},
+                content: {{ extraction.source.content|tojson if extraction.source.content else 'null' }},
+                source_type: {{ extraction.source.source_type|tojson if extraction.source.source_type else 'null' }},
+                published_at: {{ extraction.source.published_at.strftime('%Y-%m-%d %H:%M')|tojson if extraction.source.published_at else 'null' }},
+                fetched_at: {{ extraction.source.fetched_at.strftime('%Y-%m-%d %H:%M')|tojson if extraction.source.fetched_at else 'null' }},
+                status: {{ extraction.source.status|tojson if extraction.source.status else 'null' }}
+            }{% else %}null{% endif %},
+            incident_id: {{ extraction.incident_id if extraction.incident_id else 'null' }}
+        }{% if not loop.last %},{% endif %}
+        {% endfor %}
+    };
+
+    function showExtractionDetails(extractionId) {
+        const data = extractionData[extractionId];
+        if (!data) return;
+
+        const modal = document.getElementById('extraction-modal');
+        const body = document.getElementById('extraction-modal-body');
+
+        let html = '<h2>Extraction Details</h2>';
+
+        // Extraction Information
+        html += '<div class="extraction-section">';
+        html += '<h3>Extracted Information</h3>';
+        html += '<table class="result-table">';
+        html += `<tr><th>Extraction ID</th><td>${data.id}</td></tr>`;
+        html += `<tr><th>Victim Name</th><td>${data.victim_name || '—'}</td></tr>`;
+        html += `<tr><th>Location</th><td>${data.location || '—'}</td></tr>`;
+        html += `<tr><th>Date</th><td>${data.date || '—'}</td></tr>`;
+        html += `<tr><th>Confidence Score</th><td><span class="confidence-badge confidence-${data.confidence >= 0.8 ? 'high' : (data.confidence >= 0.5 ? 'medium' : 'low')}">${Math.round(data.confidence * 100)}%</span></td></tr>`;
+        html += `<tr><th>Summary</th><td>${data.summary || '—'}</td></tr>`;
+        if (data.incident_id) {
+            html += `<tr><th>Linked Incident</th><td><a href="/incident/${data.incident_id}">View Incident #${data.incident_id}</a></td></tr>`;
+        }
+        html += '</table>';
+        html += '</div>';
+
+        // Source Information
+        if (data.source) {
+            html += '<div class="extraction-section" style="margin-top: 2rem;">';
+            html += '<h3>Source Article</h3>';
+            html += '<table class="result-table">';
+            html += `<tr><th>Title</th><td>${data.source.title || '—'}</td></tr>`;
+            html += `<tr><th>Source Type</th><td><span class="badge badge-type">${data.source.source_type || 'unknown'}</span></td></tr>`;
+            html += `<tr><th>Status</th><td><span class="badge badge-${data.source.status || 'pending'}">${data.source.status || 'pending'}</span></td></tr>`;
+            if (data.source.published_at) {
+                html += `<tr><th>Published At</th><td>${data.source.published_at}</td></tr>`;
+            }
+            if (data.source.fetched_at) {
+                html += `<tr><th>Fetched At</th><td>${data.source.fetched_at}</td></tr>`;
+            }
+            html += `<tr><th>Original URL</th><td><a href="${data.source.url}" target="_blank" rel="noopener noreferrer">${data.source.url}</a></td></tr>`;
+            if (data.source.resolved_url && data.source.resolved_url !== data.source.url) {
+                html += `<tr><th>Resolved URL</th><td><a href="${data.source.resolved_url}" target="_blank" rel="noopener noreferrer">${data.source.resolved_url}</a></td></tr>`;
+            }
+            html += '</table>';
+            html += '</div>';
+
+            // Full Article Content
+            if (data.source.content) {
+                html += '<div class="extraction-section" style="margin-top: 2rem;">';
+                html += '<h3>Full Article Content</h3>';
+                html += '<div id="article-content-' + extractionId + '" style="background: #f8f9fa; padding: 1.5rem; border-radius: 8px; max-height: 400px; overflow-y: auto; white-space: pre-wrap; line-height: 1.6; font-size: 0.95em;"></div>';
+                html += '</div>';
+            } else {
+                html += '<div class="extraction-section" style="margin-top: 2rem;">';
+                html += '<p class="text-muted">Article content not available.</p>';
+                html += '</div>';
+            }
+        } else {
+            html += '<div class="extraction-section" style="margin-top: 2rem;">';
+            html += '<p class="text-muted">Source information not available.</p>';
+            html += '</div>';
+        }
+
+        body.innerHTML = html;
+        modal.classList.remove('hidden');
+        
+        // Set content safely using textContent to prevent XSS
+        if (data.source && data.source.content) {
+            const contentEl = document.getElementById('article-content-' + extractionId);
+            if (contentEl) {
+                contentEl.textContent = data.source.content;
+            }
+        }
+    }
+
+    function closeExtractionModal() {
+        document.getElementById('extraction-modal').classList.add('hidden');
+    }
+
+    // Close modal on outside click
+    document.getElementById('extraction-modal').addEventListener('click', function (e) {
+        if (e.target === this) {
+            closeExtractionModal();
+        }
+    });
+
+    // Prevent row click when clicking on links
+    document.querySelectorAll('.clickable-row a').forEach(link => {
+        link.addEventListener('click', function(e) {
+            e.stopPropagation();
+        });
+    });
+
+    // Re-extract functionality
+    async function reExtract(sourceId, extractionId) {
+        const btn = document.getElementById(`btn-re-extract-${extractionId}`);
+        if (!btn) return;
+
+        const originalText = btn.textContent;
+        btn.textContent = 'Extracting...';
+        btn.disabled = true;
+
+        try {
+            const url = `/api/extract/${sourceId}?force=true`;
+            console.log('Calling re-extraction API:', url);
+            
+            const response = await fetch(url, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json'
+                }
+            });
+
+            console.log('Response status:', response.status, response.statusText);
+
+            if (!response.ok) {
+                // Try to get error message from response
+                let errorMessage = `HTTP ${response.status}: ${response.statusText}`;
+                try {
+                    const errorData = await response.json();
+                    errorMessage = errorData.message || errorData.error || errorMessage;
+                } catch (e) {
+                    // If response isn't JSON, try to get text
+                    try {
+                        const text = await response.text();
+                        if (text && text.length > 0) {
+                            errorMessage = text.substring(0, 200); // Limit error message length
+                        }
+                    } catch (textError) {
+                        // If we can't read the response, use the status
+                        errorMessage = `Server returned ${response.status} ${response.statusText}`;
+                    }
+                }
+                throw new Error(errorMessage);
+            }
+
+            const data = await response.json();
+            console.log('Extraction result:', data);
+
+            showReExtractResult(data);
+
+            // If successful, reload after a short delay to show updated data
+            if (data.success) {
+                setTimeout(() => {
+                    window.location.reload();
+                }, 2000);
+            }
+        } catch (error) {
+            console.error('Re-extraction error:', error);
+            let errorMessage = 'Network error: Failed to connect to server';
+            
+            if (error.message) {
+                errorMessage = error.message;
+            } else if (error.name === 'TypeError' && error.message.includes('fetch')) {
+                errorMessage = 'Network error: Could not reach server. Please check if the server is running.';
+            } else if (error.name === 'SyntaxError') {
+                errorMessage = 'Server error: Invalid response format. Please check server logs.';
+            }
+            
+            showReExtractResult({
+                success: false,
+                message: errorMessage
+            });
+        } finally {
+            btn.textContent = originalText;
+            btn.disabled = false;
+        }
+    }
+
+    function showReExtractResult(data) {
+        const modal = document.getElementById('re-extract-modal');
+        const content = document.getElementById('re-extract-content');
+
+        let html = '';
+
+        if (data.success) {
+            html += `<p class="result-status success">✅ ${data.message || 'Re-extraction completed successfully!'}</p>`;
+
+            if (data.extraction) {
+                html += `
+                <div class="extraction-details">
+                    <h4>New Extraction Data</h4>
+                    <table class="result-table">
+                        <tr><th>Summary</th><td>${data.extraction.summary || 'N/A'}</td></tr>
+                        <tr><th>Victim Name</th><td>${data.extraction.victim_name || 'N/A'}</td></tr>
+                        <tr><th>Location</th><td>${data.extraction.location || 'N/A'}</td></tr>
+                        <tr><th>Date</th><td>${data.extraction.date || 'N/A'}</td></tr>
+                        <tr><th>Confidence</th><td>${data.extraction.confidence ? Math.round(data.extraction.confidence * 100) + '%' : 'N/A'}</td></tr>
+                    </table>
+                    ${data.extraction.keywords_matched ? `<p><strong>Keywords matched:</strong> ${data.extraction.keywords_matched.join(', ')}</p>` : ''}
+                </div>
+                <p style="margin-top: 1rem; color: #666; font-size: 0.9em;">Page will reload in 2 seconds to show updated data...</p>
+            `;
+            }
+        } else {
+            html += `<p class="result-status error">❌ ${data.message || 'Re-extraction failed.'}</p>`;
+        }
+
+        content.innerHTML = html;
+        modal.classList.remove('hidden');
+    }
+
+    function closeReExtractModal() {
+        document.getElementById('re-extract-modal').classList.add('hidden');
+    }
+
+    // Close re-extract modal on outside click
+    document.getElementById('re-extract-modal').addEventListener('click', function (e) {
+        if (e.target === this) {
+            closeReExtractModal();
+        }
+    });
+</script>
+
+<style>
+    .clickable-row:hover {
+        background: #e8f4f8 !important;
+    }
+
+    .extraction-section {
+        margin-bottom: 1.5rem;
+    }
+
+    .extraction-section h3 {
+        color: #2c3e50;
+        margin-bottom: 1rem;
+        border-bottom: 2px solid #3498db;
+        padding-bottom: 0.5rem;
+    }
+</style>
 {% endblock %}

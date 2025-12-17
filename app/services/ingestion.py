@@ -7,6 +7,7 @@ from datetime import datetime, timedelta
 from app.extensions import db
 from app.models import Source
 from flask import current_app
+from app.services.extraction import extract_content_and_metadata, get_best_publication_date
 
 RSS_URL = "https://news.google.com/rss/search?q=Rio+de+Janeiro&hl=pt-BR&gl=BR&ceid=BR:pt-419"
 
@@ -82,16 +83,28 @@ def process_source_task(app, source_id, force=False):
         
         target_url = source.resolved_url or source.url
 
-        # 2. Download Content
+        # 2. Download Content and Extract Metadata
         if (not source.content or force) and source.status != 'failed':
             try:
                 downloaded = trafilatura.fetch_url(target_url)
                 if downloaded:
-                    content = trafilatura.extract(downloaded)
+                    content, metadata, trafilatura_date = extract_content_and_metadata(downloaded)
                     if content:
                         source.content = content
                         source.status = 'downloaded' # Ready for extraction
                         changed = True
+                        
+                        # Update published_at if trafilatura found a better date
+                        if trafilatura_date:
+                            best_date = get_best_publication_date(
+                                trafilatura_date,
+                                source.published_at,
+                                source.fetched_at
+                            )
+                            if best_date and best_date != source.published_at:
+                                print(f"  -> Updated publication date from {source.published_at} to {best_date.strftime('%Y-%m-%d')}")
+                                source.published_at = best_date
+                                changed = True
                     else:
                         pass # No content extracted
                 else:

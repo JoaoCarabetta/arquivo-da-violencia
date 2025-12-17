@@ -19,6 +19,7 @@ from app.services.ingestion import (
     process_source_task,
     run_ingestion
 )
+from app.services.extraction import extract_content_and_metadata
 from app.models import Source
 
 
@@ -275,7 +276,8 @@ class TestProcessSourceTask:
     
     @patch('app.services.ingestion.trafilatura')
     @patch('app.services.ingestion.resolve_url')
-    def test_process_source_task_new_source(self, mock_resolve, mock_trafilatura, app, db_session):
+    @patch('app.services.ingestion.extract_content_and_metadata')
+    def test_process_source_task_new_source(self, mock_extract_metadata, mock_resolve, mock_trafilatura, app, db_session):
         """Test processing a new source with URL resolution and content download."""
         # Setup
         with app.app_context():
@@ -290,7 +292,7 @@ class TestProcessSourceTask:
             
             mock_resolve.return_value = "https://example.com/real-article"
             mock_trafilatura.fetch_url.return_value = "<html>Content</html>"
-            mock_trafilatura.extract.return_value = "Extracted article content"
+            mock_extract_metadata.return_value = ("Extracted article content", {}, None)
             
             # Execute
             process_source_task(app, source_id, force=False)
@@ -302,11 +304,77 @@ class TestProcessSourceTask:
             assert source.status == 'downloaded'
             mock_resolve.assert_called_once()
             mock_trafilatura.fetch_url.assert_called_once()
-            mock_trafilatura.extract.assert_called_once()
+            mock_extract_metadata.assert_called_once()
     
     @patch('app.services.ingestion.trafilatura')
     @patch('app.services.ingestion.resolve_url')
-    def test_process_source_task_force_update(self, mock_resolve, mock_trafilatura, app, db_session):
+    @patch('app.services.ingestion.extract_content_and_metadata')
+    def test_process_source_task_extracts_metadata_date(self, mock_extract_metadata, mock_resolve, mock_trafilatura, app, db_session):
+        """Test that process_source_task extracts and updates publication date from metadata."""
+        # Setup
+        with app.app_context():
+            source = Source(
+                url="https://news.google.com/articles/test",
+                title="Test Article",
+                status='pending',
+                published_at=datetime(2025, 1, 1)  # Wrong date from RSS
+            )
+            db_session.add(source)
+            db_session.commit()
+            source_id = source.id
+            
+            # Trafilatura finds correct date from 2023
+            correct_date = datetime(2023, 11, 28)
+            mock_resolve.return_value = "https://example.com/real-article"
+            mock_trafilatura.fetch_url.return_value = "<html>Content</html>"
+            mock_extract_metadata.return_value = ("Extracted article content", {}, correct_date)
+            
+            # Execute
+            process_source_task(app, source_id, force=False)
+            
+            # Assert
+            db_session.refresh(source)
+            assert source.content == "Extracted article content"
+            assert source.status == 'downloaded'
+            # Should have updated to correct date from metadata
+            assert source.published_at == correct_date
+            assert source.published_at.year == 2023
+            assert source.published_at != datetime(2025, 1, 1)
+    
+    @patch('app.services.ingestion.trafilatura')
+    @patch('app.services.ingestion.resolve_url')
+    @patch('app.services.ingestion.extract_content_and_metadata')
+    def test_process_source_task_preserves_existing_date_if_no_metadata(self, mock_extract_metadata, mock_resolve, mock_trafilatura, app, db_session):
+        """Test that existing published_at is preserved if metadata has no date."""
+        # Setup
+        with app.app_context():
+            existing_date = datetime(2023, 11, 28)
+            source = Source(
+                url="https://news.google.com/articles/test",
+                title="Test Article",
+                status='pending',
+                published_at=existing_date
+            )
+            db_session.add(source)
+            db_session.commit()
+            source_id = source.id
+            
+            mock_resolve.return_value = "https://example.com/real-article"
+            mock_trafilatura.fetch_url.return_value = "<html>Content</html>"
+            mock_extract_metadata.return_value = ("Extracted article content", {}, None)  # No date in metadata
+            
+            # Execute
+            process_source_task(app, source_id, force=False)
+            
+            # Assert
+            db_session.refresh(source)
+            # Should preserve existing date
+            assert source.published_at == existing_date
+    
+    @patch('app.services.ingestion.trafilatura')
+    @patch('app.services.ingestion.resolve_url')
+    @patch('app.services.ingestion.extract_content_and_metadata')
+    def test_process_source_task_force_update(self, mock_extract_metadata, mock_resolve, mock_trafilatura, app, db_session):
         """Test processing with force=True to update existing content."""
         # Setup
         with app.app_context():
@@ -323,7 +391,7 @@ class TestProcessSourceTask:
             
             mock_resolve.return_value = "https://example.com/new-url"
             mock_trafilatura.fetch_url.return_value = "<html>New Content</html>"
-            mock_trafilatura.extract.return_value = "New extracted content"
+            mock_extract_metadata.return_value = ("New extracted content", {}, None)
             
             # Execute
             process_source_task(app, source_id, force=True)
@@ -387,7 +455,8 @@ class TestProcessSourceTask:
     
     @patch('app.services.ingestion.trafilatura')
     @patch('app.services.ingestion.resolve_url')
-    def test_process_source_task_extraction_failure(self, mock_resolve, mock_trafilatura, app, db_session):
+    @patch('app.services.ingestion.extract_content_and_metadata')
+    def test_process_source_task_extraction_failure(self, mock_extract_metadata, mock_resolve, mock_trafilatura, app, db_session):
         """Test handling when content extraction fails."""
         # Setup
         with app.app_context():
@@ -402,7 +471,7 @@ class TestProcessSourceTask:
             
             mock_resolve.return_value = "https://example.com/article"
             mock_trafilatura.fetch_url.return_value = "<html>Content</html>"
-            mock_trafilatura.extract.return_value = None  # Extraction fails
+            mock_extract_metadata.return_value = (None, None, None)  # Extraction fails
             
             # Execute
             process_source_task(app, source_id, force=False)
