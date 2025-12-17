@@ -1,0 +1,57 @@
+from datetime import datetime
+from app.extensions import db
+
+class Source(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    url = db.Column(db.String(2048), unique=True, nullable=False)
+    resolved_url = db.Column(db.String(2048), nullable=True)
+    title = db.Column(db.String(512))
+    content = db.Column(db.Text)
+    source_type = db.Column(db.String(50)) # 'news_article', 'tweet', etc.
+    published_at = db.Column(db.DateTime, nullable=True)  # Article publication date from RSS
+    fetched_at = db.Column(db.DateTime, default=datetime.utcnow)
+    status = db.Column(db.String(20), default='pending') # 'pending', 'processed', 'ignored'
+
+    # Relationships
+    extractions = db.relationship('ExtractedEvent', backref='source', lazy=True)
+
+    def __repr__(self):
+        return f'<Source {self.url}>'
+
+class ExtractedEvent(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    source_id = db.Column(db.Integer, db.ForeignKey('source.id'), nullable=False)
+    incident_id = db.Column(db.Integer, db.ForeignKey('incident.id'), nullable=True)
+    
+    confidence_score = db.Column(db.Float, default=0.0)
+    extracted_date = db.Column(db.DateTime, nullable=True)
+    extracted_location = db.Column(db.String(256), nullable=True)
+    extracted_victim_name = db.Column(db.String(256), nullable=True)
+    summary = db.Column(db.Text, nullable=True)
+
+    def __repr__(self):
+        return f'<ExtractedEvent {self.id} from Source {self.source_id}>'
+
+class Incident(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    title = db.Column(db.String(256), nullable=False)
+    date = db.Column(db.DateTime, nullable=True)
+    location = db.Column(db.String(256), nullable=True)
+    city = db.Column(db.String(100), default="Rio de Janeiro")
+    neighborhood = db.Column(db.String(100), nullable=True)
+    description = db.Column(db.Text, nullable=True)
+    confirmed = db.Column(db.Boolean, default=False)
+
+    # Relationships
+    extractions = db.relationship('ExtractedEvent', backref='incident', lazy=True)
+
+    def __repr__(self):
+        return f'<Incident {self.title}>'
+
+class Keyword(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    word = db.Column(db.String(100), unique=True, nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    def __repr__(self):
+        return f'<Keyword {self.word}>'

@@ -1,0 +1,64 @@
+{% extends "base.html" %}
+
+{% block content %}
+<h2>Extracted Events</h2>
+<p class="subtitle">{{ extractions|length }} events extracted from news sources</p>
+
+{% if extractions %}
+<div class="table-container">
+    <table class="sources-table">
+        <thead>
+            <tr>
+                <th>ID</th>
+                <th>Victim Name</th>
+                <th>Location</th>
+                <th>Date</th>
+                <th>Confidence</th>
+                <th>Summary</th>
+                <th>Source</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for extraction in extractions %}
+            <tr>
+                <td>{{ extraction.id }}</td>
+                <td>
+                    {% if extraction.extracted_victim_name %}
+                    <strong>{{ extraction.extracted_victim_name }}</strong>
+                    {% else %}
+                    <span class="text-muted">Unknown</span>
+                    {% endif %}
+                </td>
+                <td>{{ extraction.extracted_location or '—' }}</td>
+                <td>{{ extraction.extracted_date.strftime('%Y-%m-%d') if extraction.extracted_date else '—' }}</td>
+                <td>
+                    <span
+                        class="confidence-badge confidence-{{ 'high' if extraction.confidence_score >= 0.8 else ('medium' if extraction.confidence_score >= 0.5 else 'low') }}">
+                        {{ (extraction.confidence_score * 100)|int }}%
+                    </span>
+                </td>
+                <td class="summary-cell">{{ extraction.summary[:150] if extraction.summary else '—' }}{{ '...' if
+                    extraction.summary and extraction.summary|length > 150 else '' }}</td>
+                <td>
+                    {% if extraction.source %}
+                    <a href="{{ extraction.source.resolved_url or extraction.source.url }}" target="_blank"
+                        rel="noopener noreferrer" title="{{ extraction.source.title }}">
+                        {{ extraction.source.title[:30] if extraction.source.title else 'View' }}{{ '...' if
+                        extraction.source.title and extraction.source.title|length > 30 else '' }}
+                    </a>
+                    {% else %}
+                    —
+                    {% endif %}
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% else %}
+<div class="empty-state">
+    <p>No events have been extracted yet.</p>
+    <p>Go to <a href="/sources">Sources</a> and click "Extract" on news articles to generate events.</p>
+</div>
+{% endif %}
+{% endblock %}

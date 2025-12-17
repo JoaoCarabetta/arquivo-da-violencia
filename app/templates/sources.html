@@ -1,0 +1,140 @@
+{% extends "base.html" %}
+
+{% block content %}
+<h2>News Sources</h2>
+
+{% if sources %}
+<div class="table-container">
+    <table class="sources-table">
+        <thead>
+            <tr>
+                <th>ID</th>
+                <th>Title</th>
+                <th>Source Type</th>
+                <th>Status</th>
+                <th>Fetched At</th>
+                <th>URL</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for source in sources %}
+            <tr id="row-{{ source.id }}">
+                <td>{{ source.id }}</td>
+                <td>{{ source.title or 'No title' }}</td>
+                <td><span class="badge badge-type">{{ source.source_type or 'unknown' }}</span></td>
+                <td>
+                    <span class="badge badge-{{ source.status }}">{{ source.status }}</span>
+                </td>
+                <td>{{ source.fetched_at.strftime('%Y-%m-%d %H:%M') if source.fetched_at else 'N/A' }}</td>
+                <td>
+                    {% if source.resolved_url %}
+                    <a href="{{ source.resolved_url }}" target="_blank" rel="noopener noreferrer">View</a>
+                    {% elif source.url %}
+                    <a href="{{ source.url }}" target="_blank" rel="noopener noreferrer">View</a>
+                    {% else %}
+                    N/A
+                    {% endif %}
+                </td>
+                <td>
+                    <button class="btn btn-extract" onclick="extractEvent({{ source.id }})" id="btn-{{ source.id }}">
+                        Extract
+                    </button>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+<!-- Result Modal -->
+<div id="result-modal" class="modal hidden">
+    <div class="modal-content">
+        <span class="modal-close" onclick="closeModal()">&times;</span>
+        <h3>Extraction Result</h3>
+        <div id="result-content"></div>
+    </div>
+</div>
+
+<script>
+    async function extractEvent(sourceId) {
+        const btn = document.getElementById(`btn-${sourceId}`);
+        const originalText = btn.textContent;
+        btn.textContent = 'Extracting...';
+        btn.disabled = true;
+
+        try {
+            const response = await fetch(`/api/extract/${sourceId}`, {
+                method: 'POST'
+            });
+            const data = await response.json();
+
+            showResult(data);
+
+            // Update row status if successful
+            if (data.success) {
+                const row = document.getElementById(`row-${sourceId}`);
+                const statusBadge = row.querySelector('.badge-pending, .badge-downloaded');
+                if (statusBadge) {
+                    statusBadge.className = 'badge badge-processed';
+                    statusBadge.textContent = 'processed';
+                }
+            }
+        } catch (error) {
+            showResult({
+                success: false,
+                message: 'Network error: ' + error.message
+            });
+        } finally {
+            btn.textContent = originalText;
+            btn.disabled = false;
+        }
+    }
+
+    function showResult(data) {
+        const modal = document.getElementById('result-modal');
+        const content = document.getElementById('result-content');
+
+        let html = '';
+
+        if (data.success) {
+            html += `<p class="result-status success">✅ ${data.message}</p>`;
+
+            if (data.extraction) {
+                html += `
+                <div class="extraction-details">
+                    <h4>Extracted Data</h4>
+                    <table class="result-table">
+                        <tr><th>Summary</th><td>${data.extraction.summary || 'N/A'}</td></tr>
+                        <tr><th>Victim Name</th><td>${data.extraction.victim_name || 'N/A'}</td></tr>
+                        <tr><th>Location</th><td>${data.extraction.location || 'N/A'}</td></tr>
+                        <tr><th>Date</th><td>${data.extraction.date || 'N/A'}</td></tr>
+                        <tr><th>Confidence</th><td>${(data.extraction.confidence * 100).toFixed(0)}%</td></tr>
+                    </table>
+                    ${data.extraction.keywords_matched ? `<p><strong>Keywords matched:</strong> ${data.extraction.keywords_matched.join(', ')}</p>` : ''}
+                </div>
+            `;
+            }
+        } else {
+            html += `<p class="result-status error">❌ ${data.message}</p>`;
+        }
+
+        content.innerHTML = html;
+        modal.classList.remove('hidden');
+    }
+
+    function closeModal() {
+        document.getElementById('result-modal').classList.add('hidden');
+    }
+
+    // Close modal on outside click
+    document.getElementById('result-modal').addEventListener('click', function (e) {
+        if (e.target === this) {
+            closeModal();
+        }
+    });
+</script>
+{% else %}
+<p>No sources have been fetched yet.</p>
+{% endif %}
+{% endblock %}

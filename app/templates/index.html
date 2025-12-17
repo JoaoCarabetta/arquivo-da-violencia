@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+
+{% block content %}
+<!-- Stats Cards -->
+<div class="stats-cards">
+    <div class="stat-card stat-card-danger">
+        <div class="stat-number">{{ deaths_24h }}</div>
+        <div class="stat-label">Mortes nas últimas 24h</div>
+    </div>
+    <div class="stat-card stat-card-warning">
+        <div class="stat-number">{{ deaths_7d }}</div>
+        <div class="stat-label">Mortes nos últimos 7 dias</div>
+    </div>
+    <div class="stat-card stat-card-info">
+        <div class="stat-number">{{ deaths_30d }}</div>
+        <div class="stat-label">Mortes nos últimos 30 dias</div>
+    </div>
+</div>
+
+<h2>Incidentes</h2>
+{% if incidents %}
+<div class="table-container">
+    <table class="sources-table">
+        <thead>
+            <tr>
+                <th>ID</th>
+                <th>Data</th>
+                <th>Local</th>
+                <th>Resumo</th>
+                <th>Vítimas</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for incident in incidents %}
+            <tr>
+                <td><a href="{{ url_for('main.incident_detail', incident_id=incident.id) }}">{{ incident.id }}</a></td>
+                <td>{{ incident.date.strftime('%d/%m/%Y') if incident.date else 'Desconhecida' }}</td>
+                <td>{{ incident.location or incident.city or '-' }}</td>
+                <td class="summary-cell">{{ incident.description[:150] + '...' if incident.description and
+                    incident.description|length > 150 else incident.description or '-' }}</td>
+                <td>{{ incident.extractions|length }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% else %}
+<div class="empty-state">
+    <p>Nenhum incidente registrado ainda.</p>
+</div>
+{% endif %}
+{% endblock %}

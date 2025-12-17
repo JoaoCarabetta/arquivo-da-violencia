@@ -1,0 +1,18 @@
+[project]
+name = "arquivo-da-violencia"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "feedparser>=6.0.12",
+    "flask>=3.1.2",
+    "flask-sqlalchemy>=3.1.1",
+    "gnews>=0.4.2",
+    "google-cloud-aiplatform>=1.130.0",
+    "googlenewsdecoder>=0.1.7",
+    "newspaper3k>=0.2.8",
+    "requests>=2.32.5",
+    "sqlalchemy>=2.0.45",
+    "trafilatura>=2.0.0",
+]

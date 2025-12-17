@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+
+{% block content %}
+<a href="{{ url_for('main.index') }}">&larr; Voltar para lista</a>
+<article>
+    <h2>{{ incident.title }}</h2>
+    <p class="date">Data: {{ incident.date.strftime('%d/%m/%Y %H:%M') if incident.date else 'Desconhecida' }}</p>
+    <p class="location">Local: {{ incident.location }} ({{ incident.neighborhood }}, {{ incident.city }})</p>
+    <hr>
+    <div class="description">
+        <p>{{ incident.description }}</p>
+    </div>
+
+    {% if incident.extractions %}
+    <h3>Fontes &amp; Extrações</h3>
+    <ul>
+        {% for extraction in incident.extractions %}
+        <li>
+            <strong>Fonte:</strong> <a href="{{ extraction.source.url }}" target="_blank">{{ extraction.source.url
+                }}</a><br>
+            <strong>Confiança:</strong> {{ extraction.confidence_score }}<br>
+            <strong>Resumo:</strong> {{ extraction.summary }}
+        </li>
+        {% endfor %}
+    </ul>
+    {% endif %}
+</article>
+{% endblock %}
