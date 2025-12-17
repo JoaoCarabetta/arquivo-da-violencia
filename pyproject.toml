@@ -5,6 +5,7 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
+    "alembic>=1.13.0",
     "feedparser>=6.0.12",
     "flask>=3.1.2",
     "flask-sqlalchemy>=3.1.1",
@@ -15,4 +16,27 @@ dependencies = [
     "requests>=2.32.5",
     "sqlalchemy>=2.0.45",
     "trafilatura>=2.0.0",
+    "pytest>=8.0.0",
+    "pytest-mock>=3.14.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = [
+    "-v",
+    "--strict-markers",
+    "--tb=short",
+]
+markers = [
+    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+]
+filterwarnings = [
+    # Suppress SQLAlchemy LegacyAPIWarning for Query.get() - we'll migrate later
+    "ignore::sqlalchemy.exc.LegacyAPIWarning",
+    # Suppress RuntimeWarning about coroutines from pytest-mock
+    "ignore::RuntimeWarning:pytest_mock",
+    "ignore:coroutine.*was never awaited:RuntimeWarning",
 ]

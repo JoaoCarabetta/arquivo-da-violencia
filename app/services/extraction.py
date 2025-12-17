@@ -121,14 +121,10 @@ def process_source_extraction(source, force=False):
     """Process a single source for extraction."""
     changed = False
     
-    # Early check: skip if extraction already exists (unless force=True)
+    # Early check: skip if already processed (unless force=True)
     if not force:
-        existing = ExtractedEvent.query.filter_by(source_id=source.id).first()
-        if existing:
-            # Already has extraction, skip processing
-            if source.status != 'processed':
-                source.status = 'processed'
-                db.session.commit()
+        if source.status == 'processed':
+            # Already processed, skip
             return False
     
     # 1. Resolve URL
@@ -166,28 +162,25 @@ def process_source_extraction(source, force=False):
             data, status = extract_with_llm(source.content, matches, pub_date)
             
             if data.get("is_valid"):
-                # Check for existing extraction
-                existing = ExtractedEvent.query.filter_by(source_id=source.id).first()
-                if not existing:
-                    # Parse date if possible
-                    event_date = None
-                    if data.get("date"):
-                        try:
-                            event_date = datetime.strptime(data["date"], "%Y-%m-%d")
-                        except:
-                            pass
+                # Parse date if possible
+                event_date = None
+                if data.get("date"):
+                    try:
+                        event_date = datetime.strptime(data["date"], "%Y-%m-%d")
+                    except:
+                        pass
 
-                    extraction = ExtractedEvent(
-                        source=source,
-                        confidence_score=data.get("confidence", 0.5),
-                        summary=data.get("summary", "No summary"),
-                        extracted_victim_name=data.get("victim_name"),
-                        extracted_location=data.get("location"),
-                        extracted_date=event_date
-                    )
-                    db.session.add(extraction)
-                    print(f"[+] Extraction Created: {source.title[:30]}... (Victim: {data.get('victim_name')})")
-                    changed = True
+                extraction = ExtractedEvent(
+                    source=source,
+                    confidence_score=data.get("confidence", 0.5),
+                    summary=data.get("summary", "No summary"),
+                    extracted_victim_name=data.get("victim_name"),
+                    extracted_location=data.get("location"),
+                    extracted_date=event_date
+                )
+                db.session.add(extraction)
+                print(f"[+] Extraction Created: {source.title[:30]}... (Victim: {data.get('victim_name')})")
+                changed = True
             else:
                 print(f"[-] Ignored (Invalid): {source.title[:30]}...")
         
@@ -245,22 +238,31 @@ def extract_event(source_id, force=False):
             "message": "Source not found"
         }
     
-    # Check if already has extraction
-    existing = ExtractedEvent.query.filter_by(source_id=source_id).first()
-    if existing and not force:
-        return {
-            "success": True,
-            "source_id": source_id,
-            "extraction": {
-                "id": existing.id,
-                "summary": existing.summary,
-                "victim_name": existing.extracted_victim_name,
-                "location": existing.extracted_location,
-                "date": existing.extracted_date.strftime('%Y-%m-%d') if existing.extracted_date else None,
-                "confidence": existing.confidence_score
-            },
-            "message": "Extraction already exists"
-        }
+    # Check if already processed
+    if source.status == 'processed' and not force:
+        # Return existing extraction if available, otherwise just indicate it's processed
+        existing = ExtractedEvent.query.filter_by(source_id=source_id).first()
+        if existing:
+            return {
+                "success": True,
+                "source_id": source_id,
+                "extraction": {
+                    "id": existing.id,
+                    "summary": existing.summary,
+                    "victim_name": existing.extracted_victim_name,
+                    "location": existing.extracted_location,
+                    "date": existing.extracted_date.strftime('%Y-%m-%d') if existing.extracted_date else None,
+                    "confidence": existing.confidence_score
+                },
+                "message": "Source already processed"
+            }
+        else:
+            return {
+                "success": True,
+                "source_id": source_id,
+                "extraction": None,
+                "message": "Source already processed (no extraction found)"
+            }
     
     # Ensure we have content
     if not source.content:
@@ -317,8 +319,14 @@ def extract_event(source_id, force=False):
             "message": "LLM determined content is not a valid violent event"
         }
     
-    # If we have existing (and force=True), update it
+    # Create or update extraction
+    # If force=True, check for existing extraction to update
+    existing = None
+    if force:
+        existing = ExtractedEvent.query.filter_by(source_id=source_id).first()
+    
     if existing:
+        # Update existing extraction
         event_date = None
         if data.get("date"):
             try:
@@ -373,16 +381,15 @@ def extract_event(source_id, force=False):
 def run_extraction(force=False, limit=None, max_workers=10):
     """Stage 2: Extraction - Process pending/downloaded sources in parallel.
     
-    Only processes sources that don't already have an extraction (unless force=True).
+    Only processes sources that are not already marked as 'processed' (unless force=True).
     """
     # We need to access the real app object to pass to threads
     app_obj = current_app._get_current_object()
     
     query = Source.query
     if not force:
-        # Only process sources that don't already have an extraction
-        # Use LEFT JOIN to find sources without ExtractedEvent
-        query = query.outerjoin(ExtractedEvent).filter(ExtractedEvent.id == None)
+        # Only process sources that are not already marked as 'processed'
+        query = query.filter(Source.status != 'processed')
     
     # Fetch IDs only to avoid DetachedInstanceError and save memory
     if limit:
