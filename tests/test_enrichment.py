@@ -14,6 +14,8 @@ Tests cover:
 """
 
 import pytest
+import json
+from unittest.mock import Mock, patch, MagicMock
 from datetime import datetime, timedelta
 from app.services.enrichment import (
     normalize_text,
@@ -24,7 +26,10 @@ from app.services.enrichment import (
     find_matching_incident,
     create_incident_from_extraction,
     run_enrichment,
-    link_extraction_to_incident
+    link_extraction_to_incident,
+    llm_match_extraction_to_incident,
+    llm_enrich_incident,
+    re_enrich_incident
 )
 from app.models import ExtractedEvent, Incident, Source
 
@@ -155,7 +160,8 @@ class TestCalculateMatchScore:
             incident = Incident(
                 title="Morte de João Silva",
                 date=datetime(2024, 1, 15),
-                location="Copacabana",
+                neighborhood="Copacabana",
+                city="Rio de Janeiro",
                 description="Homicide occurred"
             )
             
@@ -175,7 +181,8 @@ class TestCalculateMatchScore:
             incident = Incident(
                 title="Homicide",
                 date=datetime(2024, 1, 15),
-                location="Copacabana",
+                neighborhood="Copacabana",
+                city="Rio de Janeiro",
                 neighborhood="Copacabana"
             )
             
@@ -214,7 +221,8 @@ class TestCalculateMatchScore:
             incident = Incident(
                 title="Different Person",
                 date=datetime(2024, 1, 15),
-                location="Ipanema",
+                neighborhood="Ipanema",
+                city="Rio de Janeiro",
                 description="Different event"
             )
             
@@ -252,7 +260,8 @@ class TestCalculateMatchScore:
             incident = Incident(
                 title="Homicide",
                 date=datetime(2024, 1, 15),
-                location="Copacabana",
+                neighborhood="Copacabana",
+                city="Rio de Janeiro",
                 neighborhood="Copacabana"
             )
             
@@ -289,17 +298,17 @@ class TestFindCandidateIncidents:
             incident1 = Incident(
                 title="Incident 1",
                 date=datetime(2024, 1, 15),
-                location="Location 1"
+                neighborhood="Location 1"
             )
             incident2 = Incident(
                 title="Incident 2",
                 date=datetime(2024, 1, 16),  # Within 1 day tolerance
-                location="Location 2"
+                neighborhood="Location 2"
             )
             incident3 = Incident(
                 title="Incident 3",
                 date=datetime(2024, 1, 20),  # Outside tolerance
-                location="Location 3"
+                neighborhood="Location 3"
             )
             db_session.add_all([incident1, incident2, incident3])
             db_session.commit()
@@ -334,17 +343,17 @@ class TestFindCandidateIncidents:
             incident1 = Incident(
                 title="Incident 1",
                 date=datetime(2024, 1, 14),  # Exactly 1 day before
-                location="Location 1"
+                neighborhood="Location 1"
             )
             incident2 = Incident(
                 title="Incident 2",
                 date=datetime(2024, 1, 16),  # Exactly 1 day after
-                location="Location 2"
+                neighborhood="Location 2"
             )
             incident3 = Incident(
                 title="Incident 3",
                 date=datetime(2024, 1, 13),  # 2 days before (outside)
-                location="Location 3"
+                neighborhood="Location 3"
             )
             db_session.add_all([incident1, incident2, incident3])
             db_session.commit()
@@ -377,12 +386,12 @@ class TestFindCandidateIncidents:
             incident1 = Incident(
                 title="Incident 1",
                 date=datetime(2024, 1, 15),
-                location="Location 1"
+                neighborhood="Location 1"
             )
             incident2 = Incident(
                 title="Incident 2",
                 date=None,  # No date
-                location="Location 2"
+                neighborhood="Location 2"
             )
             db_session.add_all([incident1, incident2])
             db_session.commit()
@@ -407,7 +416,8 @@ class TestFindMatchingIncident:
             incident = Incident(
                 title="Morte de João Silva",
                 date=datetime(2024, 1, 15),
-                location="Copacabana",
+                neighborhood="Copacabana",
+                city="Rio de Janeiro",
                 description="João Silva was killed"
             )
             db_session.add(incident)
@@ -431,7 +441,8 @@ class TestFindMatchingIncident:
             incident = Incident(
                 title="Different Person",
                 date=datetime(2024, 1, 15),
-                location="Ipanema",
+                neighborhood="Ipanema",
+                city="Rio de Janeiro",
                 description="Different event"
             )
             db_session.add(incident)
@@ -466,13 +477,15 @@ class TestFindMatchingIncident:
             incident1 = Incident(
                 title="Morte de João Silva",
                 date=datetime(2024, 1, 15),
-                location="Copacabana",
+                neighborhood="Copacabana",
+                city="Rio de Janeiro",
                 description="João Silva"
             )
             incident2 = Incident(
                 title="Different Person",
                 date=datetime(2024, 1, 15),
-                location="Ipanema",
+                neighborhood="Ipanema",
+                city="Rio de Janeiro",
                 description="Different"
             )
             db_session.add_all([incident1, incident2])
@@ -505,9 +518,12 @@ class TestCreateIncidentFromExtraction:
             incident = create_incident_from_extraction(extraction)
             assert incident.title == "Morte de João Silva"
             assert incident.date == datetime(2024, 1, 15)
-            assert incident.location == "Rua X, Bairro Copacabana"
+            assert incident.victims == "João Silva"
+            assert incident.country == "Brasil"
+            assert incident.state == "Rio de Janeiro"
             assert incident.city == "Rio de Janeiro"
             assert incident.neighborhood == "copacabana"
+            assert incident.location_extra_info == "Rua X, Bairro Copacabana"
             assert incident.description == "Homicide occurred"
             assert incident.confirmed is False
     
@@ -568,7 +584,8 @@ class TestRunEnrichment:
             incident = Incident(
                 title="Morte de João Silva",
                 date=datetime(2024, 1, 15),
-                location="Copacabana",
+                neighborhood="Copacabana",
+                city="Rio de Janeiro",
                 description="João Silva"
             )
             db_session.add(incident)
@@ -750,7 +767,8 @@ class TestRunEnrichment:
             incident = Incident(
                 title="Morte de João Silva",
                 date=datetime(2024, 1, 15),
-                location="Copacabana",
+                neighborhood="Copacabana",
+                city="Rio de Janeiro",
                 description="João Silva"
             )
             db_session.add(incident)
@@ -856,4 +874,389 @@ class TestLinkExtractionToIncident:
             
             assert result["success"] is False
             assert "not found" in result["message"]
+
+
+class TestLLMMatchExtractionToIncident:
+    """Tests for llm_match_extraction_to_incident function."""
+    
+    @patch('app.services.enrichment.get_llm_model')
+    def test_llm_match_found(self, mock_get_model, app, db_session):
+        """Test LLM matching when a match is found."""
+        with app.app_context():
+            # Create mock LLM response
+            mock_model = MagicMock()
+            mock_response = MagicMock()
+            mock_response.text = json.dumps({
+                "match": True,
+                "incident_id": 1,
+                "confidence": 0.95,
+                "reasoning": "Same victim name and location"
+            })
+            mock_model.generate_content.return_value = mock_response
+            mock_get_model.return_value = mock_model
+            
+            # Create incident
+            incident = Incident(
+                id=1,
+                title="Morte de João Silva",
+                date=datetime(2024, 1, 15),
+                neighborhood="Copacabana",
+                city="Rio de Janeiro"
+            )
+            db_session.add(incident)
+            db_session.commit()
+            
+            # Create extraction
+            extraction = ExtractedEvent(
+                extracted_date=datetime(2024, 1, 15),
+                extracted_victim_name="João Silva",
+                extracted_location="Copacabana",
+                summary="Homicide"
+            )
+            
+            matched, confidence, reasoning = llm_match_extraction_to_incident(extraction, [incident])
+            
+            assert matched is not None
+            assert matched.id == 1
+            assert confidence == 0.95
+            assert "Same victim" in reasoning
+    
+    @patch('app.services.enrichment.get_llm_model')
+    def test_llm_match_not_found(self, mock_get_model, app, db_session):
+        """Test LLM matching when no match is found."""
+        with app.app_context():
+            # Create mock LLM response
+            mock_model = MagicMock()
+            mock_response = MagicMock()
+            mock_response.text = json.dumps({
+                "match": False,
+                "incident_id": None,
+                "confidence": 0.2,
+                "reasoning": "Different victim and location"
+            })
+            mock_model.generate_content.return_value = mock_response
+            mock_get_model.return_value = mock_model
+            
+            # Create incident
+            incident = Incident(
+                id=1,
+                title="Morte de Maria Santos",
+                date=datetime(2024, 1, 15),
+                neighborhood="Ipanema",
+                city="Rio de Janeiro"
+            )
+            db_session.add(incident)
+            db_session.commit()
+            
+            # Create extraction
+            extraction = ExtractedEvent(
+                extracted_date=datetime(2024, 1, 15),
+                extracted_victim_name="João Silva",
+                extracted_location="Copacabana",
+                summary="Homicide"
+            )
+            
+            matched, confidence, reasoning = llm_match_extraction_to_incident(extraction, [incident])
+            
+            assert matched is None
+            assert confidence == 0.2
+    
+    @patch('app.services.enrichment.get_llm_model')
+    def test_llm_match_no_candidates(self, mock_get_model):
+        """Test LLM matching with no candidates."""
+        extraction = ExtractedEvent(
+            extracted_date=datetime(2024, 1, 15),
+            extracted_victim_name="João Silva"
+        )
+        
+        matched, confidence, reasoning = llm_match_extraction_to_incident(extraction, [])
+        
+        assert matched is None
+        assert confidence == 0.0
+    
+    @patch('app.services.enrichment.get_llm_model')
+    def test_llm_match_llm_not_available(self, mock_get_model):
+        """Test fallback when LLM is not available."""
+        mock_get_model.return_value = None
+        
+        extraction = ExtractedEvent(
+            extracted_date=datetime(2024, 1, 15),
+            extracted_victim_name="João Silva"
+        )
+        incident = Incident(id=1, title="Test")
+        
+        matched, confidence, reasoning = llm_match_extraction_to_incident(extraction, [incident])
+        
+        assert matched is None
+        assert confidence == 0.0
+        assert "LLM not available" in reasoning
+
+
+class TestLLMEnrichIncident:
+    """Tests for llm_enrich_incident function."""
+    
+    @patch('app.services.enrichment.get_llm_model')
+    def test_llm_enrich_incident_success(self, mock_get_model, app, db_session):
+        """Test successful incident enrichment."""
+        with app.app_context():
+            # Create mock LLM response
+            mock_model = MagicMock()
+            mock_response = MagicMock()
+            mock_response.text = json.dumps({
+                "title": "Morte de João Silva em Copacabana",
+                "date": "2024-01-15",
+                "victims": "João Silva, 35 anos",
+                "country": "Brasil",
+                "state": "Rio de Janeiro",
+                "city": "Rio de Janeiro",
+                "neighborhood": "Copacabana",
+                "street": "Rua X",
+                "location_extra_info": "Próximo à praia",
+                "description": "João Silva foi morto em tiroteio na Rua X, Copacabana."
+            })
+            mock_model.generate_content.return_value = mock_response
+            mock_get_model.return_value = mock_model
+            
+            # Create source and extraction
+            source = Source(
+                url="https://example.com/article",
+                title="Article Title",
+                content="Full article content about the homicide"
+            )
+            db_session.add(source)
+            db_session.flush()
+            
+            incident = Incident(
+                title="Morte de João Silva",
+                date=datetime(2024, 1, 15),
+                city="Rio de Janeiro"
+            )
+            db_session.add(incident)
+            db_session.flush()
+            
+            extraction = ExtractedEvent(
+                source_id=source.id,
+                incident_id=incident.id,
+                extracted_victim_name="João Silva",
+                extracted_location="Copacabana",
+                summary="Homicide"
+            )
+            db_session.add(extraction)
+            db_session.commit()
+            
+            # Refresh to get relationships
+            db_session.refresh(incident)
+            
+            enriched = llm_enrich_incident(incident)
+            
+            assert enriched.title == "Morte de João Silva em Copacabana"
+            assert enriched.victims == "João Silva, 35 anos"
+            assert enriched.neighborhood == "Copacabana"
+            assert enriched.street == "Rua X"
+            assert "tiroteio" in enriched.description.lower()
+    
+    @patch('app.services.enrichment.get_llm_model')
+    def test_llm_enrich_incident_no_extractions(self, mock_get_model, app, db_session):
+        """Test enrichment when incident has no extractions."""
+        with app.app_context():
+            incident = Incident(
+                title="Test Incident",
+                date=datetime(2024, 1, 15)
+            )
+            db_session.add(incident)
+            db_session.commit()
+            
+            enriched = llm_enrich_incident(incident)
+            
+            # Should return unchanged
+            assert enriched.title == "Test Incident"
+            mock_get_model.assert_not_called()
+    
+    @patch('app.services.enrichment.get_llm_model')
+    def test_llm_enrich_incident_llm_not_available(self, mock_get_model, app, db_session):
+        """Test fallback when LLM is not available."""
+        mock_get_model.return_value = None
+        
+        with app.app_context():
+            source = Source(url="https://example.com/article", title="Article")
+            db_session.add(source)
+            db_session.flush()
+            
+            incident = Incident(title="Test Incident")
+            db_session.add(incident)
+            db_session.flush()
+            
+            extraction = ExtractedEvent(source_id=source.id, incident_id=incident.id)
+            db_session.add(extraction)
+            db_session.commit()
+            
+            db_session.refresh(incident)
+            
+            enriched = llm_enrich_incident(incident)
+            
+            # Should return unchanged
+            assert enriched.title == "Test Incident"
+
+
+class TestReEnrichIncident:
+    """Tests for re_enrich_incident function."""
+    
+    @patch('app.services.enrichment.llm_enrich_incident')
+    def test_re_enrich_incident_success(self, mock_enrich, app, db_session):
+        """Test successful re-enrichment."""
+        mock_enrich.return_value = Incident(
+            id=1,
+            title="Enriched Title",
+            date=datetime(2024, 1, 15),
+            victims="João Silva",
+            street="Rua X",
+            neighborhood="Copacabana",
+            city="Rio de Janeiro"
+        )
+        
+        with app.app_context():
+            incident = Incident(
+                id=1,
+                title="Original Title",
+                date=datetime(2024, 1, 15)
+            )
+            db_session.add(incident)
+            db_session.commit()
+            
+            result = re_enrich_incident(1, dry_run=False)
+            
+            assert result["success"] is True
+            assert "Re-enriched" in result["message"]
+            assert result["incident"]["title"] == "Enriched Title"
+            mock_enrich.assert_called_once()
+    
+    @patch('app.services.enrichment.llm_enrich_incident')
+    def test_re_enrich_incident_dry_run(self, mock_enrich, app, db_session):
+        """Test re-enrichment in dry run mode."""
+        mock_enrich.return_value = Incident(
+            id=1,
+            title="Enriched Title",
+            date=datetime(2024, 1, 15)
+        )
+        
+        with app.app_context():
+            incident = Incident(id=1, title="Original Title")
+            db_session.add(incident)
+            db_session.commit()
+            
+            result = re_enrich_incident(1, dry_run=True)
+            
+            assert result["success"] is True
+            assert "DRY RUN" in result["message"]
+            mock_enrich.assert_called_once()
+    
+    def test_re_enrich_incident_not_found(self, app, db_session):
+        """Test re-enrichment when incident doesn't exist."""
+        with app.app_context():
+            result = re_enrich_incident(99999, dry_run=False)
+            
+            assert result["success"] is False
+            assert "not found" in result["message"]
+
+
+class TestFindMatchingIncidentWithLLM:
+    """Tests for find_matching_incident with LLM integration."""
+    
+    @patch('app.services.enrichment.llm_match_extraction_to_incident')
+    def test_find_matching_incident_llm_match(self, mock_llm_match, app, db_session):
+        """Test finding match using LLM."""
+        with app.app_context():
+            incident = Incident(
+                id=1,
+                title="Morte de João Silva",
+                date=datetime(2024, 1, 15),
+                neighborhood="Copacabana",
+                city="Rio de Janeiro"
+            )
+            db_session.add(incident)
+            db_session.commit()
+            
+            extraction = ExtractedEvent(
+                extracted_date=datetime(2024, 1, 15),
+                extracted_victim_name="João Silva",
+                extracted_location="Copacabana"
+            )
+            
+            mock_llm_match.return_value = (incident, 0.95, "Same victim and location")
+            
+            match, score = find_matching_incident(extraction)
+            
+            assert match is not None
+            assert match.id == 1
+            assert score == 0.95
+            mock_llm_match.assert_called_once()
+    
+    @patch('app.services.enrichment.llm_match_extraction_to_incident')
+    def test_find_matching_incident_llm_no_match(self, mock_llm_match, app, db_session):
+        """Test when LLM finds no match."""
+        with app.app_context():
+            incident = Incident(
+                id=1,
+                title="Morte de Maria Santos",
+                date=datetime(2024, 1, 15),
+                neighborhood="Ipanema",
+                city="Rio de Janeiro"
+            )
+            db_session.add(incident)
+            db_session.commit()
+            
+            extraction = ExtractedEvent(
+                extracted_date=datetime(2024, 1, 15),
+                extracted_victim_name="João Silva",
+                extracted_location="Copacabana"
+            )
+            
+            mock_llm_match.return_value = (None, 0.2, "Different victim and location")
+            
+            match, score = find_matching_incident(extraction)
+            
+            assert match is None
+            assert score == 0.2
+
+
+class TestRunEnrichmentWithLLM:
+    """Tests for run_enrichment with LLM enrichment."""
+    
+    @patch('app.services.enrichment.llm_enrich_incident')
+    @patch('app.services.enrichment.llm_match_extraction_to_incident')
+    def test_run_enrichment_with_llm_enrichment(self, mock_llm_match, mock_enrich, app, db_session):
+        """Test that enrichment is called after linking."""
+        with app.app_context():
+            source = Source(url="https://example.com/article", title="Article")
+            db_session.add(source)
+            db_session.flush()
+            
+            incident = Incident(
+                id=1,
+                title="Morte de João Silva",
+                date=datetime(2024, 1, 15),
+                neighborhood="Copacabana",
+                city="Rio de Janeiro"
+            )
+            db_session.add(incident)
+            db_session.commit()
+            
+            extraction = ExtractedEvent(
+                source_id=source.id,
+                extracted_date=datetime(2024, 1, 15),
+                extracted_victim_name="João Silva",
+                extracted_location="Copacabana",
+                summary="Homicide"
+            )
+            db_session.add(extraction)
+            db_session.commit()
+            
+            mock_llm_match.return_value = (incident, 0.95, "Match found")
+            mock_enrich.return_value = incident
+            
+            result = run_enrichment(auto_create=True, dry_run=False)
+            
+            assert result["linked"] == 1
+            mock_llm_match.assert_called_once()
+            mock_enrich.assert_called_once()
 

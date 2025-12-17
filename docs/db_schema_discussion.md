@@ -35,9 +35,13 @@ The real-world event.
 *   `id`: PK
 *   `title`: String (Cleaned display title)
 *   `date`: DateTime (Best estimated date)
-*   `location`: String (Best estimated location)
-*   `city`: String (e.g., 'Rio de Janeiro')
-*   `neighborhood`: String
+*   `victims`: Text (Information about victims)
+*   `country`: String (Country, e.g., 'Brasil')
+*   `state`: String (State, e.g., 'Rio de Janeiro')
+*   `city`: String (City, e.g., 'Rio de Janeiro')
+*   `neighborhood`: String (Neighborhood name)
+*   `street`: String (Street name or address)
+*   `location_extra_info`: Text (Additional location information)
 *   `description`: Text (Composite description)
 *   `confirmed`: Boolean (Manual or high-confidence auto verification)
 

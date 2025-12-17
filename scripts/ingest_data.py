@@ -35,11 +35,15 @@ def add_source(url, title, content, source_type):
 @cli.command()
 @click.option('--title', prompt='Incident Title', help='Title of the incident')
 @click.option('--description', prompt='Description', help='Description')
-@click.option('--location', prompt='Location', help='Address or specific location')
-@click.option('--neighborhood', prompt='Neighborhood', help='Neighborhood')
+@click.option('--victims', help='Information about victims')
+@click.option('--country', default='Brasil', help='Country')
+@click.option('--state', default='Rio de Janeiro', help='State')
 @click.option('--city', default='Rio de Janeiro', help='City')
+@click.option('--neighborhood', help='Neighborhood')
+@click.option('--street', help='Street name or address')
+@click.option('--location-extra-info', help='Additional location information')
 @click.option('--date_str', prompt='Date (YYYY-MM-DD)', help='Date of incident')
-def add_incident(title, description, location, neighborhood, city, date_str):
+def add_incident(title, description, victims, country, state, city, neighborhood, street, location_extra_info, date_str):
     """Manually add a confirmed incident."""
     try:
         date_obj = datetime.strptime(date_str, '%Y-%m-%d')
@@ -51,9 +55,13 @@ def add_incident(title, description, location, neighborhood, city, date_str):
         incident = Incident(
             title=title,
             description=description,
-            location=location,
-            neighborhood=neighborhood,
+            victims=victims,
+            country=country,
+            state=state,
             city=city,
+            neighborhood=neighborhood,
+            street=street,
+            location_extra_info=location_extra_info,
             date=date_obj,
             confirmed=True
         )

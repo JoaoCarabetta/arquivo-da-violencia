@@ -3,8 +3,11 @@ import os
 from flask.cli import with_appcontext
 from app import create_app
 from app.services.ingestion import run_ingestion
-from app.services.extraction import run_extraction
-from app.services.enrichment import run_enrichment
+from app.services.extraction import run_extraction, extract_event
+from app.services.enrichment import run_enrichment, re_enrich_incident
+from app.models import Incident
+from app.models import ExtractedEvent
+from app.extensions import db
 
 app_instance = create_app()
 
@@ -41,6 +44,48 @@ def enrich(dry_run, no_create):
     """Stage 3: Deduplicate and Enrich."""
     with app_instance.app_context():
         run_enrichment(auto_create=not no_create, dry_run=dry_run)
+
+@cli.command()
+@click.option('--incident-id', type=int, help='Re-enrich a specific incident by ID')
+@click.option('--all', is_flag=True, help='Re-enrich all incidents')
+@click.option('--dry-run', is_flag=True, help='Preview changes without committing to database.')
+def re_enrich(incident_id, all, dry_run):
+    """Re-enrich incidents using LLM with all current related sources."""
+    with app_instance.app_context():
+        if incident_id:
+            result = re_enrich_incident(incident_id, dry_run=dry_run)
+            if result["success"]:
+                click.echo(f"✅ {result['message']}")
+                click.echo(f"   Title: {result['incident']['title']}")
+                click.echo(f"   Location: {result['incident']['location']}")
+            else:
+                click.echo(f"❌ {result['message']}")
+        elif all:
+            incidents = Incident.query.all()
+            total = len(incidents)
+            click.echo(f"Re-enriching {total} incidents...")
+            
+            success_count = 0
+            error_count = 0
+            
+            for i, incident in enumerate(incidents, 1):
+                click.echo(f"\n[{i}/{total}] Processing Incident {incident.id}...")
+                result = re_enrich_incident(incident.id, dry_run=dry_run)
+                if result["success"]:
+                    success_count += 1
+                    click.echo(f"  ✅ {result['message']}")
+                else:
+                    error_count += 1
+                    click.echo(f"  ❌ {result['message']}")
+            
+            click.echo(f"\n{'='*50}")
+            click.echo(f"Re-enrichment complete {'(DRY RUN)' if dry_run else ''}")
+            click.echo(f"  Total: {total}")
+            click.echo(f"  Successful: {success_count}")
+            click.echo(f"  Errors: {error_count}")
+            click.echo(f"{'='*50}")
+        else:
+            click.echo("Please specify --incident-id <id> or --all")
 
 @cli.command()
 @click.option('--force', is_flag=True)
@@ -80,6 +125,64 @@ def db_current():
 def db_history():
     """Show migration history."""
     os.system('alembic history')
+
+@cli.command()
+@click.option('--workers', type=int, default=10, help='Number of parallel threads (default 10)')
+@click.option('--limit', type=int, help='Limit number of extractions to re-process')
+def reextract_all(workers, limit):
+    """Re-extract all sources that have existing ExtractedEvent records."""
+    with app_instance.app_context():
+        # Get all unique source_ids that have extractions
+        query = db.session.query(ExtractedEvent.source_id).distinct()
+        if limit:
+            query = query.limit(limit)
+        
+        source_ids = [row[0] for row in query.all()]
+        total = len(source_ids)
+        
+        if total == 0:
+            print("No extractions found to re-extract.")
+            return
+        
+        print(f"Found {total} sources with extractions to re-extract.")
+        print(f"Using {workers} parallel workers...")
+        print("=" * 60)
+        
+        # Process in parallel using ThreadPoolExecutor
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+        from app.services.extraction import process_single_source
+        
+        success_count = 0
+        error_count = 0
+        
+        with ThreadPoolExecutor(max_workers=workers) as executor:
+            # Submit all tasks
+            futures = {executor.submit(process_single_source, app_instance, source_id, force=True): source_id 
+                       for source_id in source_ids}
+            
+            # Process as they complete
+            for i, future in enumerate(as_completed(futures)):
+                source_id = futures[future]
+                try:
+                    if future.result():
+                        success_count += 1
+                        print(f"✓ [{i+1}/{total}] Re-extracted source {source_id}")
+                    else:
+                        error_count += 1
+                        print(f"✗ [{i+1}/{total}] Failed to re-extract source {source_id}")
+                except Exception as e:
+                    error_count += 1
+                    print(f"✗ [{i+1}/{total}] Error re-extracting source {source_id}: {e}")
+                
+                # Progress update every 10 items
+                if (i + 1) % 10 == 0:
+                    print(f"Progress: {i+1}/{total} (Success: {success_count}, Errors: {error_count})")
+        
+        print("=" * 60)
+        print(f"Re-extraction complete!")
+        print(f"  Total: {total}")
+        print(f"  Successful: {success_count}")
+        print(f"  Errors: {error_count}")
 
 if __name__ == '__main__':
     cli()

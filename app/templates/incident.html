@@ -5,7 +5,15 @@
 <article>
     <h2>{{ incident.title }}</h2>
     <p class="date">Data: {{ incident.date.strftime('%d/%m/%Y %H:%M') if incident.date else 'Desconhecida' }}</p>
-    <p class="location">Local: {{ incident.location }} ({{ incident.neighborhood }}, {{ incident.city }})</p>
+    <p class="location">
+        Local: 
+        {% if incident.street %}{{ incident.street }}, {% endif %}
+        {% if incident.neighborhood %}{{ incident.neighborhood }}{% if incident.city or incident.state %}, {% endif %}{% endif %}
+        {% if incident.city %}{{ incident.city }}{% if incident.state %}, {% endif %}{% endif %}
+        {% if incident.state %}{{ incident.state }}{% if incident.country %}, {% endif %}{% endif %}
+        {% if incident.country %}{{ incident.country }}{% endif %}
+        {% if incident.location_extra_info %}<br><small>({{ incident.location_extra_info }})</small>{% endif %}
+    </p>
     <hr>
     <div class="description">
         <p>{{ incident.description }}</p>

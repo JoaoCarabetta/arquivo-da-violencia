@@ -35,7 +35,11 @@
             <tr>
                 <td><a href="{{ url_for('main.incident_detail', incident_id=incident.id) }}">{{ incident.id }}</a></td>
                 <td>{{ incident.date.strftime('%d/%m/%Y') if incident.date else 'Desconhecida' }}</td>
-                <td>{{ incident.location or incident.city or '-' }}</td>
+                <td>
+                    {% if incident.street %}{{ incident.street }}, {% endif %}
+                    {% if incident.neighborhood %}{{ incident.neighborhood }}{% if incident.city %}, {% endif %}{% endif %}
+                    {% if incident.city %}{{ incident.city }}{% else %}-{% endif %}
+                </td>
                 <td class="summary-cell">{{ incident.description[:150] + '...' if incident.description and
                     incident.description|length > 150 else incident.description or '-' }}</td>
                 <td>{{ incident.extractions|length }}</td>
