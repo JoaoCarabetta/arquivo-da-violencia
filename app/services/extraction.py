@@ -121,6 +121,16 @@ def process_source_extraction(source, force=False):
     """Process a single source for extraction."""
     changed = False
     
+    # Early check: skip if extraction already exists (unless force=True)
+    if not force:
+        existing = ExtractedEvent.query.filter_by(source_id=source.id).first()
+        if existing:
+            # Already has extraction, skip processing
+            if source.status != 'processed':
+                source.status = 'processed'
+                db.session.commit()
+            return False
+    
     # 1. Resolve URL
     if not source.resolved_url or force:
         if not source.resolved_url: 
@@ -361,13 +371,18 @@ def extract_event(source_id, force=False):
 
 
 def run_extraction(force=False, limit=None, max_workers=10):
-    """Stage 2: Extraction - Process pending/downloaded sources in parallel."""
+    """Stage 2: Extraction - Process pending/downloaded sources in parallel.
+    
+    Only processes sources that don't already have an extraction (unless force=True).
+    """
     # We need to access the real app object to pass to threads
     app_obj = current_app._get_current_object()
     
     query = Source.query
     if not force:
-        query = query.filter(Source.status != 'processed')
+        # Only process sources that don't already have an extraction
+        # Use LEFT JOIN to find sources without ExtractedEvent
+        query = query.outerjoin(ExtractedEvent).filter(ExtractedEvent.id == None)
     
     # Fetch IDs only to avoid DetachedInstanceError and save memory
     if limit:
