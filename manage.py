@@ -1,4 +1,6 @@
 import click
+import os
+from flask.cli import with_appcontext
 from app import create_app
 from app.services.ingestion import run_ingestion
 from app.services.extraction import run_extraction
@@ -51,6 +53,33 @@ def run_all(force):
         run_extraction(force=force)
         print("\n=== STAGE 3: ENRICH ===")
         run_enrichment()
+
+@cli.command()
+@click.argument('message')
+def db_revision(message):
+    """Create a new database migration revision."""
+    os.system(f'alembic revision --autogenerate -m "{message}"')
+
+@cli.command()
+def db_upgrade():
+    """Upgrade database to the latest revision."""
+    os.system('alembic upgrade head')
+
+@cli.command()
+@click.argument('revision', default='head')
+def db_downgrade(revision):
+    """Downgrade database to a previous revision."""
+    os.system(f'alembic downgrade {revision}')
+
+@cli.command()
+def db_current():
+    """Show current database revision."""
+    os.system('alembic current')
+
+@cli.command()
+def db_history():
+    """Show migration history."""
+    os.system('alembic history')
 
 if __name__ == '__main__':
     cli()

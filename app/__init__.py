@@ -11,7 +11,8 @@ def create_app(config_class=Config):
     with app.app_context():
         # Import models to ensure they are registered with SQLAlchemy
         from app import models
-        db.create_all()
+        # Note: Database tables are now managed by Alembic migrations
+        # Run 'alembic upgrade head' to apply migrations
 
     from app.routes import main as main_blueprint
     app.register_blueprint(main_blueprint)
