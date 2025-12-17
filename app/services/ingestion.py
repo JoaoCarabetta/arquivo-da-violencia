@@ -95,6 +95,7 @@ def process_source_task(app, source_id, force=False):
                         source.content = content
                         source.status = 'downloaded' # Ready for extraction
                         changed = True
+                        logger.debug(f"  -> Successfully downloaded content for {target_url}")
                         
                         # Update published_at if trafilatura found a better date
                         if trafilatura_date:
@@ -108,11 +109,19 @@ def process_source_task(app, source_id, force=False):
                                 source.published_at = best_date
                                 changed = True
                     else:
-                        pass # No content extracted
+                        # No content extracted - mark as failed to avoid infinite retries
+                        logger.warning(f"  -> No content extracted from {target_url}, marking as failed")
+                        source.status = 'failed'
+                        changed = True
                 else:
-                    pass # Download failed
+                    # Download failed - mark as failed to avoid infinite retries
+                    logger.warning(f"  -> Failed to download {target_url}, marking as failed")
+                    source.status = 'failed'
+                    changed = True
             except Exception as e:
-                logger.error(f"  -> Error downloading {target_url}: {e}")
+                logger.error(f"  -> Error downloading {target_url}: {e}, marking as failed")
+                source.status = 'failed'
+                changed = True
 
         if changed:
             db.session.commit()
@@ -157,6 +166,8 @@ def run_ingestion(start_date=None, end_date=None, query=None, force=False, expan
     
     source_ids_to_process = []
     new_count = 0
+    pending_count = 0
+    forced_count = 0
 
     # 2. Save/Queue Sources
     for entry in all_entries:
@@ -167,7 +178,6 @@ def run_ingestion(start_date=None, end_date=None, query=None, force=False, expan
         published_at = None
         if hasattr(entry, 'published_parsed') and entry.published_parsed:
             try:
-                import time
                 published_at = datetime(*entry.published_parsed[:6])
             except:
                 pass
@@ -191,11 +201,19 @@ def run_ingestion(start_date=None, end_date=None, query=None, force=False, expan
                 existing.published_at = published_at
                 db.session.commit()
             source_ids_to_process.append(existing.id)
+            if force:
+                forced_count += 1
+            elif existing.status == 'pending':
+                pending_count += 1
         # If existing and status='downloaded', we skip unless force=True
         # Actually logic above: if force or status='pending'. 
         # If status='downloaded' and not force, we ignore. Correct.
     
     logger.info(f"Ingestion complete. Added {new_count} new sources.")
+    if pending_count > 0:
+        logger.info(f"Found {pending_count} existing sources with pending status that need content download.")
+    if forced_count > 0:
+        logger.info(f"Re-downloading {forced_count} sources (force mode).")
     logger.info(f"Queuing {len(source_ids_to_process)} sources for content download (Parallel, {max_workers} workers)...")
 
     # 3. Parallel Download

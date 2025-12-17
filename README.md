@@ -14,7 +14,9 @@ The easiest way to run this application in production is using Docker:
 docker-compose up -d
 ```
 
-See [DEPLOYMENT.md](DEPLOYMENT.md) for detailed deployment instructions.
+**For production server deployment**, see:
+- [PRODUCTION_TUTORIAL.md](PRODUCTION_TUTORIAL.md) - Complete guide to deploy to a server and expose to the internet (includes Nginx, SSL, and PUBLIC_MODE configuration)
+- [DEPLOYMENT.md](DEPLOYMENT.md) - General Docker deployment instructions
 
 ## Features
 

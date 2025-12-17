@@ -1,7 +1,13 @@
 import click
 import os
+import sys
+from pathlib import Path
 from flask.cli import with_appcontext
 from loguru import logger
+
+# Add parent directory to path so we can import app
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
 from app import create_app
 from app.services.ingestion import run_ingestion
 from app.services.extraction import run_extraction, extract_event

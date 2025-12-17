@@ -517,11 +517,14 @@ def process_source_extraction(source, force=False):
                 changed = True
             else:
                 logger.debug(f"[-] Ignored (Invalid): {source.title[:30]}...")
-        
-        # Mark processed
-        if source.status != 'processed':
-            source.status = 'processed'
-            changed = True
+    else:
+        # No content available - log and mark as processed anyway to avoid infinite retries
+        logger.debug(f"[-] No content available for {source.title[:30]}..., marking as processed")
+    
+    # Mark processed (whether content exists or not, to avoid re-processing)
+    if source.status != 'processed':
+        source.status = 'processed'
+        changed = True
     
     if changed:
         db.session.commit()
@@ -750,10 +753,17 @@ def run_extraction(force=False, limit=None, max_workers=10):
     # We need to access the real app object to pass to threads
     app_obj = current_app._get_current_object()
     
+    # Log status breakdown for debugging
+    from sqlalchemy import func
+    status_counts = db.session.query(Source.status, func.count(Source.id)).group_by(Source.status).all()
+    status_dict = dict(status_counts)
+    logger.info(f"Source status breakdown: {status_dict}")
+    
     query = Source.query
     if not force:
-        # Only process sources that are not already marked as 'processed'
-        query = query.filter(Source.status != 'processed')
+        # Only process sources that are not already marked as 'processed' or 'failed'
+        # 'failed' sources should not be processed (they failed to download)
+        query = query.filter(Source.status != 'processed', Source.status != 'failed')
     
     # Fetch IDs only to avoid DetachedInstanceError and save memory
     if limit:
@@ -763,7 +773,16 @@ def run_extraction(force=False, limit=None, max_workers=10):
         
     source_ids = [s.id for s in sources]
     total = len(source_ids)
-    logger.info(f"Processing {total} sources (Limit={limit}, Force={force}, Threads={max_workers})...")
+    
+    # Log what we're processing
+    if not force:
+        pending_count = status_dict.get('pending', 0)
+        downloaded_count = status_dict.get('downloaded', 0)
+        logger.info(f"Processing {total} sources: {pending_count} pending, {downloaded_count} downloaded (excluding {status_dict.get('processed', 0)} processed, {status_dict.get('failed', 0)} failed)")
+        logger.info(f"Extraction parameters: Limit={limit}, Force={force}, Threads={max_workers}")
+    else:
+        logger.info(f"Processing {total} sources (Force mode - all non-failed sources)")
+        logger.info(f"Extraction parameters: Limit={limit}, Force={force}, Threads={max_workers}")
     
     if total == 0:
         logger.info("No sources to process.")

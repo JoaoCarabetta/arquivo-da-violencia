@@ -2,6 +2,8 @@
 
 This guide explains how to deploy the Arquivo da Violência application using Docker.
 
+> **For production server deployment with Nginx, SSL, and domain setup**, see [PRODUCTION_TUTORIAL.md](PRODUCTION_TUTORIAL.md)
+
 ## Prerequisites
 
 - Docker and Docker Compose installed on your server
