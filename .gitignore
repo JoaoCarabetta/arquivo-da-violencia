@@ -16,3 +16,4 @@ logs/
 *.log
 
 .env
+uv.lock
