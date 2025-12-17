@@ -110,7 +110,7 @@ def process_source_task(app, source_id, force=False):
                                 changed = True
                     else:
                         # No content extracted - mark as failed to avoid infinite retries
-                        logger.warning(f"  -> No content extracted from {target_url}, marking as failed")
+                        logger.debug(f"  -> No content extracted from {target_url}, marking as failed")
                         source.status = 'failed'
                         changed = True
                 else:

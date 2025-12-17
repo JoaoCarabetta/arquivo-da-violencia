@@ -178,136 +178,154 @@ def api_data_deaths_by_day():
 @main.route('/api/data/incidents')
 def api_data_incidents():
     """DataTables server-side processing endpoint for incidents."""
-    params = parse_datatables_params()
-    
-    # Column mapping (index -> SQLAlchemy column)
-    columns = [
-        Incident.id,
-        Incident.title,
-        Incident.date,
-        Incident.street,  # For location search
-        Incident.neighborhood,
-        Incident.city,
-        Incident.description,
-        None,  # Sources count (handled separately)
-        Incident.death_count
-    ]
-    
-    # Base query - use with_entities to load only needed columns to avoid errors with missing columns
-    # Load only the columns we actually need
-    # Filter permanently for Rio de Janeiro state - exclude all other states/countries
-    # Include: (state == 'Rio de Janeiro' OR (state IS NULL AND city == 'Rio de Janeiro'))
-    # AND (country IS NULL OR country == 'Brasil')
-    # AND exclude known non-RJ states/cities (handle NULLs properly)
-    query = db.session.query(
-        Incident.id,
-        Incident.title,
-        Incident.date,
-        Incident.street,
-        Incident.neighborhood,
-        Incident.city,
-        Incident.description,
-        Incident.death_count
-    ).filter(
-        # Must be Rio de Janeiro state or NULL state with Rio de Janeiro city
-        or_(
-            Incident.state == 'Rio de Janeiro',
-            and_(Incident.state.is_(None), Incident.city == 'Rio de Janeiro')
-        ),
-        # Country must be NULL or Brasil
-        or_(
-            Incident.country.is_(None),
-            Incident.country == 'Brasil'
+    try:
+        params = parse_datatables_params()
+        
+        # Column mapping (index -> SQLAlchemy column)
+        columns = [
+            Incident.id,
+            Incident.title,
+            Incident.date,
+            Incident.street,  # For location search
+            Incident.neighborhood,
+            Incident.city,
+            Incident.description,
+            None,  # Sources count (handled separately)
+            Incident.death_count
+        ]
+        
+        # Base query - use with_entities to load only needed columns to avoid errors with missing columns
+        # Load only the columns we actually need
+        # Filter permanently for Rio de Janeiro state - exclude all other states/countries
+        # Include: (state == 'Rio de Janeiro' OR (state IS NULL AND city == 'Rio de Janeiro'))
+        # AND (country IS NULL OR country == 'Brasil')
+        # AND exclude known non-RJ states/cities (handle NULLs properly)
+        query = db.session.query(
+            Incident.id,
+            Incident.title,
+            Incident.date,
+            Incident.street,
+            Incident.neighborhood,
+            Incident.city,
+            Incident.description,
+            Incident.death_count
+        ).filter(
+            # Must be Rio de Janeiro state or NULL state with Rio de Janeiro city
+            or_(
+                Incident.state == 'Rio de Janeiro',
+                and_(Incident.state.is_(None), Incident.city == 'Rio de Janeiro')
+            ),
+            # Country must be NULL or Brasil
+            or_(
+                Incident.country.is_(None),
+                Incident.country == 'Brasil'
+            )
         )
-    )
-    
-    # Apply search filter
-    searchable_columns = [
-        Incident.id, Incident.title, Incident.description,
-        Incident.street, Incident.neighborhood, Incident.city
-    ]
-    query = apply_search_filter(query, params['search'], searchable_columns)
-    
-    # Get total count before filtering (count doesn't load columns)
-    # Filter for Rio de Janeiro state - exclude all other states/countries
-    # Include: (state == 'Rio de Janeiro' OR (state IS NULL AND city == 'Rio de Janeiro'))
-    # AND (country IS NULL OR country == 'Brasil')
-    # AND exclude known non-RJ states/cities (handle NULLs properly)
-    records_total = db.session.query(Incident.id).filter(
-        or_(
-            Incident.state == 'Rio de Janeiro',
-            and_(Incident.state.is_(None), Incident.city == 'Rio de Janeiro')
-        ),
+        
+        # Apply search filter
+        searchable_columns = [
+            Incident.id, Incident.title, Incident.description,
+            Incident.street, Incident.neighborhood, Incident.city
+        ]
+        query = apply_search_filter(query, params['search'], searchable_columns)
+        
+        # Get total count before filtering (count doesn't load columns)
+        # Filter for Rio de Janeiro state - exclude all other states/countries
+        # Include: (state == 'Rio de Janeiro' OR (state IS NULL AND city == 'Rio de Janeiro'))
+        # AND (country IS NULL OR country == 'Brasil')
+        # AND exclude known non-RJ states/cities (handle NULLs properly)
+        records_total = db.session.query(Incident.id).filter(
+            or_(
+                Incident.state == 'Rio de Janeiro',
+                and_(Incident.state.is_(None), Incident.city == 'Rio de Janeiro')
+            ),
             or_(
                 Incident.country.is_(None),
                 Incident.country == 'Brasil'
             )
         ).count()
-    
-    # Get filtered count
-    records_filtered = query.count()
-    
-    # Apply sorting
-    order_column_idx = params['order_column']
-    if order_column_idx < len(columns) and columns[order_column_idx] is not None:
-        order_column = columns[order_column_idx]
-        if params['order_dir'] == 'desc':
-            query = query.order_by(order_column.desc())
+        
+        # Get filtered count
+        records_filtered = query.count()
+        
+        # Apply sorting
+        order_column_idx = params['order_column']
+        if order_column_idx < len(columns) and columns[order_column_idx] is not None:
+            order_column = columns[order_column_idx]
+            if params['order_dir'] == 'desc':
+                query = query.order_by(order_column.desc())
+            else:
+                query = query.order_by(order_column.asc())
         else:
-            query = query.order_by(order_column.asc())
-    else:
-        # Default sort by date descending
-        query = query.order_by(Incident.date.desc())
-    
-    # Apply pagination
-    incident_rows = query.offset(params['start']).limit(params['length']).all()
-    
-    # Count unique sources per incident (batch query for performance)
-    incident_ids = [row.id for row in incident_rows]
-    incident_source_counts = {}
-    if incident_ids:
-        source_counts = db.session.query(
-            ExtractedEvent.incident_id,
-            func.count(func.distinct(ExtractedEvent.source_id)).label('source_count')
-        ).filter(
-            ExtractedEvent.incident_id.in_(incident_ids)
-        ).group_by(
-            ExtractedEvent.incident_id
-        ).all()
-        incident_source_counts = {incident_id: count for incident_id, count in source_counts}
-    
-    # Serialize data - incident_rows is now a list of tuples/Row objects
-    data = []
-    for row in incident_rows:
-        # row is a Row object with named attributes
-        incident_id = row.id
-        location_parts = []
-        if row.street:
-            location_parts.append(row.street)
-        if row.neighborhood:
-            location_parts.append(row.neighborhood)
-        if row.city:
-            location_parts.append(row.city)
-        location_str = ', '.join(location_parts) if location_parts else '-'
+            # Default sort by date descending
+            query = query.order_by(Incident.date.desc())
         
-        description_preview = row.description[:150] + '...' if row.description and len(row.description) > 150 else (row.description or '-')
+        # Apply pagination
+        incident_rows = query.offset(params['start']).limit(params['length']).all()
         
-        data.append({
-            'id': incident_id,
-            'title': row.title or '-',
-            'date': row.date.strftime('%d/%m/%Y') if row.date else 'Desconhecida',
-            'location': location_str,
-            'description': description_preview,
-            'source_count': incident_source_counts.get(incident_id, 0),
-            'death_count': row.death_count if row.death_count is not None else 0
+        # Count unique sources per incident (batch query for performance)
+        incident_ids = [row.id for row in incident_rows]
+        incident_source_counts = {}
+        if incident_ids:
+            source_counts = db.session.query(
+                ExtractedEvent.incident_id,
+                func.count(func.distinct(ExtractedEvent.source_id)).label('source_count')
+            ).filter(
+                ExtractedEvent.incident_id.in_(incident_ids)
+            ).group_by(
+                ExtractedEvent.incident_id
+            ).all()
+            incident_source_counts = {incident_id: count for incident_id, count in source_counts}
+        
+        # Serialize data - incident_rows is now a list of tuples/Row objects
+        data = []
+        for row in incident_rows:
+            # row is a Row object with named attributes
+            incident_id = row.id
+            location_parts = []
+            if row.street:
+                location_parts.append(row.street)
+            if row.neighborhood:
+                location_parts.append(row.neighborhood)
+            if row.city:
+                location_parts.append(row.city)
+            location_str = ', '.join(location_parts) if location_parts else '-'
+            
+            description_preview = row.description[:150] + '...' if row.description and len(row.description) > 150 else (row.description or '-')
+            
+            data.append({
+                'id': incident_id,
+                'title': row.title or '-',
+                'date': row.date.strftime('%d/%m/%Y') if row.date else 'Desconhecida',
+                'location': location_str,
+                'description': description_preview,
+                'source_count': incident_source_counts.get(incident_id, 0),
+                'death_count': row.death_count if row.death_count is not None else 0
+            })
+        
+        return jsonify({
+            'draw': params['draw'],
+            'recordsTotal': records_total,
+            'recordsFiltered': records_filtered,
+            'data': data
         })
-    
-    return jsonify({
-        'draw': params['draw'],
-        'recordsTotal': records_total,
-        'recordsFiltered': records_filtered,
-        'data': data
-    })
+    except Exception as e:
+        from loguru import logger
+        logger.error(f"Error in api_data_incidents: {e}", exc_info=True)
+        # Try to recover database connection
+        try:
+            db.session.rollback()
+            db.session.close()
+        except:
+            pass
+        # Return error response for DataTables
+        return jsonify({
+            'draw': int(request.args.get('draw', 1)),
+            'recordsTotal': 0,
+            'recordsFiltered': 0,
+            'data': [],
+            'error': str(e)
+        }), 500
 
 
 @main.route('/api/data/sources')

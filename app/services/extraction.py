@@ -489,8 +489,8 @@ def process_source_extraction(source, force=False):
             # Only use fetched_at as fallback for LLM context if absolutely no publication date exists
             pub_date = source.published_at
             if not pub_date:
-                # Log warning if we have to use fetched_at (shouldn't happen with proper date extraction)
-                logger.warning(f"  -> Warning: No publication date found, using fetched_at for LLM context only")
+                # Use fetched_at as fallback if no publication date available
+                logger.debug(f"  -> No publication date found, using fetched_at for LLM context only")
                 pub_date = source.fetched_at
             data, status = extract_with_llm(source.content, matches, pub_date)
             
@@ -668,8 +668,8 @@ def extract_event(source_id, force=False):
     # Only use fetched_at as fallback for LLM context if absolutely no publication date exists
     pub_date = source.published_at
     if not pub_date:
-        # Log warning if we have to use fetched_at (shouldn't happen with proper date extraction)
-        logger.warning(f"  -> Warning: No publication date found, using fetched_at for LLM context only")
+        # Use fetched_at as fallback if no publication date available
+        logger.debug(f"  -> No publication date found, using fetched_at for LLM context only")
         pub_date = source.fetched_at
     data, status = extract_with_llm(source.content, matches, pub_date)
     
