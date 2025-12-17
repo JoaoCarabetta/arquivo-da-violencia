@@ -2,55 +2,102 @@
 
 {% block content %}
 <!-- Stats Cards -->
-<div class="stats-cards">
-    <div class="stat-card stat-card-danger">
-        <div class="stat-number">{{ deaths_24h }}</div>
-        <div class="stat-label">Mortes nas últimas 24h</div>
+<div class="row g-3 mb-4">
+    <div class="col-md-4">
+        <div class="card stat-card stat-card-danger h-100">
+            <div class="card-body text-center">
+                <div class="stat-number">{{ deaths_24h }}</div>
+                <div class="stat-label text-muted">Mortes nas últimas 24h</div>
+            </div>
+        </div>
     </div>
-    <div class="stat-card stat-card-warning">
-        <div class="stat-number">{{ deaths_7d }}</div>
-        <div class="stat-label">Mortes nos últimos 7 dias</div>
+    <div class="col-md-4">
+        <div class="card stat-card stat-card-warning h-100">
+            <div class="card-body text-center">
+                <div class="stat-number">{{ deaths_7d }}</div>
+                <div class="stat-label text-muted">Mortes nos últimos 7 dias</div>
+            </div>
+        </div>
     </div>
-    <div class="stat-card stat-card-info">
-        <div class="stat-number">{{ deaths_30d }}</div>
-        <div class="stat-label">Mortes nos últimos 30 dias</div>
+    <div class="col-md-4">
+        <div class="card stat-card stat-card-info h-100">
+            <div class="card-body text-center">
+                <div class="stat-number">{{ deaths_30d }}</div>
+                <div class="stat-label text-muted">Mortes nos últimos 30 dias</div>
+            </div>
+        </div>
     </div>
 </div>
 
-<h2>Incidentes</h2>
-{% if incidents %}
+<h2 class="mb-4">Incidentes</h2>
 <div class="table-container">
-    <table class="sources-table">
-        <thead>
-            <tr>
-                <th>ID</th>
-                <th>Data</th>
-                <th>Local</th>
-                <th>Resumo</th>
-                <th>Vítimas</th>
-            </tr>
-        </thead>
-        <tbody>
-            {% for incident in incidents %}
-            <tr>
-                <td><a href="{{ url_for('main.incident_detail', incident_id=incident.id) }}">{{ incident.id }}</a></td>
-                <td>{{ incident.date.strftime('%d/%m/%Y') if incident.date else 'Desconhecida' }}</td>
-                <td>
-                    {% if incident.street %}{{ incident.street }}, {% endif %}
-                    {% if incident.neighborhood %}{{ incident.neighborhood }}{% if incident.city %}, {% endif %}{% endif %}
-                    {% if incident.city %}{{ incident.city }}{% else %}-{% endif %}
-                </td>
-                <td class="summary-cell">{{ incident.description[:150] + '...' if incident.description and
-                    incident.description|length > 150 else incident.description or '-' }}</td>
-                <td>{{ incident.extractions|length }}</td>
-            </tr>
-            {% endfor %}
-        </tbody>
-    </table>
+    <div class="table-responsive">
+        <table id="incidents-table" class="table table-hover sources-table">
+            <thead>
+                <tr>
+                    <th>ID</th>
+                    <th>Título</th>
+                    <th>Data</th>
+                    <th>Local</th>
+                    <th>Resumo</th>
+                    <th>Fontes</th>
+                    <th>Vítimas</th>
+                </tr>
+            </thead>
+            <tbody>
+                <!-- Data will be loaded via DataTables AJAX -->
+            </tbody>
+        </table>
+    </div>
 </div>
-{% else %}
-<div class="empty-state">
-    <p>Nenhum incidente registrado ainda.</p>
-</div>
-{% endif %}
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    if (typeof $ === 'undefined') {
+        console.error('jQuery is not loaded');
+        return;
+    }
+    $('#incidents-table').DataTable({
+        serverSide: true,
+        ajax: {
+            url: '/api/data/incidents',
+            type: 'GET'
+        },
+        columns: [
+            {
+                data: 'id',
+                render: function(data, type, row) {
+                    return '<a href="/incident/' + data + '" class="link-primary">' + data + '</a>';
+                }
+            },
+            {
+                data: 'title',
+                render: function(data, type, row) {
+                    return '<a href="/incident/' + row.id + '" class="text-decoration-none text-dark fw-semibold">' + 
+                           (data || '-') + '</a>';
+                }
+            },
+            { data: 'date' },
+            { data: 'location' },
+            {
+                data: 'description',
+                className: 'summary-cell'
+            },
+            { data: 'source_count' },
+            {
+                data: 'death_count',
+                render: function(data, type, row) {
+                    return '<strong>' + (data !== null && data !== undefined ? data : 0) + '</strong>';
+                }
+            }
+        ],
+        order: [[2, 'desc']], // Default sort by date descending
+        pageLength: 25,
+        language: {
+            url: '//cdn.datatables.net/plug-ins/1.13.7/i18n/pt-BR.json'
+        },
+        responsive: true
+    });
+});
+</script>
 {% endblock %}

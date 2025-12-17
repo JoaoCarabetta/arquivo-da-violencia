@@ -4,7 +4,7 @@ from flask.cli import with_appcontext
 from app import create_app
 from app.services.ingestion import run_ingestion
 from app.services.extraction import run_extraction, extract_event
-from app.services.enrichment import run_enrichment, re_enrich_incident
+from app.services.enrichment import run_enrichment, re_enrich_incident, deduplicate_incidents
 from app.models import Incident
 from app.models import ExtractedEvent
 from app.extensions import db
@@ -44,6 +44,14 @@ def enrich(dry_run, no_create):
     """Stage 3: Deduplicate and Enrich."""
     with app_instance.app_context():
         run_enrichment(auto_create=not no_create, dry_run=dry_run)
+
+@cli.command()
+@click.option('--dry-run', is_flag=True, help='Preview changes without committing to database.')
+def deduplicate(dry_run):
+    """Deduplicate and merge duplicate incidents."""
+    with app_instance.app_context():
+        result = deduplicate_incidents(dry_run=dry_run)
+        click.echo(f"✅ Deduplication complete. Merged {result['merged']} duplicate(s)")
 
 @cli.command()
 @click.option('--incident-id', type=int, help='Re-enrich a specific incident by ID')
@@ -183,6 +191,51 @@ def reextract_all(workers, limit):
         print(f"  Total: {total}")
         print(f"  Successful: {success_count}")
         print(f"  Errors: {error_count}")
+
+@cli.command()
+@click.option('--dry-run', is_flag=True, help='Preview changes without committing to database.')
+@click.option('--unlink-extractions', is_flag=True, help='Unlink ExtractedEvents from incidents (set incident_id to None) instead of deleting them.')
+@click.option('--force', is_flag=True, help='Skip confirmation prompt.')
+def clean_incidents(dry_run, unlink_extractions, force):
+    """Delete all incidents from the database."""
+    with app_instance.app_context():
+        incidents = Incident.query.all()
+        total = len(incidents)
+        
+        if total == 0:
+            click.echo("No incidents found in the database.")
+            return
+        
+        click.echo(f"Found {total} incident(s) to delete.")
+        
+        if unlink_extractions:
+            # Count extractions that will be unlinked
+            extraction_count = ExtractedEvent.query.filter(
+                ExtractedEvent.incident_id.isnot(None)
+            ).count()
+            click.echo(f"Will unlink {extraction_count} extraction(s) from incidents.")
+        
+        if dry_run:
+            click.echo("DRY RUN: No changes will be made.")
+            return
+        
+        if not force:
+            if not click.confirm('Are you sure you want to delete all incidents?'):
+                click.echo("Cancelled.")
+                return
+        
+        # Unlink extractions if requested
+        if unlink_extractions:
+            ExtractedEvent.query.filter(
+                ExtractedEvent.incident_id.isnot(None)
+            ).update({ExtractedEvent.incident_id: None}, synchronize_session=False)
+            click.echo(f"✓ Unlinked extractions from incidents")
+        
+        # Delete all incidents
+        deleted = Incident.query.delete()
+        db.session.commit()
+        
+        click.echo(f"✅ Deleted {deleted} incident(s) from the database.")
 
 if __name__ == '__main__':
     cli()

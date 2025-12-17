@@ -1,94 +1,96 @@
 {% extends "base.html" %}
 
 {% block content %}
-<article class="about-page">
-    <h2>Sobre o Projeto</h2>
+<article class="card">
+    <div class="card-body">
+        <h2 class="mb-4">Sobre o Projeto</h2>
 
-    <section class="about-section">
-        <h3>Objetivo</h3>
-        <p>
-            O <strong>Arquivo da Violência</strong> tem como objetivo mapear <strong>todas as mortes violentas do Brasil
-                em tempo real</strong>.
-            O projeto começou pelo Rio de Janeiro, estado com altos índices de violência urbana, e pretende expandir
-            para todo o território nacional.
-        </p>
-        <p>
-            Nosso propósito é criar um banco de dados aberto e acessível que documente cada vida perdida,
-            contribuindo para a transparência, memória e formulação de políticas públicas de segurança.
-        </p>
-    </section>
+        <section class="about-section mb-4">
+            <h3 class="mb-3">Objetivo</h3>
+            <p>
+                O <strong>Arquivo da Violência</strong> tem como objetivo mapear <strong>todas as mortes violentas do Brasil
+                    em tempo real</strong>.
+                O projeto começou pelo Rio de Janeiro, estado com altos índices de violência urbana, e pretende expandir
+                para todo o território nacional.
+            </p>
+            <p>
+                Nosso propósito é criar um banco de dados aberto e acessível que documente cada vida perdida,
+                contribuindo para a transparência, memória e formulação de políticas públicas de segurança.
+            </p>
+        </section>
 
-    <section class="about-section">
-        <h3>Metodologia</h3>
-        <p>O sistema utiliza uma abordagem automatizada de coleta e processamento de dados:</p>
+        <section class="about-section mb-4">
+            <h3 class="mb-3">Metodologia</h3>
+            <p>O sistema utiliza uma abordagem automatizada de coleta e processamento de dados:</p>
 
-        <div class="methodology-steps">
-            <div class="method-step">
-                <div class="step-number">1</div>
-                <div class="step-content">
-                    <h4>Coleta de Fontes</h4>
-                    <p>Monitoramos feeds RSS de portais de notícias locais e nacionais, buscando artigos que contenham
-                        palavras-chave relacionadas a mortes violentas (homicídio, assassinato, tiroteio, etc.).</p>
+            <div class="methodology-steps">
+                <div class="method-step">
+                    <div class="step-number">1</div>
+                    <div class="step-content">
+                        <h4>Coleta de Fontes</h4>
+                        <p>Monitoramos feeds RSS de portais de notícias locais e nacionais, buscando artigos que contenham
+                            palavras-chave relacionadas a mortes violentas (homicídio, assassinato, tiroteio, etc.).</p>
+                    </div>
+                </div>
+
+                <div class="method-step">
+                    <div class="step-number">2</div>
+                    <div class="step-content">
+                        <h4>Ingestão de Conteúdo</h4>
+                        <p>Os artigos identificados são baixados e armazenados em nosso banco de dados,
+                            incluindo URL, título, conteúdo completo e data de publicação.</p>
+                    </div>
+                </div>
+
+                <div class="method-step">
+                    <div class="step-number">3</div>
+                    <div class="step-content">
+                        <h4>Extração com IA</h4>
+                        <p>Utilizamos modelos de linguagem (LLM) para extrair informações estruturadas de cada artigo:
+                            nome da vítima, local, data do incidente e um resumo do ocorrido.</p>
+                    </div>
+                </div>
+
+                <div class="method-step">
+                    <div class="step-number">4</div>
+                    <div class="step-content">
+                        <h4>Deduplicação</h4>
+                        <p>Múltiplas fontes podem reportar o mesmo incidente. Nosso sistema utiliza algoritmos de
+                            correspondência fuzzy para identificar e agrupar notícias sobre o mesmo evento.</p>
+                    </div>
+                </div>
+
+                <div class="method-step">
+                    <div class="step-number">5</div>
+                    <div class="step-content">
+                        <h4>Consolidação</h4>
+                        <p>As extrações são consolidadas em incidentes únicos, cada um representando uma morte
+                            com todas as suas fontes e informações associadas.</p>
+                    </div>
                 </div>
             </div>
+        </section>
 
-            <div class="method-step">
-                <div class="step-number">2</div>
-                <div class="step-content">
-                    <h4>Ingestão de Conteúdo</h4>
-                    <p>Os artigos identificados são baixados e armazenados em nosso banco de dados,
-                        incluindo URL, título, conteúdo completo e data de publicação.</p>
-                </div>
-            </div>
+        <section class="about-section mb-4">
+            <h3 class="mb-3">Limitações</h3>
+            <p>
+                Este projeto está em desenvolvimento. As principais limitações atuais incluem:
+            </p>
+            <ul>
+                <li>Cobertura limitada ao Rio de Janeiro</li>
+                <li>Dependência de notícias publicadas (casos não noticiados não são capturados)</li>
+                <li>Possíveis erros na extração automática de informações</li>
+                <li>Atraso entre o evento e a publicação da notícia</li>
+            </ul>
+        </section>
 
-            <div class="method-step">
-                <div class="step-number">3</div>
-                <div class="step-content">
-                    <h4>Extração com IA</h4>
-                    <p>Utilizamos modelos de linguagem (LLM) para extrair informações estruturadas de cada artigo:
-                        nome da vítima, local, data do incidente e um resumo do ocorrido.</p>
-                </div>
-            </div>
-
-            <div class="method-step">
-                <div class="step-number">4</div>
-                <div class="step-content">
-                    <h4>Deduplicação</h4>
-                    <p>Múltiplas fontes podem reportar o mesmo incidente. Nosso sistema utiliza algoritmos de
-                        correspondência fuzzy para identificar e agrupar notícias sobre o mesmo evento.</p>
-                </div>
-            </div>
-
-            <div class="method-step">
-                <div class="step-number">5</div>
-                <div class="step-content">
-                    <h4>Consolidação</h4>
-                    <p>As extrações são consolidadas em incidentes únicos, cada um representando uma morte
-                        com todas as suas fontes e informações associadas.</p>
-                </div>
-            </div>
-        </div>
-    </section>
-
-    <section class="about-section">
-        <h3>Limitações</h3>
-        <p>
-            Este projeto está em desenvolvimento. As principais limitações atuais incluem:
-        </p>
-        <ul>
-            <li>Cobertura limitada ao Rio de Janeiro</li>
-            <li>Dependência de notícias publicadas (casos não noticiados não são capturados)</li>
-            <li>Possíveis erros na extração automática de informações</li>
-            <li>Atraso entre o evento e a publicação da notícia</li>
-        </ul>
-    </section>
-
-    <section class="about-section">
-        <h3>Contribua</h3>
-        <p>
-            Este é um projeto de código aberto. Se você deseja contribuir com código, dados ou ideias,
-            entre em contato ou acesse nosso repositório no GitHub.
-        </p>
-    </section>
+        <section class="about-section">
+            <h3 class="mb-3">Contribua</h3>
+            <p>
+                Este é um projeto de código aberto. Se você deseja contribuir com código, dados ou ideias,
+                entre em contato ou acesse nosso repositório no GitHub.
+            </p>
+        </section>
+    </div>
 </article>
 {% endblock %}

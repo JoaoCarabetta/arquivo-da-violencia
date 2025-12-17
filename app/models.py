@@ -28,6 +28,7 @@ class ExtractedEvent(db.Model):
     extracted_location = db.Column(db.String(256), nullable=True)
     extracted_victim_name = db.Column(db.String(256), nullable=True)
     summary = db.Column(db.Text, nullable=True)
+    death_count = db.Column(db.Integer, nullable=True)
 
     def __repr__(self):
         return f'<ExtractedEvent {self.id} from Source {self.source_id}>'
@@ -45,6 +46,7 @@ class Incident(db.Model):
     location_extra_info = db.Column(db.Text, nullable=True)
     description = db.Column(db.Text, nullable=True)
     confirmed = db.Column(db.Boolean, default=False)
+    death_count = db.Column(db.Integer, nullable=True)
 
     # Relationships
     extractions = db.relationship('ExtractedEvent', backref='incident', lazy=True)

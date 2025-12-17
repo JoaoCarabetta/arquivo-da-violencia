@@ -1,36 +1,190 @@
 {% extends "base.html" %}
 
 {% block content %}
-<a href="{{ url_for('main.index') }}">&larr; Voltar para lista</a>
-<article>
-    <h2>{{ incident.title }}</h2>
-    <p class="date">Data: {{ incident.date.strftime('%d/%m/%Y %H:%M') if incident.date else 'Desconhecida' }}</p>
-    <p class="location">
-        Local: 
-        {% if incident.street %}{{ incident.street }}, {% endif %}
-        {% if incident.neighborhood %}{{ incident.neighborhood }}{% if incident.city or incident.state %}, {% endif %}{% endif %}
-        {% if incident.city %}{{ incident.city }}{% if incident.state %}, {% endif %}{% endif %}
-        {% if incident.state %}{{ incident.state }}{% if incident.country %}, {% endif %}{% endif %}
-        {% if incident.country %}{{ incident.country }}{% endif %}
-        {% if incident.location_extra_info %}<br><small>({{ incident.location_extra_info }})</small>{% endif %}
-    </p>
-    <hr>
-    <div class="description">
-        <p>{{ incident.description }}</p>
-    </div>
+<div class="mb-3">
+    <a href="{{ url_for('main.index') }}" class="link-primary text-decoration-none">&larr; Voltar para lista</a>
+</div>
 
-    {% if incident.extractions %}
-    <h3>Fontes &amp; Extrações</h3>
-    <ul>
-        {% for extraction in incident.extractions %}
-        <li>
-            <strong>Fonte:</strong> <a href="{{ extraction.source.resolved_url or extraction.source.url }}" target="_blank" rel="noopener noreferrer">{{ extraction.source.resolved_url or extraction.source.url
-                }}</a><br>
-            <strong>Confiança:</strong> {{ extraction.confidence_score }}<br>
-            <strong>Resumo:</strong> {{ extraction.summary }}
-        </li>
-        {% endfor %}
-    </ul>
-    {% endif %}
+<article class="card">
+    <div class="card-body">
+        <div class="d-flex justify-content-between align-items-start mb-4">
+            <div>
+                <h2 class="mb-2">{{ incident.title }}</h2>
+                <p class="text-muted mb-0 small">ID: {{ incident.id }}</p>
+            </div>
+            {% if incident.confirmed %}
+            <span class="badge badge-processed">Confirmado</span>
+            {% else %}
+            <span class="badge badge-pending">Não Confirmado</span>
+            {% endif %}
+        </div>
+
+        <hr>
+
+        <!-- Informações Principais -->
+        <div class="row g-4 mb-4">
+            <div class="col-md-4">
+                <h5 class="mb-2 extraction-section">Data</h5>
+                <p class="mb-0">
+                    {% if incident.date %}
+                        {{ incident.date.strftime('%d/%m/%Y') }}
+                        {% if incident.date.hour != 0 or incident.date.minute != 0 %}
+                            às {{ incident.date.strftime('%H:%M') }}
+                        {% endif %}
+                    {% else %}
+                        <span class="text-muted fst-italic">Desconhecida</span>
+                    {% endif %}
+                </p>
+            </div>
+
+            <div class="col-md-4">
+                <h5 class="mb-2 extraction-section">Localização</h5>
+                <p class="mb-0">
+                    {% if incident.street or incident.neighborhood or incident.city or incident.state or incident.country %}
+                        {% if incident.street %}{{ incident.street }}{% if incident.neighborhood or incident.city %}, {% endif %}{% endif %}
+                        {% if incident.neighborhood %}{{ incident.neighborhood }}{% if incident.city %}, {% endif %}{% endif %}
+                        {% if incident.city %}{{ incident.city }}{% if incident.state %}, {% endif %}{% endif %}
+                        {% if incident.state %}{{ incident.state }}{% if incident.country %}, {% endif %}{% endif %}
+                        {% if incident.country %}{{ incident.country }}{% endif %}
+                    {% else %}
+                        <span class="text-muted fst-italic">Não especificada</span>
+                    {% endif %}
+                </p>
+                {% if incident.location_extra_info %}
+                <p class="text-muted small mt-2 mb-0 fst-italic">
+                    {{ incident.location_extra_info }}
+                </p>
+                {% endif %}
+            </div>
+
+            <div class="col-md-4">
+                <h5 class="mb-2 extraction-section">Estatísticas</h5>
+                <p class="mb-0">
+                    <strong>Fontes:</strong> {{ unique_sources_count }}<br>
+                    <strong>Extrações:</strong> {{ incident.extractions|length if incident.extractions else 0 }}<br>
+                    {% if incident.death_count is not none %}
+                    <strong>Mortos:</strong> {{ incident.death_count }}
+                    {% endif %}
+                </p>
+            </div>
+        </div>
+
+        <!-- Vítimas -->
+        {% if incident.victims %}
+        <div class="mb-4">
+            <h5 class="mb-3 extraction-section">Vítimas</h5>
+            <p class="mb-0" style="white-space: pre-wrap;">{{ incident.victims }}</p>
+        </div>
+        {% endif %}
+
+        <!-- Descrição -->
+        {% if incident.description %}
+        <div class="mb-4">
+            <h5 class="mb-3 extraction-section">Descrição</h5>
+            <p class="mb-0" style="white-space: pre-wrap; line-height: 1.6;">{{ incident.description }}</p>
+        </div>
+        {% endif %}
+
+        <!-- Fontes e Extrações -->
+        {% if incident.extractions %}
+        <hr class="my-4">
+        <h5 class="mb-4 extraction-section">Fontes &amp; Extrações</h5>
+        
+        <div class="d-flex flex-column gap-4">
+            {% for extraction in incident.extractions %}
+            <div class="card bg-light">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between align-items-start mb-3">
+                        <h6 class="mb-0">Extração #{{ extraction.id }}</h6>
+                        <span class="confidence-badge confidence-{{ 'high' if extraction.confidence_score >= 0.8 else ('medium' if extraction.confidence_score >= 0.5 else 'low') }}">
+                            {{ (extraction.confidence_score * 100)|int }}% confiança
+                        </span>
+                    </div>
+
+                    <div class="row g-3 mb-3">
+                        {% if extraction.extracted_victim_name %}
+                        <div class="col-md-6">
+                            <strong class="text-muted d-block mb-1">Vítima:</strong>
+                            <p class="mb-0">{{ extraction.extracted_victim_name }}</p>
+                        </div>
+                        {% endif %}
+
+                        {% if extraction.death_count is not none %}
+                        <div class="col-md-6">
+                            <strong class="text-muted d-block mb-1">Mortos:</strong>
+                            <p class="mb-0">{{ extraction.death_count }}</p>
+                        </div>
+                        {% endif %}
+
+                        {% if extraction.extracted_location %}
+                        <div class="col-md-6">
+                            <strong class="text-muted d-block mb-1">Localização Extraída:</strong>
+                            <p class="mb-0">{{ extraction.extracted_location }}</p>
+                        </div>
+                        {% endif %}
+
+                        {% if extraction.extracted_date %}
+                        <div class="col-md-6">
+                            <strong class="text-muted d-block mb-1">Data Extraída:</strong>
+                            <p class="mb-0">{{ extraction.extracted_date.strftime('%d/%m/%Y') }}</p>
+                        </div>
+                        {% endif %}
+                    </div>
+
+                    {% if extraction.summary %}
+                    <div class="mb-3">
+                        <strong class="text-muted d-block mb-1">Resumo:</strong>
+                        <p class="mb-0" style="line-height: 1.6;">{{ extraction.summary }}</p>
+                    </div>
+                    {% endif %}
+
+                    {% if extraction.source %}
+                    <div class="border-top pt-3 mt-3">
+                        <strong class="text-muted d-block mb-2">Fonte:</strong>
+                        <div class="card bg-white">
+                            <div class="card-body">
+                                <p class="mb-2">
+                                    <strong>Título:</strong> 
+                                    <a href="{{ extraction.source.resolved_url or extraction.source.url }}" target="_blank" rel="noopener noreferrer" class="link-primary">
+                                        {{ extraction.source.title or 'Sem título' }}
+                                    </a>
+                                </p>
+                                <p class="mb-2 small text-muted">
+                                    <strong>Tipo:</strong> 
+                                    <span class="badge badge-type">{{ extraction.source.source_type or 'unknown' }}</span>
+                                    {% if extraction.source.published_at %}
+                                    | <strong>Publicado em:</strong> {{ extraction.source.published_at.strftime('%d/%m/%Y %H:%M') }}
+                                    {% endif %}
+                                    {% if extraction.source.fetched_at %}
+                                    | <strong>Capturado em:</strong> {{ extraction.source.fetched_at.strftime('%d/%m/%Y %H:%M') }}
+                                    {% endif %}
+                                </p>
+                                <p class="mb-1 small text-muted" style="word-break: break-all;">
+                                    <strong>URL Original:</strong> 
+                                    <a href="{{ extraction.source.url }}" target="_blank" rel="noopener noreferrer" class="link-primary">
+                                        {{ extraction.source.url }}
+                                    </a>
+                                </p>
+                                {% if extraction.source.resolved_url and extraction.source.resolved_url != extraction.source.url %}
+                                <p class="mb-0 small text-muted" style="word-break: break-all;">
+                                    <strong>URL Resolvida:</strong> 
+                                    <a href="{{ extraction.source.resolved_url }}" target="_blank" rel="noopener noreferrer" class="link-primary">
+                                        {{ extraction.source.resolved_url }}
+                                    </a>
+                                </p>
+                                {% endif %}
+                            </div>
+                        </div>
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+        {% else %}
+        <hr class="my-4">
+        <p class="text-muted fst-italic mb-0">Nenhuma extração encontrada para este incidente.</p>
+        {% endif %}
+    </div>
 </article>
 {% endblock %}

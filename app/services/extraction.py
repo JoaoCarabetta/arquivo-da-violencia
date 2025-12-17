@@ -367,7 +367,7 @@ def extract_with_llm(text, matches, publication_date=None):
     if publication_date:
         date_context = f"""
 Article Publication Date: {publication_date.strftime('%Y-%m-%d')} ({publication_date.strftime('%A, %d %B %Y')})
-Use this date as reference to interpret relative dates like "hoje", "ontem", "esta sexta-feira (28)", "na última semana", etc.
+IMPORTANT: This is the publication date of the article, NOT the date of the event. Use it only as a reference to interpret relative dates.
 """
         
     try:
@@ -381,7 +381,29 @@ Return a JSON object with the following fields:
 - "summary": string (concise summary of the event, 1-2 sentences. In Portuguese.)
 - "victim_name": string or null (name(s) of ALL victims if mentioned. If multiple victims, separate them with commas and "e" or "and". Example: "João Silva e Maria Santos" or "João Silva, Maria Santos e Pedro Costa")
 - "location": string or null (specific location like street, neighborhood, or city if mentioned)
-- "date": string or null (date of the EVENT in YYYY-MM-DD format. Use the publication date above to convert relative dates like "sexta-feira (28)" or "ontem" to absolute dates. Return null only if completely impossible to infer.)
+- "date": string or null (date of the EVENT in YYYY-MM-DD format. CRITICAL INSTRUCTIONS:
+  * Extract ONLY the ACTUAL DATE WHEN THE EVENT OCCURRED, NOT the publication date of the article
+  * DO NOT invent or guess dates. If the event date is not clearly stated in the text, return null
+  * DO NOT use the publication date as the event date, even if no event date is mentioned
+  * Prioritize absolute dates (e.g., "28 de outubro", "1º de novembro", "dia 28") over vague references
+  * For relative dates that can be calculated from the publication date:
+    - "hoje" = publication date (only if text explicitly says "hoje")
+    - "ontem" = publication date - 1 day (only if text explicitly says "ontem")
+    - "esta sexta-feira (28)" = the specific date mentioned (28th) in the same month/year as publication
+  * For vague references like "na semana de", "recentemente", "há alguns dias":
+    - If a specific date is mentioned within that reference, extract that specific date
+    - If NO specific date is mentioned, return null (do NOT use the week start date or publication date)
+  * Examples:
+    - "Operação ocorrida em 28 de outubro" → "2025-10-28"
+    - "Megaoperação na semana de 1º de novembro" → null (no specific date mentioned, do NOT use 2025-11-01)
+    - "Megaoperação ocorrida em 28 de outubro, na semana de 1º de novembro" → "2025-10-28" (specific date mentioned)
+    - "Chacina que matou 121 pessoas no dia 28" → "2025-10-28" (if month can be inferred from context) or null (if month is unclear)
+    - Article published on 2025-11-07 mentioning "operacao recente" with no date → null (do NOT use 2025-11-07)
+  * Return null if:
+    - The event date is not mentioned in the text
+    - Only vague temporal references are given (e.g., "recentemente", "na semana de", "há alguns dias") without a specific date
+    - The date cannot be reliably inferred from the text
+- "death_count": integer or null (number of people killed/dead in this incident. Extract directly from the news text. Examples: "3 mortos" = 3, "duas vítimas fatais" = 2, "uma pessoa foi morta" = 1. Return null only if the number cannot be determined from the text.)
 - "confidence": float (0.0 to 1.0, how sure you are this is a violent crime report)
 
 Text Snippet:
@@ -486,7 +508,8 @@ def process_source_extraction(source, force=False):
                     summary=data.get("summary", "No summary"),
                     extracted_victim_name=data.get("victim_name"),
                     extracted_location=data.get("location"),
-                    extracted_date=event_date
+                    extracted_date=event_date,
+                    death_count=data.get("death_count")
                 )
                 db.session.add(extraction)
                 print(f"[+] Extraction Created: {source.title[:30]}... (Victim: {data.get('victim_name')})")
@@ -569,7 +592,8 @@ def extract_event(source_id, force=False):
                     "victim_name": existing.extracted_victim_name,
                     "location": existing.extracted_location,
                     "date": existing.extracted_date.strftime('%Y-%m-%d') if existing.extracted_date else None,
-                    "confidence": existing.confidence_score
+                    "confidence": existing.confidence_score,
+                    "death_count": existing.death_count
                 },
                 "message": "Source already processed"
             }
@@ -675,6 +699,7 @@ def extract_event(source_id, force=False):
         existing.extracted_location = data.get("location")
         existing.extracted_date = event_date
         existing.confidence_score = data.get("confidence", 0.5)
+        existing.death_count = data.get("death_count")
         extraction_obj = existing
     else:
         # Create new extraction
@@ -691,7 +716,8 @@ def extract_event(source_id, force=False):
             summary=data.get("summary"),
             extracted_victim_name=data.get("victim_name"),
             extracted_location=data.get("location"),
-            extracted_date=event_date
+            extracted_date=event_date,
+            death_count=data.get("death_count")
         )
         db.session.add(extraction_obj)
     
@@ -708,6 +734,7 @@ def extract_event(source_id, force=False):
             "location": data.get("location"),
             "date": data.get("date"),
             "confidence": data.get("confidence", 0.5),
+            "death_count": data.get("death_count"),
             "keywords_matched": matches
         },
         "message": "Extraction successful"

@@ -301,6 +301,9 @@ def find_candidate_incidents(extraction):
     Find existing incidents that could potentially match this extraction.
     
     Uses blocking by date and city to reduce comparison space.
+    
+    Args:
+        extraction: ExtractedEvent to find candidates for
     """
     candidates = []
     
@@ -329,6 +332,9 @@ def find_matching_incident(extraction):
     Find a matching incident for an extraction using LLM-based matching.
     
     Uses heuristics to find candidates, then LLM to make final decision.
+    
+    Args:
+        extraction: ExtractedEvent to match
     
     Returns (incident, confidence_score) if match found, (None, 0.0) otherwise.
     """
@@ -392,6 +398,7 @@ def llm_enrich_incident(incident):
         "title": incident.title or "Sem título",
         "date": incident.date.strftime('%Y-%m-%d') if incident.date else "Desconhecida",
         "victims": incident.victims or "Não mencionado",
+        "death_count": incident.death_count if incident.death_count is not None else "Não mencionado",
         "country": incident.country or "Brasil",
         "state": incident.state or "Rio de Janeiro",
         "city": incident.city or "Rio de Janeiro",
@@ -410,7 +417,8 @@ def llm_enrich_incident(incident):
             "location": ext.extracted_location or "Não mencionado",
             "date": ext.extracted_date.strftime('%Y-%m-%d') if ext.extracted_date else "Desconhecida",
             "summary": ext.summary or "Sem resumo",
-            "confidence": ext.confidence_score
+            "confidence": ext.confidence_score,
+            "death_count": ext.death_count if ext.death_count is not None else "Não mencionado"
         })
     
     # Build source content (full content for comprehensive enrichment)
@@ -431,6 +439,7 @@ INCIDENTE ATUAL:
 - Título: {current_state['title']}
 - Data: {current_state['date']}
 - Vítimas: {current_state['victims']}
+- Número de mortos: {current_state['death_count']}
 - País: {current_state['country']}
 - Estado: {current_state['state']}
 - Cidade: {current_state['city']}
@@ -448,6 +457,7 @@ EXTRAÇÕES RELACIONADAS:
    - Vítima: {ext['victim_name']}
    - Local: {ext['location']}
    - Data: {ext['date']}
+   - Número de mortos: {ext['death_count']}
    - Resumo: {ext['summary']}
 """
     
@@ -471,6 +481,7 @@ Retorne APENAS um objeto JSON válido com a seguinte estrutura:
   "title": "título mais descritivo e preciso",
   "date": "YYYY-MM-DD ou null se não puder determinar",
   "victims": "informação completa sobre vítimas (nomes, idades, etc.)",
+  "death_count": número_inteiro ou null (número de pessoas mortas neste incidente. Extraia diretamente das fontes. Se houver conflito entre fontes, use o número mais confiável e consistente. Retorne null apenas se não for possível determinar),
   "country": "país",
   "state": "estado",
   "city": "cidade",
@@ -512,6 +523,12 @@ Instruções importantes:
         
         if data.get("victims"):
             incident.victims = data["victims"]
+        
+        if data.get("death_count") is not None:
+            try:
+                incident.death_count = int(data["death_count"])
+            except (ValueError, TypeError):
+                pass  # Keep existing death_count if parsing fails
         
         if data.get("country"):
             incident.country = data["country"]
@@ -556,6 +573,122 @@ Instruções importantes:
         return incident
 
 
+def process_single_extraction(extraction_id, auto_create, dry_run):
+    """
+    Process a single extraction: match → link/create → enrich → commit
+    
+    Args:
+        extraction_id: ID of extraction to process
+        auto_create: If True, create new incidents for unmatched extractions
+        dry_run: If True, don't commit changes
+    
+    Returns:
+        dict with result: {"status": "linked"|"created"|"skipped"|"error", 
+                          "extraction_id": int, "incident_id": int|None, 
+                          "error": str|None}
+    """
+    try:
+        # Get extraction
+        extraction = ExtractedEvent.query.get(extraction_id)
+        if not extraction:
+            return {
+                "status": "error",
+                "extraction_id": extraction_id,
+                "incident_id": None,
+                "error": "Extraction not found"
+            }
+        
+        # Skip if already linked
+        if extraction.incident_id is not None:
+            return {
+                "status": "skipped",
+                "extraction_id": extraction_id,
+                "incident_id": extraction.incident_id,
+                "error": None
+            }
+        
+        print(f"\n[Extraction {extraction.id}] Processing")
+        print(f"  Victim: {extraction.extracted_victim_name or 'Unknown'}")
+        print(f"  Date: {extraction.extracted_date.strftime('%Y-%m-%d') if extraction.extracted_date else 'N/A'}")
+        print(f"  Location: {extraction.extracted_location or 'N/A'}")
+        
+        # 1. Try to find existing match
+        match, score = find_matching_incident(extraction)
+        
+        if match:
+            print(f"  ✅ MATCHED to Incident {match.id}: '{match.title}' (Confidence: {score:.2f})")
+            if not dry_run:
+                extraction.incident = match
+                db.session.commit()
+                
+                # Refresh incident to get latest state with all extractions
+                db.session.refresh(match)
+                
+                # Enrich the incident with all related sources
+                enriched_incident = llm_enrich_incident(match)
+                db.session.commit()
+            
+            return {
+                "status": "linked",
+                "extraction_id": extraction.id,
+                "incident_id": match.id,
+                "error": None
+            }
+        
+        elif auto_create:
+            # 2. Create new incident - no match found
+            if not dry_run:
+                new_incident = create_incident_from_extraction(extraction)
+                print(f"  🆕 CREATED new Incident: '{new_incident.title}'")
+                db.session.add(new_incident)
+                db.session.flush()  # Get the ID
+                extraction.incident = new_incident
+                db.session.commit()
+                
+                # Refresh to get all related extractions
+                db.session.refresh(new_incident)
+                
+                # Enrich the new incident with all related sources
+                enriched_incident = llm_enrich_incident(new_incident)
+                db.session.commit()
+                
+                return {
+                    "status": "created",
+                    "extraction_id": extraction.id,
+                    "incident_id": new_incident.id,
+                    "error": None
+                }
+            else:
+                # Dry run - just create without committing
+                new_incident = create_incident_from_extraction(extraction)
+                print(f"  🆕 CREATED new Incident: '{new_incident.title}' (DRY RUN)")
+                return {
+                    "status": "created",
+                    "extraction_id": extraction.id,
+                    "incident_id": None,  # No ID in dry run
+                    "error": None
+                }
+        
+        else:
+            print(f"  ⏭️ SKIPPED (no match, auto_create=False)")
+            return {
+                "status": "skipped",
+                "extraction_id": extraction.id,
+                "incident_id": None,
+                "error": None
+            }
+            
+    except Exception as e:
+        print(f"  ❌ ERROR processing extraction {extraction_id}: {e}")
+        db.session.rollback()
+        return {
+            "status": "error",
+            "extraction_id": extraction_id,
+            "incident_id": None,
+            "error": str(e)
+        }
+
+
 def create_incident_from_extraction(extraction):
     """Create a new Incident from an ExtractedEvent."""
     # Use victim name for title if available, otherwise use a generic title
@@ -573,6 +706,7 @@ def create_incident_from_extraction(extraction):
         title=title,
         date=extraction.extracted_date,
         victims=extraction.extracted_victim_name,  # Store victim name in victims field
+        death_count=extraction.death_count,  # Copy death_count from extraction
         country="Brasil",
         state="Rio de Janeiro",
         city="Rio de Janeiro",
@@ -589,6 +723,10 @@ def run_enrichment(auto_create=True, dry_run=False):
     """
     Stage 3: Enrichment - Link Extractions to Incidents.
     
+    Processes extractions sequentially:
+    - Each extraction is fully processed: match → link/create → enrich → commit
+    - Processes one extraction at a time in order
+    
     Args:
         auto_create: If True, automatically create new Incidents for unmatched extractions
         dry_run: If True, don't commit changes to database, just log what would happen
@@ -603,66 +741,52 @@ def run_enrichment(auto_create=True, dry_run=False):
     start_time = time.time()
     
     # Get unlinked extractions that have enough data for deduplication
-    unlinked = ExtractedEvent.query.filter(
+    # Fetch only IDs to avoid loading all data into memory
+    unlinked_query = ExtractedEvent.query.filter(
         ExtractedEvent.incident_id.is_(None),
         ExtractedEvent.extracted_date.isnot(None)  # Need date for matching
-    ).all()
+    )
+    unlinked_ids = [row[0] for row in unlinked_query.with_entities(ExtractedEvent.id).all()]
+    total = len(unlinked_ids)
     
-    print(f"📊 Found {len(unlinked)} unlinked extraction(s) with dates")
+    print(f"📊 Found {total} unlinked extraction(s) with dates")
     
-    if len(unlinked) == 0:
+    if total == 0:
         print("✅ No extractions to process. Exiting.")
         return {
             "linked": 0,
             "created": 0,
-            "skipped": 0
+            "skipped": 0,
+            "errors": 0
         }
     
+    # Process sequentially
     linked_count = 0
     created_count = 0
     skipped_count = 0
+    error_count = 0
     
-    for i, extraction in enumerate(unlinked, 1):
-        print(f"\n[{i}/{len(unlinked)}] Processing Extraction {extraction.id}")
-        print(f"  Victim: {extraction.extracted_victim_name or 'Unknown'}")
-        print(f"  Date: {extraction.extracted_date.strftime('%Y-%m-%d') if extraction.extracted_date else 'N/A'}")
-        print(f"  Location: {extraction.extracted_location or 'N/A'}")
-        
-        # 1. Try to find existing match
-        match, score = find_matching_incident(extraction)
-        
-        if match:
-            print(f"  ✅ MATCHED to Incident {match.id}: '{match.title}' (Confidence: {score:.2f})")
-            if not dry_run:
-                extraction.incident = match
-                db.session.flush()  # Ensure incident is available for enrichment
-                # Enrich the incident with all related sources
-                enriched_incident = llm_enrich_incident(match)
-                # Changes are already applied to the incident object
-            linked_count += 1
+    for i, ext_id in enumerate(unlinked_ids, 1):
+        try:
+            result = process_single_extraction(ext_id, auto_create, dry_run)
             
-        elif auto_create:
-            # 2. Create new incident
-            new_incident = create_incident_from_extraction(extraction)
-            print(f"  🆕 CREATED new Incident: '{new_incident.title}'")
+            if result["status"] == "linked":
+                linked_count += 1
+            elif result["status"] == "created":
+                created_count += 1
+            elif result["status"] == "skipped":
+                skipped_count += 1
+            elif result["status"] == "error":
+                error_count += 1
+                print(f"  ❌ Error processing extraction {ext_id}: {result.get('error', 'Unknown error')}")
             
-            if not dry_run:
-                db.session.add(new_incident)
-                db.session.flush()  # Get the ID
-                extraction.incident = new_incident
-                # Enrich the new incident with all related sources
-                enriched_incident = llm_enrich_incident(new_incident)
-                # Changes are already applied to the incident object
-            created_count += 1
-            
-        else:
-            print(f"  ⏭️ SKIPPED (no match, auto_create=False)")
-            skipped_count += 1
-    
-    if not dry_run:
-        print(f"\n💾 Committing changes to database...")
-        db.session.commit()
-        print(f"✅ Changes committed")
+            # Progress update every 10 items or at the end
+            if i % 10 == 0 or i == total:
+                print(f"\n📊 Progress: {i}/{total} | Linked: {linked_count} | Created: {created_count} | Skipped: {skipped_count} | Errors: {error_count}")
+                
+        except Exception as e:
+            error_count += 1
+            print(f"  ❌ Error processing extraction {ext_id}: {e}")
     
     elapsed = time.time() - start_time
     
@@ -673,13 +797,118 @@ def run_enrichment(auto_create=True, dry_run=False):
     print(f"  📈 Linked to existing: {linked_count}")
     print(f"  🆕 Created new:        {created_count}")
     print(f"  ⏭️  Skipped:            {skipped_count}")
-    print(f"  📊 Total processed:    {len(unlinked)}")
+    print(f"  ❌ Errors:              {error_count}")
+    print(f"  📊 Total processed:    {total}")
     print(f"{'='*70}\n")
+    
+    # Post-processing: Deduplicate any incidents that were created
+    merged_count = 0
+    if not dry_run and created_count > 0:
+        dedup_result = deduplicate_incidents(dry_run=dry_run)
+        merged_count = dedup_result.get("merged", 0)
+        if merged_count > 0:
+            print(f"✅ Merged {merged_count} duplicate incident(s)")
     
     return {
         "linked": linked_count,
         "created": created_count,
-        "skipped": skipped_count
+        "skipped": skipped_count,
+        "errors": error_count,
+        "merged": merged_count
+    }
+
+
+def deduplicate_incidents(dry_run=False):
+    """
+    Post-processing deduplication: Find and merge duplicate incidents.
+    
+    This runs after enrichment to catch any duplicates that were created.
+    
+    Args:
+        dry_run: If True, don't commit changes
+    
+    Returns:
+        dict with deduplication results
+    """
+    print(f"\n{'='*70}")
+    print(f"DEDUPLICATION PASS")
+    print(f"{'='*70}\n")
+    
+    # Get all incidents
+    all_incidents = Incident.query.all()
+    print(f"Checking {len(all_incidents)} incidents for duplicates...")
+    
+    merged_count = 0
+    duplicates_found = []
+    
+    # Group incidents by date for efficiency
+    incidents_by_date = {}
+    for incident in all_incidents:
+        if incident.date:
+            date_key = incident.date.date()
+            if date_key not in incidents_by_date:
+                incidents_by_date[date_key] = []
+            incidents_by_date[date_key].append(incident)
+    
+    # Check for duplicates within each date group
+    for date_key, incidents in incidents_by_date.items():
+        if len(incidents) < 2:
+            continue
+        
+        # Compare each pair of incidents using LLM
+        for i, incident1 in enumerate(incidents):
+            if incident1.id in duplicates_found:
+                continue
+                
+            for incident2 in incidents[i+1:]:
+                if incident2.id in duplicates_found:
+                    continue
+                
+                # Use LLM to check if they're duplicates
+                # Create a dummy extraction from incident2 to check against incident1
+                dummy_extraction = ExtractedEvent(
+                    id=999999,  # Dummy ID
+                    extracted_date=incident2.date,
+                    extracted_victim_name=incident2.victims,
+                    extracted_location=f"{incident2.street or ''}, {incident2.neighborhood or ''}, {incident2.city or ''}".strip(', '),
+                    summary=incident2.description or incident2.title
+                )
+                
+                # Check if incident2 matches incident1 using LLM
+                matched_incident, confidence, reasoning = llm_match_extraction_to_incident(
+                    dummy_extraction, 
+                    [incident1]
+                )
+                
+                if matched_incident and matched_incident.id == incident1.id and confidence > 0.8:
+                    print(f"\n🔗 Found duplicate: Incident {incident2.id} matches Incident {incident1.id} (confidence: {confidence:.2f})")
+                    print(f"   Keeping: Incident {incident1.id} - {incident1.title}")
+                    print(f"   Merging: Incident {incident2.id} - {incident2.title}")
+                    
+                    if not dry_run:
+                        # Move all extractions from incident2 to incident1
+                        for extraction in incident2.extractions:
+                            extraction.incident_id = incident1.id
+                        
+                        # Re-enrich incident1 with all sources
+                        db.session.refresh(incident1)
+                        enriched = llm_enrich_incident(incident1)
+                        
+                        # Delete incident2
+                        db.session.delete(incident2)
+                        db.session.commit()
+                    
+                    duplicates_found.append(incident2.id)
+                    merged_count += 1
+                    break
+    
+    print(f"\n{'='*70}")
+    print(f"DEDUPLICATION COMPLETE {'(DRY RUN)' if dry_run else ''}")
+    print(f"  Merged duplicates: {merged_count}")
+    print(f"{'='*70}\n")
+    
+    return {
+        "merged": merged_count
     }
 
 
