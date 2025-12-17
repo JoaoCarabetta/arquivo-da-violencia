@@ -40,10 +40,11 @@ def extract(force, limit, workers):
 @cli.command()
 @click.option('--dry-run', is_flag=True, help='Preview changes without committing to database.')
 @click.option('--no-create', is_flag=True, help='Do not auto-create new Incidents for unmatched events.')
-def enrich(dry_run, no_create):
+@click.option('--max-workers', default=10, help='Number of parallel workers for enrichment.')
+def enrich(dry_run, no_create, max_workers):
     """Stage 3: Deduplicate and Enrich."""
     with app_instance.app_context():
-        run_enrichment(auto_create=not no_create, dry_run=dry_run)
+        run_enrichment(auto_create=not no_create, dry_run=dry_run, max_workers=max_workers)
 
 @cli.command()
 @click.option('--dry-run', is_flag=True, help='Preview changes without committing to database.')
@@ -105,7 +106,7 @@ def run_all(force):
         print("\n=== STAGE 2: EXTRACT ===")
         run_extraction(force=force)
         print("\n=== STAGE 3: ENRICH ===")
-        run_enrichment()
+        run_enrichment(max_workers=10)
 
 @cli.command()
 @click.argument('message')

@@ -13,3 +13,10 @@ class Config:
     
     # Google Maps API configuration
     GOOGLE_MAPS_API_KEY = os.environ.get('GOOGLE_MAPS_API_KEY')
+    
+    # Logging configuration
+    LOG_LEVEL = os.environ.get('LOG_LEVEL', 'INFO').upper()
+    LOG_FILE = os.environ.get('LOG_FILE', os.path.join(BASE_DIR, 'logs', 'app.log'))
+    LOG_ERROR_FILE = os.environ.get('LOG_ERROR_FILE', os.path.join(BASE_DIR, 'logs', 'errors.log'))
+    LOG_ROTATION_SIZE = os.environ.get('LOG_ROTATION_SIZE', '10 MB')
+    LOG_RETENTION_DAYS = int(os.environ.get('LOG_RETENTION_DAYS', '30'))

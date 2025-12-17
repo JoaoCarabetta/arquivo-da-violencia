@@ -13,6 +13,8 @@ import os
 import time
 from difflib import SequenceMatcher
 from datetime import datetime, timedelta
+import concurrent.futures
+from flask import current_app
 import vertexai
 from vertexai.generative_models import GenerativeModel
 from google.oauth2 import service_account
@@ -381,6 +383,58 @@ def find_matching_incident(extraction):
         print(f"  [Match] ❌ No match found")
     
     return None, 0.0
+
+
+def match_extraction_against_existing(extraction):
+    """
+    Match an extraction against existing incidents only (no creation).
+    
+    This is used in Phase 1a for parallel processing - only matches against
+    incidents that exist at the start of the phase.
+    
+    Args:
+        extraction: ExtractedEvent to match
+    
+    Returns:
+        dict with: {"status": "linked"|"unmatched", "extraction_id": int, 
+                   "incident_id": int|None, "confidence": float}
+    """
+    try:
+        # Skip if already linked
+        if extraction.incident_id is not None:
+            return {
+                "status": "skipped",
+                "extraction_id": extraction.id,
+                "incident_id": extraction.incident_id,
+                "confidence": 0.0
+            }
+        
+        # Try to find existing match
+        match, score = find_matching_incident(extraction)
+        
+        if match:
+            return {
+                "status": "linked",
+                "extraction_id": extraction.id,
+                "incident_id": match.id,
+                "confidence": score
+            }
+        else:
+            return {
+                "status": "unmatched",
+                "extraction_id": extraction.id,
+                "incident_id": None,
+                "confidence": 0.0
+            }
+    except Exception as e:
+        print(f"  ❌ ERROR matching extraction {extraction.id}: {e}")
+        return {
+            "status": "error",
+            "extraction_id": extraction.id,
+            "incident_id": None,
+            "confidence": 0.0,
+            "error": str(e)
+        }
 
 
 def llm_enrich_incident(incident):
@@ -752,29 +806,375 @@ def create_incident_from_extraction(extraction):
     return incident
 
 
-def run_enrichment(auto_create=True, dry_run=False):
+def get_location_key(extraction):
     """
-    Stage 3: Enrichment - Link Extractions to Incidents.
+    Extract a normalized location key for grouping.
     
-    Processes extractions sequentially:
-    - Each extraction is fully processed: match → link/create → enrich → commit
-    - Processes one extraction at a time in order
+    Returns neighborhood if available, otherwise city.
+    """
+    if not extraction.extracted_location:
+        return "unknown"
+    
+    neighborhood = extract_neighborhood(extraction.extracted_location)
+    if neighborhood:
+        return normalize_text(neighborhood)
+    
+    # Fallback to city (usually Rio de Janeiro)
+    return "rio_de_janeiro"
+
+
+def group_unmatched_extractions(extractions):
+    """
+    Group unmatched extractions by date and location for efficient processing.
+    
+    Args:
+        extractions: List of ExtractedEvent objects that didn't match existing incidents
+    
+    Returns:
+        dict: {group_key: [extractions]} where group_key is (date_bucket, location_key)
+    """
+    groups = {}
+    
+    for extraction in extractions:
+        if not extraction.extracted_date:
+            # No date - put in special group
+            group_key = ("no_date", get_location_key(extraction))
+        else:
+            # Group by date (day) and location
+            date_bucket = extraction.extracted_date.date()
+            location_key = get_location_key(extraction)
+            group_key = (date_bucket, location_key)
+        
+        if group_key not in groups:
+            groups[group_key] = []
+        groups[group_key].append(extraction)
+    
+    return groups
+
+
+def llm_match_extractions_within_group(extractions):
+    """
+    Use LLM to match extractions within a group and cluster them.
+    
+    Args:
+        extractions: List of ExtractedEvent objects in the same group
+    
+    Returns:
+        list of clusters: [[extraction1, extraction2], [extraction3], ...]
+        Each cluster represents extractions that refer to the same incident.
+    """
+    if len(extractions) == 1:
+        # Single extraction - no matching needed
+        return [[extractions[0]]]
+    
+    print(f"    [Group Match] Matching {len(extractions)} extractions within group...")
+    
+    model = get_llm_model()
+    if not model:
+        # Fallback: treat each extraction as separate if LLM not available
+        print(f"    [Group Match] ⚠️ LLM not available, treating as separate incidents")
+        return [[ext] for ext in extractions]
+    
+    # Build extraction summaries
+    extraction_info = []
+    for ext in extractions:
+        extraction_info.append({
+            "id": ext.id,
+            "victim_name": ext.extracted_victim_name or "Não mencionado",
+            "location": ext.extracted_location or "Não mencionado",
+            "date": ext.extracted_date.strftime('%Y-%m-%d') if ext.extracted_date else "Desconhecida",
+            "summary": ext.summary or "Sem resumo"
+        })
+    
+    prompt = f"""Analise as extrações abaixo e determine quais se referem ao MESMO evento real.
+
+EXTRAÇÕES:
+"""
+    
+    for i, ext in enumerate(extraction_info, 1):
+        prompt += f"""
+{i}. Extração ID {ext['id']}:
+   - Vítima: {ext['victim_name']}
+   - Local: {ext['location']}
+   - Data: {ext['date']}
+   - Resumo: {ext['summary']}
+"""
+    
+    prompt += """
+Responda APENAS com um objeto JSON válido no seguinte formato:
+{
+  "clusters": [
+    [1, 3],  // extrações 1 e 3 são o mesmo evento
+    [2],     // extração 2 é um evento diferente
+    [4, 5, 6] // extrações 4, 5 e 6 são o mesmo evento
+  ]
+}
+
+REGRAS CRÍTICAS:
+1. MESMA VÍTIMA + MESMA DATA + MESMO LOCAL = MESMO EVENTO
+2. Diferentes fontes podem focar em aspectos diferentes do mesmo crime
+3. Se vítima, data e local coincidem, é o mesmo evento mesmo que descrições difiram
+
+Retorne os IDs das extrações (1-indexed) agrupadas por evento.
+"""
+    
+    try:
+        response = model.generate_content(prompt)
+        raw_text = response.text.strip()
+        
+        # Clean up markdown code blocks if present
+        if "```json" in raw_text:
+            raw_text = raw_text.split("```json")[1].split("```")[0].strip()
+        elif "```" in raw_text:
+            raw_text = raw_text.split("```")[1].split("```")[0].strip()
+        
+        data = json.loads(raw_text)
+        clusters_data = data.get("clusters", [])
+        
+        # Convert 1-indexed extraction numbers to actual extraction objects
+        clusters = []
+        for cluster_indices in clusters_data:
+            cluster = []
+            for idx in cluster_indices:
+                # idx is 1-indexed
+                if 1 <= idx <= len(extractions):
+                    cluster.append(extractions[idx - 1])
+            if cluster:
+                clusters.append(cluster)
+        
+        # If clustering failed or returned empty, treat each as separate
+        if not clusters:
+            print(f"    [Group Match] ⚠️ Clustering returned empty, treating as separate")
+            return [[ext] for ext in extractions]
+        
+        print(f"    [Group Match] ✅ Found {len(clusters)} distinct incident(s) from {len(extractions)} extraction(s)")
+        return clusters
+        
+    except Exception as e:
+        print(f"    [Group Match] ⚠️ Error: {e}, treating as separate incidents")
+        # Fallback: treat each as separate
+        return [[ext] for ext in extractions]
+
+
+def process_group_worker(app_obj, group_key, extraction_ids, dry_run=False):
+    """
+    Worker function to process a group of unmatched extractions in its own context.
+    
+    Args:
+        app_obj: Flask app object
+        group_key: (date_bucket, location_key) tuple identifying the group
+        extraction_ids: List of extraction IDs in this group
+        dry_run: If True, don't commit changes
+    
+    Returns:
+        dict with results: {"created": int, "extraction_ids": [int], "incident_ids": [int]}
+    """
+    with app_obj.app_context():
+        try:
+            # Load extractions
+            extractions = ExtractedEvent.query.filter(
+                ExtractedEvent.id.in_(extraction_ids)
+            ).all()
+            
+            if not extractions:
+                return {
+                    "created": 0,
+                    "extraction_ids": [],
+                    "incident_ids": []
+                }
+            
+            date_bucket, location_key = group_key
+            print(f"\n  [Group {date_bucket}/{location_key}] Processing {len(extractions)} extraction(s)")
+            
+            # Match extractions within the group
+            clusters = llm_match_extractions_within_group(extractions)
+            
+            created_count = 0
+            result_extraction_ids = []
+            incident_ids = []
+            
+            for cluster in clusters:
+                if not cluster:
+                    continue
+                
+                # Create one incident for this cluster
+                # Use the first extraction as the base
+                base_extraction = cluster[0]
+                
+                if not dry_run:
+                    new_incident = create_incident_from_extraction(base_extraction)
+                    print(f"    [Group] 🆕 Creating Incident: '{new_incident.title}'")
+                    db.session.add(new_incident)
+                    db.session.flush()  # Get the ID
+                    
+                    # Link all extractions in cluster to this incident
+                    for ext in cluster:
+                        ext.incident = new_incident
+                        result_extraction_ids.append(ext.id)
+                    
+                    db.session.commit()
+                    incident_ids.append(new_incident.id)
+                    created_count += 1
+                else:
+                    new_incident = create_incident_from_extraction(base_extraction)
+                    print(f"    [Group] 🆕 Would create Incident: '{new_incident.title}' (DRY RUN)")
+                    result_extraction_ids.extend([ext.id for ext in cluster])
+                    created_count += 1
+            
+            return {
+                "created": created_count,
+                "extraction_ids": result_extraction_ids,
+                "incident_ids": incident_ids
+            }
+        except Exception as e:
+            print(f"  ❌ Error processing group {group_key}: {e}")
+            db.session.rollback()
+            return {
+                "created": 0,
+                "extraction_ids": [],
+                "incident_ids": [],
+                "error": str(e)
+            }
+
+
+def process_single_extraction_worker(app_obj, extraction_id, existing_incident_ids):
+    """
+    Worker function to process a single extraction in its own context.
+    
+    Matches against existing incidents only (snapshot at start of phase).
+    
+    Args:
+        app_obj: Flask app object
+        extraction_id: ID of extraction to process
+        existing_incident_ids: Set of incident IDs that exist at start (for safety)
+    
+    Returns:
+        dict with matching result
+    """
+    with app_obj.app_context():
+        try:
+            extraction = ExtractedEvent.query.get(extraction_id)
+            if not extraction:
+                return {
+                    "status": "error",
+                    "extraction_id": extraction_id,
+                    "incident_id": None,
+                    "error": "Extraction not found"
+                }
+            
+            # Skip if already linked (race condition protection)
+            if extraction.incident_id is not None:
+                return {
+                    "status": "skipped",
+                    "extraction_id": extraction_id,
+                    "incident_id": extraction.incident_id,
+                    "confidence": 0.0
+                }
+            
+            # Only match against incidents that existed at start
+            # This prevents race conditions
+            candidates = find_candidate_incidents(extraction)
+            # Filter to only include existing incidents
+            candidates = [inc for inc in candidates if inc.id in existing_incident_ids]
+            
+            if not candidates:
+                return {
+                    "status": "unmatched",
+                    "extraction_id": extraction_id,
+                    "incident_id": None,
+                    "confidence": 0.0
+                }
+            
+            # Use LLM to match
+            matched_incident, confidence, reasoning = llm_match_extraction_to_incident(extraction, candidates)
+            
+            if matched_incident:
+                return {
+                    "status": "linked",
+                    "extraction_id": extraction_id,
+                    "incident_id": matched_incident.id,
+                    "confidence": confidence
+                }
+            else:
+                return {
+                    "status": "unmatched",
+                    "extraction_id": extraction_id,
+                    "incident_id": None,
+                    "confidence": 0.0
+                }
+                
+        except Exception as e:
+            return {
+                "status": "error",
+                "extraction_id": extraction_id,
+                "incident_id": None,
+                "error": str(e)
+            }
+
+
+def batch_enrich_incident_worker(app_obj, incident_id):
+    """
+    Worker function to enrich a single incident in its own context.
+    
+    Args:
+        app_obj: Flask app object
+        incident_id: ID of incident to enrich
+    
+    Returns:
+        dict with enrichment result
+    """
+    with app_obj.app_context():
+        try:
+            incident = Incident.query.get(incident_id)
+            if not incident:
+                return {
+                    "success": False,
+                    "incident_id": incident_id,
+                    "error": "Incident not found"
+                }
+            
+            enriched_incident = llm_enrich_incident(incident)
+            db.session.commit()
+            
+            return {
+                "success": True,
+                "incident_id": incident_id
+            }
+            
+        except Exception as e:
+            db.session.rollback()
+            return {
+                "success": False,
+                "incident_id": incident_id,
+                "error": str(e)
+            }
+
+
+def run_enrichment(auto_create=True, dry_run=False, max_workers=10):
+    """
+    Stage 3: Enrichment - Link Extractions to Incidents (Optimized Parallel Version).
+    
+    Processes extractions in parallel with three phases:
+    - Phase 1a: Parallel matching against existing incidents
+    - Phase 1b: Grouped creation for new incidents (prevents duplicates)
+    - Phase 2: Batch enrichment of all incidents in parallel
     
     Args:
         auto_create: If True, automatically create new Incidents for unmatched extractions
         dry_run: If True, don't commit changes to database, just log what would happen
+        max_workers: Number of parallel workers (default: 10)
     """
     print(f"\n{'='*70}")
-    print(f"ENRICHMENT PROCESS STARTING")
+    print(f"ENRICHMENT PROCESS STARTING (PARALLEL)")
     print(f"{'='*70}")
     print(f"Mode: {'DRY RUN' if dry_run else 'LIVE'}")
     print(f"Auto-create: {auto_create}")
+    print(f"Max workers: {max_workers}")
     print(f"{'='*70}\n")
     
     start_time = time.time()
     
     # Get unlinked extractions that have enough data for deduplication
-    # Fetch only IDs to avoid loading all data into memory
     unlinked_query = ExtractedEvent.query.filter(
         ExtractedEvent.incident_id.is_(None),
         ExtractedEvent.extracted_date.isnot(None)  # Need date for matching
@@ -790,36 +1190,150 @@ def run_enrichment(auto_create=True, dry_run=False):
             "linked": 0,
             "created": 0,
             "skipped": 0,
-            "errors": 0
+            "errors": 0,
+            "merged": 0
         }
     
-    # Process sequentially
+    # Get snapshot of existing incident IDs at start (for race condition prevention)
+    existing_incident_ids = set(
+        row[0] for row in Incident.query.with_entities(Incident.id).all()
+    )
+    print(f"📊 Found {len(existing_incident_ids)} existing incident(s) to match against")
+    
+    # Get Flask app object for threading
+    app_obj = current_app._get_current_object()
+    
+    # ===== PHASE 1a: Parallel Matching Against Existing Incidents =====
+    print(f"\n{'='*70}")
+    print(f"PHASE 1a: Matching Against Existing Incidents (Parallel)")
+    print(f"{'='*70}\n")
+    
     linked_count = 0
-    created_count = 0
     skipped_count = 0
     error_count = 0
+    unmatched_extraction_ids = []
+    incidents_to_enrich = set()
     
-    for i, ext_id in enumerate(unlinked_ids, 1):
-        try:
-            result = process_single_extraction(ext_id, auto_create, dry_run)
-            
-            if result["status"] == "linked":
-                linked_count += 1
-            elif result["status"] == "created":
-                created_count += 1
-            elif result["status"] == "skipped":
-                skipped_count += 1
-            elif result["status"] == "error":
-                error_count += 1
-                print(f"  ❌ Error processing extraction {ext_id}: {result.get('error', 'Unknown error')}")
-            
-            # Progress update every 10 items or at the end
-            if i % 10 == 0 or i == total:
-                print(f"\n📊 Progress: {i}/{total} | Linked: {linked_count} | Created: {created_count} | Skipped: {skipped_count} | Errors: {error_count}")
+    with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+        futures = {
+            executor.submit(process_single_extraction_worker, app_obj, ext_id, existing_incident_ids): ext_id
+            for ext_id in unlinked_ids
+        }
+        
+        for i, future in enumerate(concurrent.futures.as_completed(futures), 1):
+            ext_id = futures[future]
+            try:
+                result = future.result()
                 
-        except Exception as e:
-            error_count += 1
-            print(f"  ❌ Error processing extraction {ext_id}: {e}")
+                if result["status"] == "linked":
+                    linked_count += 1
+                    incidents_to_enrich.add(result["incident_id"])
+                    # Link the extraction in database
+                    if not dry_run:
+                        with app_obj.app_context():
+                            extraction = ExtractedEvent.query.get(result["extraction_id"])
+                            if extraction:
+                                incident = Incident.query.get(result["incident_id"])
+                                if incident:
+                                    extraction.incident = incident
+                                    db.session.commit()
+                elif result["status"] == "unmatched":
+                    unmatched_extraction_ids.append(result["extraction_id"])
+                elif result["status"] == "skipped":
+                    skipped_count += 1
+                elif result["status"] == "error":
+                    error_count += 1
+                    print(f"  ❌ Error processing extraction {ext_id}: {result.get('error', 'Unknown error')}")
+                
+                # Progress update
+                if i % 10 == 0 or i == total:
+                    print(f"📊 Progress: {i}/{total} | Linked: {linked_count} | Unmatched: {len(unmatched_extraction_ids)} | Skipped: {skipped_count} | Errors: {error_count}")
+                    
+            except Exception as e:
+                error_count += 1
+                print(f"  ❌ Error processing extraction {ext_id}: {e}")
+    
+    print(f"\n✅ Phase 1a complete: {linked_count} linked, {len(unmatched_extraction_ids)} unmatched")
+    
+    # ===== PHASE 1b: Grouped Creation for New Incidents =====
+    created_count = 0
+    new_incident_ids = []
+    
+    if auto_create and unmatched_extraction_ids:
+        print(f"\n{'='*70}")
+        print(f"PHASE 1b: Creating New Incidents (Grouped)")
+        print(f"{'='*70}\n")
+        
+        # Load unmatched extractions
+        with app_obj.app_context():
+            unmatched_extractions = ExtractedEvent.query.filter(
+                ExtractedEvent.id.in_(unmatched_extraction_ids)
+            ).all()
+        
+        # Group by date and location
+        groups = group_unmatched_extractions(unmatched_extractions)
+        print(f"📊 Grouped {len(unmatched_extractions)} unmatched extraction(s) into {len(groups)} group(s)")
+        
+        # Process groups in parallel (different groups are independent)
+        with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = {
+                executor.submit(
+                    process_group_worker, 
+                    app_obj, 
+                    group_key, 
+                    [ext.id for ext in group_extractions], 
+                    dry_run
+                ): group_key
+                for group_key, group_extractions in groups.items()
+            }
+            
+            for future in concurrent.futures.as_completed(futures):
+                group_key = futures[future]
+                try:
+                    result = future.result()
+                    created_count += result["created"]
+                    new_incident_ids.extend(result["incident_ids"])
+                    incidents_to_enrich.update(result["incident_ids"])
+                except Exception as e:
+                    error_count += 1
+                    print(f"  ❌ Error processing group {group_key}: {e}")
+        
+        print(f"✅ Phase 1b complete: {created_count} new incident(s) created")
+    
+    # ===== PHASE 2: Batch Enrichment (Parallel) =====
+    enrichment_count = 0
+    enrichment_errors = 0
+    
+    if incidents_to_enrich and not dry_run:
+        print(f"\n{'='*70}")
+        print(f"PHASE 2: Batch Enrichment (Parallel)")
+        print(f"{'='*70}\n")
+        print(f"📊 Enriching {len(incidents_to_enrich)} incident(s)...")
+        
+        with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = {
+                executor.submit(batch_enrich_incident_worker, app_obj, incident_id): incident_id
+                for incident_id in incidents_to_enrich
+            }
+            
+            for i, future in enumerate(concurrent.futures.as_completed(futures), 1):
+                incident_id = futures[future]
+                try:
+                    result = future.result()
+                    if result["success"]:
+                        enrichment_count += 1
+                    else:
+                        enrichment_errors += 1
+                        print(f"  ⚠️ Enrichment error for incident {incident_id}: {result.get('error', 'Unknown')}")
+                    
+                    if i % 10 == 0 or i == len(incidents_to_enrich):
+                        print(f"📊 Enrichment progress: {i}/{len(incidents_to_enrich)} | Success: {enrichment_count} | Errors: {enrichment_errors}")
+                        
+                except Exception as e:
+                    enrichment_errors += 1
+                    print(f"  ❌ Error enriching incident {incident_id}: {e}")
+        
+        print(f"✅ Phase 2 complete: {enrichment_count} enriched, {enrichment_errors} errors")
     
     elapsed = time.time() - start_time
     
@@ -832,33 +1346,43 @@ def run_enrichment(auto_create=True, dry_run=False):
     print(f"  ⏭️  Skipped:            {skipped_count}")
     print(f"  ❌ Errors:              {error_count}")
     print(f"  📊 Total processed:    {total}")
+    if incidents_to_enrich:
+        print(f"  ✨ Enriched:           {enrichment_count} (errors: {enrichment_errors})")
     print(f"{'='*70}\n")
     
     # Post-processing: Deduplicate any incidents that were created
+    # Only run if new incidents were created (saves time on subsequent runs)
     merged_count = 0
     if not dry_run and created_count > 0:
-        dedup_result = deduplicate_incidents(dry_run=dry_run)
+        print(f"\n⚠️  Running deduplication on recent incidents (created {created_count} new incident(s))...")
+        dedup_result = deduplicate_incidents(dry_run=dry_run, only_recent_days=7)
         merged_count = dedup_result.get("merged", 0)
         if merged_count > 0:
             print(f"✅ Merged {merged_count} duplicate incident(s)")
+    elif not dry_run and created_count == 0:
+        print(f"\n✅ Skipping deduplication (no new incidents created)")
     
     return {
         "linked": linked_count,
         "created": created_count,
         "skipped": skipped_count,
         "errors": error_count,
-        "merged": merged_count
+        "merged": merged_count,
+        "enriched": enrichment_count
     }
 
 
-def deduplicate_incidents(dry_run=False):
+def deduplicate_incidents(dry_run=False, only_recent_days=7):
     """
     Post-processing deduplication: Find and merge duplicate incidents.
     
     This runs after enrichment to catch any duplicates that were created.
+    By default, only checks incidents from the last 7 days to avoid processing
+    all incidents every time.
     
     Args:
         dry_run: If True, don't commit changes
+        only_recent_days: Only check incidents from the last N days (None = check all)
     
     Returns:
         dict with deduplication results
@@ -867,9 +1391,17 @@ def deduplicate_incidents(dry_run=False):
     print(f"DEDUPLICATION PASS")
     print(f"{'='*70}\n")
     
-    # Get all incidents
-    all_incidents = Incident.query.all()
-    print(f"Checking {len(all_incidents)} incidents for duplicates...")
+    # Get incidents to check (only recent ones by default for performance)
+    if only_recent_days:
+        cutoff_date = datetime.utcnow() - timedelta(days=only_recent_days)
+        query = Incident.query.filter(Incident.date >= cutoff_date)
+        print(f"Checking incidents from the last {only_recent_days} days only (for performance)...")
+    else:
+        query = Incident.query
+        print(f"Checking ALL incidents (this may take a while)...")
+    
+    all_incidents = query.all()
+    print(f"Checking {len(all_incidents)} incident(s) for duplicates...")
     
     merged_count = 0
     duplicates_found = []

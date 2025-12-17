@@ -21,6 +21,7 @@ dependencies = [
     "pytest>=8.0.0",
     "pytest-mock>=3.14.0",
     "pyngrok>=7.0.0",
+    "loguru>=0.7.2",
 ]
 
 [tool.pytest.ini_options]
