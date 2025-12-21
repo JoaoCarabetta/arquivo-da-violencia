@@ -10,7 +10,7 @@ import {
 } from '@/lib/api';
 import { Loader2, TrendingUp, Calendar, Users, Shield, MapPin, Clock } from 'lucide-react';
 import { Link } from 'react-router-dom';
-import { Bar, BarChart, Line, LineChart, XAxis, YAxis, CartesianGrid } from 'recharts';
+import { Bar, BarChart, XAxis, CartesianGrid, LabelList } from 'recharts';
 import { ChartContainer, ChartTooltip, ChartTooltipContent, type ChartConfig } from '@/components/ui/chart';
 
 function StatCard({
@@ -75,20 +75,35 @@ export function Home() {
   const chartConfig = {
     count: {
       label: "Mortes",
-      color: "hsl(var(--chart-1))",
+      color: "hsl(0, 84%, 60%)",
     },
   } satisfies ChartConfig;
+
+  // Get last update date from most recent event
+  const lastUpdateDate = recentEvents?.items?.[0]?.created_at 
+    ? new Date(recentEvents.items[0].created_at).toLocaleDateString('pt-BR', {
+        day: '2-digit',
+        month: 'long',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+      })
+    : null;
 
   return (
     <div className="space-y-12 py-12">
       {/* Hero Section */}
       <section className="container mx-auto px-6 text-center">
-        <h1 className="text-5xl font-bold tracking-tight mb-4">
+        <h1 className="text-5xl font-bold tracking-tight mb-4 text-foreground">
           Monitoramento de Mortes Violentas no Brasil
         </h1>
         <p className="text-xl text-muted-foreground mb-8 max-w-3xl mx-auto">
-          Dados em tempo real coletados automaticamente de fontes jornalísticas para pesquisa, 
-          jornalismo e sociedade civil.
+          Dados em tempo real coletados automaticamente por IA.
+          {lastUpdateDate && (
+            <span className="block mt-2 text-base">
+              Última atualização: {lastUpdateDate}
+            </span>
+          )}
         </p>
         
         {/* Main Counter */}
@@ -159,18 +174,36 @@ export function Home() {
             </CardHeader>
             <CardContent>
               {dayStats && dayStats.length > 0 ? (
-                <ChartContainer config={chartConfig} className="h-[250px]">
-                  <LineChart data={dayStats}>
-                    <CartesianGrid strokeDasharray="3 3" />
+                <ChartContainer config={chartConfig}>
+                  <BarChart
+                    accessibilityLayer
+                    data={dayStats}
+                    margin={{
+                      top: 20,
+                    }}
+                  >
+                    <CartesianGrid vertical={false} />
                     <XAxis
                       dataKey="date"
+                      tickLine={false}
+                      tickMargin={10}
+                      axisLine={false}
                       tickFormatter={(value) => new Date(value).toLocaleDateString('pt-BR', { day: '2-digit', month: 'short' })}
                       fontSize={12}
                     />
-                    <YAxis fontSize={12} />
-                    <ChartTooltip content={<ChartTooltipContent />} />
-                    <Line type="monotone" dataKey="count" stroke="var(--color-count)" strokeWidth={2} />
-                  </LineChart>
+                    <ChartTooltip
+                      cursor={false}
+                      content={<ChartTooltipContent hideLabel />}
+                    />
+                    <Bar dataKey="count" fill="var(--color-count)" radius={8}>
+                      <LabelList
+                        position="top"
+                        offset={12}
+                        className="fill-foreground"
+                        fontSize={12}
+                      />
+                    </Bar>
+                  </BarChart>
                 </ChartContainer>
               ) : (
                 <div className="h-[250px] flex items-center justify-center text-muted-foreground">
@@ -187,13 +220,34 @@ export function Home() {
             </CardHeader>
             <CardContent>
               {topStates.length > 0 ? (
-                <ChartContainer config={chartConfig} className="h-[250px]">
-                  <BarChart data={topStates} layout="vertical">
-                    <CartesianGrid strokeDasharray="3 3" />
-                    <XAxis type="number" fontSize={12} />
-                    <YAxis dataKey="state" type="category" fontSize={12} width={40} />
-                    <ChartTooltip content={<ChartTooltipContent />} />
-                    <Bar dataKey="count" fill="var(--color-count)" radius={[0, 4, 4, 0]} />
+                <ChartContainer config={chartConfig}>
+                  <BarChart
+                    accessibilityLayer
+                    data={topStates}
+                    margin={{
+                      top: 20,
+                    }}
+                  >
+                    <CartesianGrid vertical={false} />
+                    <XAxis
+                      dataKey="state"
+                      tickLine={false}
+                      tickMargin={10}
+                      axisLine={false}
+                      fontSize={12}
+                    />
+                    <ChartTooltip
+                      cursor={false}
+                      content={<ChartTooltipContent hideLabel />}
+                    />
+                    <Bar dataKey="count" fill="var(--color-count)" radius={8}>
+                      <LabelList
+                        position="top"
+                        offset={12}
+                        className="fill-foreground"
+                        fontSize={12}
+                      />
+                    </Bar>
                   </BarChart>
                 </ChartContainer>
               ) : (
