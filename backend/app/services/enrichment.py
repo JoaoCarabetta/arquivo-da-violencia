@@ -23,6 +23,7 @@ from unidecode import unidecode
 from app.config import get_settings
 from app.database import async_session_maker
 from app.models import RawEvent, UniqueEvent
+from app.services.telegram import notify_new_death
 
 
 def parse_datetime(value) -> datetime | None:
@@ -911,7 +912,7 @@ async def create_unique_event_from_cluster(cluster: list[RawEvent]) -> UniqueEve
         )
         row = result.fetchone()
         
-        return UniqueEvent(
+        unique_event = UniqueEvent(
             id=row.id,
             event_date=parse_datetime(row.event_date),
             city=row.city,
@@ -921,6 +922,21 @@ async def create_unique_event_from_cluster(cluster: list[RawEvent]) -> UniqueEve
             source_count=row.source_count,
             needs_enrichment=row.needs_enrichment,
         )
+        
+        # Send Telegram notification for new death
+        await notify_new_death(
+            unique_event_id=unique_event_id,
+            title=best.title,
+            city=best.city,
+            state=best.state,
+            event_date=best.event_date,
+            victim_count=best.victim_count,
+            victims_summary=victims_summary,
+            homicide_type=best.homicide_type,
+            source_count=len(cluster),
+        )
+        
+        return unique_event
 
 
 # =============================================================================

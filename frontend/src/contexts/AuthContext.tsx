@@ -4,6 +4,7 @@ import type { ReactNode } from 'react';
 interface AuthContextType {
   isAuthenticated: boolean;
   token: string | null;
+  loading: boolean;
   login: (username: string, password: string) => Promise<boolean>;
   logout: () => void;
 }
@@ -15,14 +16,16 @@ const API_BASE = '/api';
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [token, setToken] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     // Check if user is already authenticated
-    const storedToken = sessionStorage.getItem('admin_token');
+    const storedToken = localStorage.getItem('admin_token');
     if (storedToken) {
       setToken(storedToken);
       setIsAuthenticated(true);
     }
+    setLoading(false);
   }, []);
 
   const login = async (username: string, password: string): Promise<boolean> => {
@@ -44,7 +47,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       setToken(accessToken);
       setIsAuthenticated(true);
-      sessionStorage.setItem('admin_token', accessToken);
+      localStorage.setItem('admin_token', accessToken);
       
       return true;
     } catch (error) {
@@ -56,11 +59,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const logout = () => {
     setIsAuthenticated(false);
     setToken(null);
-    sessionStorage.removeItem('admin_token');
+    localStorage.removeItem('admin_token');
   };
 
   return (
-    <AuthContext.Provider value={{ isAuthenticated, token, login, logout }}>
+    <AuthContext.Provider value={{ isAuthenticated, token, loading, login, logout }}>
       {children}
     </AuthContext.Provider>
   );

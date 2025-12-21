@@ -1,6 +1,14 @@
 """Pipeline task definitions for ARQ."""
 
+import time
 from loguru import logger
+
+from app.services.telegram import (
+    notify_job_started,
+    notify_job_finished,
+    notify_job_failed,
+    notify_pipeline_summary,
+)
 
 
 async def ingest_task(ctx: dict, query: str | None = None, when: str = "3d") -> dict:
@@ -333,16 +341,30 @@ async def run_full_pipeline(ctx: dict, query: str | None = None, when: str = "3d
     Each stage automatically enqueues tasks for the next stage.
     """
     logger.info("[PIPELINE] Starting full pipeline run")
+    start_time = time.time()
     
-    # Start with ingestion (which will chain to download -> extract -> enrich)
-    result = await ingest_task(ctx, query=query, when=when)
+    # Notify job started
+    await notify_job_started("full_pipeline", {"query": query or "default", "when": when})
     
-    return {
-        "status": "started",
-        "task": "full_pipeline",
-        "message": "Pipeline started - tasks will chain automatically",
-        "ingestion_result": result,
-    }
+    try:
+        # Start with ingestion (which will chain to download -> extract -> enrich)
+        result = await ingest_task(ctx, query=query, when=when)
+        
+        duration = time.time() - start_time
+        await notify_job_finished("full_pipeline", result, duration)
+        
+        return {
+            "status": "started",
+            "task": "full_pipeline",
+            "message": "Pipeline started - tasks will chain automatically",
+            "ingestion_result": result,
+        }
+        
+    except Exception as e:
+        duration = time.time() - start_time
+        logger.error(f"[PIPELINE] Failed: {e}")
+        await notify_job_failed("full_pipeline", str(e), {"duration": f"{duration:.1f}s"})
+        raise
 
 
 async def ingest_cities_task(
@@ -368,25 +390,39 @@ async def ingest_cities_task(
         dict with ingestion results
     """
     logger.info(f"[INGEST_CITIES] Starting with when={when}")
+    start_time = time.time()
     
-    from app.services.ingestion import ingest_all_cities
+    # Notify job started
+    await notify_job_started("ingest_cities", {"when": when})
     
-    result = await ingest_all_cities(cities=cities, when=when, resolve_urls=True)
-    
-    total_sources = result['total_sources_created']
-    logger.info(f"[INGEST_CITIES] Complete: {total_sources} new sources")
-    
-    # Enqueue classification tasks for all new sources
-    if total_sources > 0 and ctx.get("redis"):
-        # Batch classify all pending sources
-        await ctx["redis"].enqueue_job("classify_pending_task", limit=total_sources + 50)
-        logger.info(f"[INGEST_CITIES] Enqueued batch classification task")
-    
-    return {
-        "status": "completed",
-        "task": "ingest_cities",
-        **result,
-    }
+    try:
+        from app.services.ingestion import ingest_all_cities
+        
+        result = await ingest_all_cities(cities=cities, when=when, resolve_urls=True)
+        
+        total_sources = result['total_sources_created']
+        logger.info(f"[INGEST_CITIES] Complete: {total_sources} new sources")
+        
+        # Enqueue classification tasks for all new sources
+        if total_sources > 0 and ctx.get("redis"):
+            # Batch classify all pending sources
+            await ctx["redis"].enqueue_job("classify_pending_task", limit=total_sources + 50)
+            logger.info(f"[INGEST_CITIES] Enqueued batch classification task")
+        
+        duration = time.time() - start_time
+        await notify_job_finished("ingest_cities", result, duration)
+        
+        return {
+            "status": "completed",
+            "task": "ingest_cities",
+            **result,
+        }
+        
+    except Exception as e:
+        duration = time.time() - start_time
+        logger.error(f"[INGEST_CITIES] Failed: {e}")
+        await notify_job_failed("ingest_cities", str(e), {"duration": f"{duration:.1f}s"})
+        raise
 
 
 async def ingest_cities_full_pipeline(
@@ -401,35 +437,59 @@ async def ingest_cities_full_pipeline(
     Pipeline: ingest -> classify -> download -> extract -> batch_dedup -> batch_enrich
     """
     logger.info("[CITIES_PIPELINE] Starting full city pipeline")
+    start_time = time.time()
     
-    # Step 1: Ingest cities
-    ingest_result = await ingest_cities_task(ctx, cities=cities, when=when)
+    # Notify job started
+    await notify_job_started("cities_full_pipeline", {"when": when})
     
-    # Step 2: Classify pending sources
-    classify_result = await classify_pending_task(ctx, limit=500)
-    
-    # Step 3: Download classified sources
-    download_result = await download_classified_task(ctx, limit=500)
-    
-    # Step 4: Extract ready sources
-    extract_result = await extract_ready_task(ctx, limit=100)
-    
-    # Step 5: Batch deduplication (creates UniqueEvents from pending RawEvents)
-    dedup_result = await batch_dedup_task(ctx, limit=200)
-    
-    # Step 6: Batch enrichment (enriches UniqueEvents that need it)
-    enrich_result = await batch_enrich_task(ctx, limit=50)
-    
-    return {
-        "status": "completed",
-        "task": "cities_full_pipeline",
-        "ingest": ingest_result,
-        "classify": classify_result,
-        "download": download_result,
-        "extract": extract_result,
-        "dedup": dedup_result,
-        "enrich": enrich_result,
-    }
+    try:
+        # Step 1: Ingest cities
+        ingest_result = await ingest_cities_task(ctx, cities=cities, when=when)
+        
+        # Step 2: Classify pending sources
+        classify_result = await classify_pending_task(ctx, limit=500)
+        
+        # Step 3: Download classified sources
+        download_result = await download_classified_task(ctx, limit=500)
+        
+        # Step 4: Extract ready sources
+        extract_result = await extract_ready_task(ctx, limit=100)
+        
+        # Step 5: Batch deduplication (creates UniqueEvents from pending RawEvents)
+        dedup_result = await batch_dedup_task(ctx, limit=200)
+        
+        # Step 6: Batch enrichment (enriches UniqueEvents that need it)
+        enrich_result = await batch_enrich_task(ctx, limit=50)
+        
+        duration = time.time() - start_time
+        
+        # Send pipeline summary notification
+        await notify_pipeline_summary(
+            total_sources=ingest_result.get("total_sources_created", 0),
+            sources_classified=classify_result.get("violent_death", 0),
+            sources_downloaded=download_result.get("successful", 0),
+            raw_events_extracted=extract_result.get("raw_events_created", 0),
+            unique_events_created=dedup_result.get("unique_events_created", 0),
+            duration_seconds=duration,
+        )
+        
+        return {
+            "status": "completed",
+            "task": "cities_full_pipeline",
+            "duration_seconds": duration,
+            "ingest": ingest_result,
+            "classify": classify_result,
+            "download": download_result,
+            "extract": extract_result,
+            "dedup": dedup_result,
+            "enrich": enrich_result,
+        }
+        
+    except Exception as e:
+        duration = time.time() - start_time
+        logger.error(f"[CITIES_PIPELINE] Failed: {e}")
+        await notify_job_failed("cities_full_pipeline", str(e), {"duration": f"{duration:.1f}s"})
+        raise
 
 
 # List of all task functions for the worker

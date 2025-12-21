@@ -47,17 +47,27 @@ async def get_public_stats(session: AsyncSession = Depends(get_session)):
         )
     )
     
-    # Project start date (earliest event)
+    # Project start date - use earliest event_date, fallback to 2025-12-21 if none
     earliest = await session.scalar(
-        select(func.min(UniqueEvent.created_at))
+        select(func.min(UniqueEvent.event_date))
     )
+    
+    # Default to 2025-12-21 if no events found, otherwise use earliest event_date
+    if earliest:
+        # Convert to date if it's a datetime
+        if isinstance(earliest, datetime):
+            since_date = earliest.date()
+        else:
+            since_date = earliest
+    else:
+        since_date = datetime(2025, 12, 21).date()
     
     return {
         "total": total or 0,
         "today": today or 0,
         "this_week": this_week or 0,
         "this_month": this_month or 0,
-        "since": earliest.date().isoformat() if earliest else datetime.utcnow().date().isoformat()
+        "since": since_date.isoformat()
     }
 
 

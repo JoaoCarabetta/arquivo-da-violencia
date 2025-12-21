@@ -38,6 +38,10 @@ class Settings(BaseSettings):
     # Pipeline settings
     pipeline_max_workers: int = 10
     pipeline_batch_size: int = 50
+    
+    # Telegram notifications
+    telegram_bot_token: str | None = None
+    telegram_chat_id: str | None = None
 
     @property
     def database_path(self) -> Path:

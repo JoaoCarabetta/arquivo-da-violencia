@@ -11,6 +11,8 @@
 # Environment variables (create .env file):
 #   GEMINI_API_KEY=your-api-key
 #   ENABLE_CRON=true  # Enable hourly ingestion
+#   TELEGRAM_BOT_TOKEN=your-bot-token  # For notifications
+#   TELEGRAM_CHAT_ID=your-chat-id
 #
 # =============================================================================
 
@@ -54,6 +56,8 @@ services:
       - JWT_SECRET_KEY=${JWT_SECRET_KEY:-change-me-in-production}
       - ADMIN_USERNAME=${ADMIN_USERNAME:-admin}
       - ADMIN_PASSWORD=${ADMIN_PASSWORD:-admin123}
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN:-}
+      - TELEGRAM_CHAT_ID=${TELEGRAM_CHAT_ID:-}
     volumes:
       - ./backend/app/instance:/app/instance
     healthcheck:
@@ -82,6 +86,8 @@ services:
       - JWT_SECRET_KEY=${JWT_SECRET_KEY:-change-me-in-production}
       - ADMIN_USERNAME=${ADMIN_USERNAME:-admin}
       - ADMIN_PASSWORD=${ADMIN_PASSWORD:-admin123}
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN:-}
+      - TELEGRAM_CHAT_ID=${TELEGRAM_CHAT_ID:-}
     volumes:
       - ./backend/app/instance:/app/instance
     restart: unless-stopped
