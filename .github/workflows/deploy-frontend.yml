@@ -74,6 +74,8 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            NGINX_CONF=${{ github.ref == 'refs/heads/develop' && 'nginx.staging.conf' || 'nginx.conf' }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
