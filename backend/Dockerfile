@@ -58,3 +58,4 @@ RUN mkdir -p /app/instance && chmod 777 /app/instance
 # Default command (can be overridden)
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
 
+
