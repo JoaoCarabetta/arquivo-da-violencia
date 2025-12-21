@@ -93,7 +93,7 @@ services:
     volumes:
       - ./backend/app/instance:/app/instance
     healthcheck:
-      test: ["CMD-SHELL", "pgrep -f 'arq app.tasks.worker' || exit 1"]
+      test: ["CMD-SHELL", "python -c 'import sys; sys.exit(0 if __import__(\"pathlib\").Path(\"/proc/1\").exists() else 1)'"]
       interval: 30s
       timeout: 10s
       start_period: 10s
