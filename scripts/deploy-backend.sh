@@ -20,7 +20,7 @@ ENVIRONMENT="${1:-production}"
 
 # Configuration based on environment
 if [ "$ENVIRONMENT" = "staging" ]; then
-    COMPOSE_FILES="-f docker-compose.yml -f docker-compose.staging.yml"
+    COMPOSE_FILES="-p staging -f docker-compose.yml -f docker-compose.staging.yml"
     WORKER_CONTAINER="staging-arquivo-worker"
     API_CONTAINER="staging-arquivo-api"
     API_PORT="8001"

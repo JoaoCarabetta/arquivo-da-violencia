@@ -23,7 +23,7 @@ cd /root/arquivo-da-violencia
 PROD_DB="./instance/violence.db"
 STAGING_DB="./staging_instance/violence.db"
 STAGING_BACKUP="./staging_instance/violence.db.backup.$(date +%Y%m%d_%H%M%S)"
-COMPOSE_STAGING="-f docker-compose.yml -f docker-compose.staging.yml"
+COMPOSE_STAGING="-p staging -f docker-compose.yml -f docker-compose.staging.yml"
 
 echo "🔄 Starting production to staging database sync..."
 echo ""

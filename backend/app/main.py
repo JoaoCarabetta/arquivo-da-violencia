@@ -77,4 +77,3 @@ def create_app() -> FastAPI:
 
 # Create app instance for uvicorn
 app = create_app()
-# deploy test 1766336133
