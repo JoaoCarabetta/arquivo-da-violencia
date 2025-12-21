@@ -138,7 +138,15 @@ def extract_victim_names_from_unique_event(unique_event: UniqueEvent) -> list[st
     
     # Also check merged_data for identifiable victims
     if unique_event.merged_data:
-        victims = unique_event.merged_data.get("victims", {})
+        # Handle case where merged_data is stored as JSON string
+        merged_data = unique_event.merged_data
+        if isinstance(merged_data, str):
+            import json
+            try:
+                merged_data = json.loads(merged_data)
+            except json.JSONDecodeError:
+                merged_data = {}
+        victims = merged_data.get("victims", {}) if isinstance(merged_data, dict) else {}
         identifiable = victims.get("identifiable_victims", [])
         for victim in identifiable:
             name = victim.get("name")
