@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import Editor from '@monaco-editor/react';
-import { Panel, Group as PanelGroup, Separator as PanelResizeHandle } from 'react-resizable-panels';
+import { Panel, Group, Separator } from 'react-resizable-panels';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Card } from '@/components/ui/card';
@@ -212,7 +212,7 @@ export function RawEventDetail() {
 
       {/* Split View */}
       <div className="flex-1 overflow-hidden">
-        <PanelGroup orientation="horizontal">
+        <Group orientation="horizontal">
           {/* Left Panel - Source Content */}
           <Panel defaultSize={40} minSize={25}>
             <div className="h-full flex flex-col bg-muted/30">
@@ -281,7 +281,7 @@ export function RawEventDetail() {
           </Panel>
 
           {/* Resize Handle */}
-          <PanelResizeHandle className="w-2 bg-border hover:bg-primary/20 transition-colors" />
+          <Separator className="w-2 bg-border hover:bg-primary/20 transition-colors" />
 
           {/* Right Panel - JSON Editor */}
           <Panel defaultSize={60} minSize={25}>
@@ -312,7 +312,7 @@ export function RawEventDetail() {
               </div>
             </div>
           </Panel>
-        </PanelGroup>
+        </Group>
       </div>
     </div>
   );
