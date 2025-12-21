@@ -25,7 +25,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
       <aside className="fixed inset-y-0 left-0 z-50 w-64 border-r bg-card">
         <div className="flex h-16 items-center border-b px-6">
           <h1 className="text-lg font-semibold tracking-tight">
-            <span className="text-rose-600">Arquivo</span> da Violência
+            <span className="text-rose-600">Arquivo da Violência</span>
           </h1>
         </div>
         <nav className="space-y-1 p-4">
@@ -48,12 +48,6 @@ export function Layout({ children }: { children: React.ReactNode }) {
             );
           })}
         </nav>
-        <div className="absolute bottom-4 left-4 right-4">
-          <div className="rounded-lg bg-muted px-3 py-2 text-xs text-muted-foreground">
-            <p className="font-medium">v1 Development</p>
-            <p>FastAPI + SQLModel + React</p>
-          </div>
-        </div>
       </aside>
 
       {/* Main content */}

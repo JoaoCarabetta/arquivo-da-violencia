@@ -74,6 +74,12 @@ class RawEventBase(SQLModel):
     extraction_model: str | None = Field(default=None, max_length=50)  # e.g., "gemini-2.5-flash"
     extraction_success: bool = Field(default=True)
     extraction_error: str | None = Field(default=None)
+    
+    # === Deduplication status ===
+    # pending: awaiting deduplication
+    # matched: linked to existing UniqueEvent
+    # clustered: grouped with other RawEvents into new UniqueEvent
+    deduplication_status: str = Field(default="pending", max_length=20, index=True)
 
 
 class RawEvent(RawEventBase, table=True):
@@ -112,5 +118,6 @@ class RawEventRead(RawEventBase):
     id: int
     source_google_news_id: int | None
     unique_event_id: int | None
+    deduplication_status: str
     created_at: datetime
     updated_at: datetime

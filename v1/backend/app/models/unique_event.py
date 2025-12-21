@@ -62,6 +62,11 @@ class UniqueEventBase(SQLModel):
     
     # === Status ===
     confirmed: bool = Field(default=False)  # Manual review status
+    
+    # === Enrichment status ===
+    needs_enrichment: bool = Field(default=True, index=True)  # Whether enrichment is pending
+    last_enriched_at: datetime | None = Field(default=None)  # When last enriched
+    enrichment_model: str | None = Field(default=None, max_length=50)  # Model used for enrichment
 
 
 class UniqueEvent(UniqueEventBase, table=True):
@@ -83,5 +88,7 @@ class UniqueEventRead(UniqueEventBase):
     """Schema for reading a unique event."""
     
     id: int
+    needs_enrichment: bool
+    last_enriched_at: datetime | None
     created_at: datetime
     updated_at: datetime

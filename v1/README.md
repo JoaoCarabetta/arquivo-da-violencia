@@ -142,6 +142,35 @@ Cities that consistently hit the 100-result limit automatically switch to **sour
 
 ## Development
 
+### Docker Development (with Auto-Reload)
+
+For active development with automatic hot-reload:
+
+```bash
+# Start with development config (Vite dev server + hot-reload)
+docker compose -f docker-compose.yml -f docker-compose.dev.yml up
+
+# Frontend will be available at http://localhost:5173
+# Changes to frontend files appear instantly without rebuild
+```
+
+**Features:**
+- ✅ **Hot Module Replacement (HMR)**: Frontend changes appear instantly
+- ✅ **Volume mounts**: Source files synced automatically
+- ✅ **No rebuilds needed**: Edit code and see changes immediately
+- ✅ **Vite dev server**: Fast development experience
+
+**How it works:**
+- Frontend source files are mounted as volumes
+- Vite dev server runs inside Docker with HMR enabled
+- Edit files in `v1/frontend/src/` → changes appear in browser automatically
+
+**For production builds:**
+```bash
+# Rebuild and restart frontend
+docker compose up -d --build frontend
+```
+
 ### Local Development (without Docker)
 
 ```bash
@@ -193,8 +222,11 @@ SourceGoogleNews  →  RawEvent  →  UniqueEvent
 ## Useful Commands
 
 ```bash
-# Start all services
+# Start all services (production)
 docker compose up -d
+
+# Start with development mode (auto-reload)
+docker compose -f docker-compose.yml -f docker-compose.dev.yml up
 
 # Stop all services
 docker compose down
@@ -202,8 +234,11 @@ docker compose down
 # View all logs
 docker compose logs -f
 
-# Rebuild after code changes
+# Rebuild after code changes (production)
 docker compose up -d --build
+
+# Rebuild frontend only
+docker compose up -d --build frontend
 
 # Access API container shell
 docker compose exec api bash

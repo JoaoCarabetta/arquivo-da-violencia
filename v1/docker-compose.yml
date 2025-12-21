@@ -51,10 +51,13 @@ services:
       - GEMINI_API_KEY=${GEMINI_API_KEY:-}
       - DEBUG=${DEBUG:-false}
       - CORS_ORIGINS=["http://localhost:5173","http://localhost:3000","http://localhost:80"]
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY:-change-me-in-production}
+      - ADMIN_USERNAME=${ADMIN_USERNAME:-admin}
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD:-admin123}
     volumes:
-      - db_data:/app/instance
+      - ./backend/app/instance:/app/instance
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/api/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 30s
       timeout: 10s
       start_period: 10s
@@ -76,24 +79,36 @@ services:
       - DATABASE_URL=sqlite+aiosqlite:///./instance/violence.db
       - GEMINI_API_KEY=${GEMINI_API_KEY:-}
       - ENABLE_CRON=${ENABLE_CRON:-false}
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY:-change-me-in-production}
+      - ADMIN_USERNAME=${ADMIN_USERNAME:-admin}
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD:-admin123}
     volumes:
-      - db_data:/app/instance
+      - ./backend/app/instance:/app/instance
     restart: unless-stopped
 
   # ---------------------------------------------------------------------------
   # Frontend - React Vite app (production build)
   # ---------------------------------------------------------------------------
   frontend:
-    build: ./frontend
+    build:
+      context: ./frontend
     container_name: arquivo-frontend
     ports:
       - "80:80"
     depends_on:
       - api
     restart: unless-stopped
+    # Optional: Enable watch mode for automatic rebuilds
+    # Run: docker compose watch
+    # develop:
+    #   watch:
+    #     - action: rebuild
+    #       path: ./frontend
+    #       ignore:
+    #         - node_modules/
+    #         - dist/
+    #         - .git/
 
 volumes:
   redis_data:
     name: arquivo-redis-data
-  db_data:
-    name: arquivo-db-data

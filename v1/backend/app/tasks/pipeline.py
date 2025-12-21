@@ -26,17 +26,83 @@ async def ingest_task(ctx: dict, query: str | None = None, when: str = "3d") -> 
     
     logger.info(f"[INGEST] Complete: created {len(sources)} new sources")
     
-    # Enqueue download tasks for new sources
+    # Enqueue classification tasks for new sources
     if sources and ctx.get("redis"):
         for source in sources:
-            await ctx["redis"].enqueue_job("download_task", source.id)
-        logger.info(f"[INGEST] Enqueued {len(sources)} download tasks")
+            await ctx["redis"].enqueue_job("classify_task", source.id)
+        logger.info(f"[INGEST] Enqueued {len(sources)} classification tasks")
     
     return {
         "status": "completed",
         "task": "ingest",
         "sources_created": len(sources),
         "source_ids": [s.id for s in sources],
+    }
+
+
+async def classify_task(ctx: dict, source_id: int) -> dict:
+    """
+    Stage 1.5: Classify - Classify headline to filter violent death news.
+    
+    Args:
+        ctx: ARQ context
+        source_id: ID of the SourceGoogleNews to classify
+    
+    Returns:
+        dict with classification results
+    """
+    logger.info(f"[CLASSIFY] Starting for source_id: {source_id}")
+    
+    from app.services.classification import classify_source
+    
+    is_violent_death = await classify_source(source_id)
+    
+    if is_violent_death:
+        logger.info(f"[CLASSIFY] source_id {source_id}: VIOLENT DEATH - enqueueing download")
+        # Enqueue download task
+        if ctx.get("redis"):
+            await ctx["redis"].enqueue_job("download_task", source_id)
+        
+        return {
+            "status": "completed",
+            "task": "classify",
+            "source_id": source_id,
+            "is_violent_death": True,
+        }
+    else:
+        logger.info(f"[CLASSIFY] source_id {source_id}: DISCARDED")
+        return {
+            "status": "completed",
+            "task": "classify",
+            "source_id": source_id,
+            "is_violent_death": False,
+        }
+
+
+async def classify_pending_task(ctx: dict, limit: int = 50) -> dict:
+    """
+    Batch task: Classify headlines for all pending sources.
+    
+    After classification, automatically enqueues batch download for sources
+    that passed classification (marked as ready_for_download).
+    """
+    logger.info(f"[CLASSIFY_BATCH] Starting for up to {limit} sources")
+    
+    from app.services.classification import classify_pending_sources
+    
+    result = await classify_pending_sources(limit=limit)
+    
+    logger.info(f"[CLASSIFY_BATCH] Complete: {result}")
+    
+    # Chain to download if we have sources ready
+    if result.get("violent_death", 0) > 0 and ctx.get("redis"):
+        await ctx["redis"].enqueue_job("download_classified_task", limit=result["violent_death"] + 50)
+        logger.info(f"[CLASSIFY_BATCH] Enqueued batch download task")
+    
+    return {
+        "status": "completed",
+        "task": "classify_batch",
+        **result,
     }
 
 
@@ -120,7 +186,13 @@ async def extract_task(ctx: dict, source_id: int) -> dict:
 
 async def enrich_task(ctx: dict, raw_event_id: int) -> dict:
     """
-    Stage 4: Enrich - Deduplicate and link to UniqueEvent, geocode.
+    Stage 4: Enrich - Try to match RawEvent to existing UniqueEvent.
+    
+    This is Phase 1 of deduplication: immediate matching.
+    - Finds candidate UniqueEvents using blocking strategies
+    - Uses LLM to determine if RawEvent matches any candidate
+    - If match: links RawEvent to UniqueEvent
+    - If no match: marks RawEvent as 'pending' for batch processing
     
     Args:
         ctx: ARQ context
@@ -131,29 +203,38 @@ async def enrich_task(ctx: dict, raw_event_id: int) -> dict:
     """
     logger.info(f"[ENRICH] Starting for raw_event_id: {raw_event_id}")
     
-    # TODO: Implement enrichment service
-    # from app.services.enrichment import enrich_event
-    # unique_event = await enrich_event(raw_event_id)
+    from app.services.enrichment import process_single_raw_event
+    
+    result = await process_single_raw_event(raw_event_id)
+    
+    logger.info(f"[ENRICH] Result for raw_event_id {raw_event_id}: {result['status']}")
     
     return {
-        "status": "pending",
         "task": "enrich",
-        "raw_event_id": raw_event_id,
-        "message": "Enrichment not yet implemented",
+        **result,
     }
 
 
-async def download_pending_task(ctx: dict, limit: int = 50) -> dict:
+async def download_classified_task(ctx: dict, limit: int = 50) -> dict:
     """
-    Batch task: Download content for all pending sources.
+    Batch task: Download content for all classified sources (ready for download).
+    
+    After download, automatically enqueues batch extraction for sources
+    that were successfully downloaded (marked as ready_for_extraction).
     """
     logger.info(f"[DOWNLOAD_BATCH] Starting for up to {limit} sources")
     
-    from app.services.download import download_pending_sources
+    from app.services.download import download_classified_sources
     
-    result = await download_pending_sources(limit=limit)
+    result = await download_classified_sources(limit=limit)
     
     logger.info(f"[DOWNLOAD_BATCH] Complete: {result}")
+    
+    # Chain to extraction if we have successful downloads
+    if result.get("successful", 0) > 0 and ctx.get("redis"):
+        await ctx["redis"].enqueue_job("extract_ready_task", limit=result["successful"] + 10)
+        logger.info(f"[DOWNLOAD_BATCH] Enqueued batch extraction task")
+    
     return {
         "status": "completed",
         "task": "download_batch",
@@ -161,20 +242,86 @@ async def download_pending_task(ctx: dict, limit: int = 50) -> dict:
     }
 
 
-async def extract_downloaded_task(ctx: dict, limit: int = 10) -> dict:
+async def extract_ready_task(ctx: dict, limit: int = 10) -> dict:
     """
-    Batch task: Extract events from all downloaded sources.
+    Batch task: Extract events from all sources ready for extraction.
+    
+    After extraction, enqueues enrichment for each created RawEvent.
     """
     logger.info(f"[EXTRACT_BATCH] Starting for up to {limit} sources")
     
-    from app.services.extraction import extract_downloaded_sources
+    from app.services.extraction import extract_ready_sources
     
-    result = await extract_downloaded_sources(limit=limit)
+    result = await extract_ready_sources(limit=limit)
     
     logger.info(f"[EXTRACT_BATCH] Complete: {result}")
+    
+    # Enqueue enrichment tasks for each created RawEvent
+    raw_event_ids = result.get("raw_event_ids", [])
+    if raw_event_ids and ctx.get("redis"):
+        for raw_event_id in raw_event_ids:
+            await ctx["redis"].enqueue_job("enrich_task", raw_event_id)
+        logger.info(f"[EXTRACT_BATCH] Enqueued {len(raw_event_ids)} enrichment tasks")
+    
     return {
         "status": "completed",
         "task": "extract_batch",
+        **result,
+    }
+
+
+async def batch_dedup_task(ctx: dict, limit: int = 100) -> dict:
+    """
+    Periodic: Process pending RawEvents through batch clustering.
+    
+    This is Phase 2 of deduplication:
+    - Gets all RawEvents with deduplication_status='pending'
+    - Groups by date+city
+    - Clusters within each group (using victim names + LLM)
+    - Creates UniqueEvents for each cluster
+    
+    Should be run periodically (e.g., hourly) to process accumulated pending events.
+    """
+    logger.info(f"[BATCH_DEDUP] Starting for up to {limit} pending RawEvents")
+    
+    from app.services.enrichment import process_pending_deduplication
+    
+    result = await process_pending_deduplication(limit=limit)
+    
+    logger.info(f"[BATCH_DEDUP] Complete: {result}")
+    
+    # Enqueue enrichment for newly created UniqueEvents
+    if result.get("unique_events_created", 0) > 0 and ctx.get("redis"):
+        await ctx["redis"].enqueue_job("batch_enrich_task", limit=result["unique_events_created"] + 10)
+        logger.info(f"[BATCH_DEDUP] Enqueued batch enrichment task")
+    
+    return {
+        "task": "batch_dedup",
+        **result,
+    }
+
+
+async def batch_enrich_task(ctx: dict, limit: int = 50) -> dict:
+    """
+    Periodic: Enrich UniqueEvents that need enrichment.
+    
+    Processes all UniqueEvents with needs_enrichment=True:
+    - Fetches all linked RawEvents and source content
+    - Uses LLM to synthesize best information
+    - Updates UniqueEvent fields
+    
+    Should be run after batch_dedup_task or when new sources are linked.
+    """
+    logger.info(f"[BATCH_ENRICH] Starting for up to {limit} UniqueEvents")
+    
+    from app.services.enrichment import run_pending_enrichments
+    
+    result = await run_pending_enrichments(limit=limit)
+    
+    logger.info(f"[BATCH_ENRICH] Complete: {result}")
+    
+    return {
+        "task": "batch_enrich",
         **result,
     }
 
@@ -210,6 +357,8 @@ async def ingest_cities_task(
     Cities that hit the 100-result limit will automatically switch
     to source-based sharding on subsequent runs.
     
+    After ingestion, automatically enqueues classification tasks for all new sources.
+    
     Args:
         ctx: ARQ context (contains redis connection)
         cities: Optional list of cities. If None, uses CITIES from config.
@@ -224,11 +373,14 @@ async def ingest_cities_task(
     
     result = await ingest_all_cities(cities=cities, when=when, resolve_urls=True)
     
-    logger.info(f"[INGEST_CITIES] Complete: {result['total_sources_created']} new sources")
+    total_sources = result['total_sources_created']
+    logger.info(f"[INGEST_CITIES] Complete: {total_sources} new sources")
     
-    # Enqueue download tasks for new sources
-    # Note: We could collect all source IDs and batch enqueue them here
-    # For now, the sources are created but downloads need to be triggered separately
+    # Enqueue classification tasks for all new sources
+    if total_sources > 0 and ctx.get("redis"):
+        # Batch classify all pending sources
+        await ctx["redis"].enqueue_job("classify_pending_task", limit=total_sources + 50)
+        logger.info(f"[INGEST_CITIES] Enqueued batch classification task")
     
     return {
         "status": "completed",
@@ -243,38 +395,55 @@ async def ingest_cities_full_pipeline(
     when: str = "1h",
 ) -> dict:
     """
-    Run city ingestion followed by download and extraction.
+    Run city ingestion followed by classify, download, extraction, and deduplication.
     
     This is the complete hourly pipeline for city-based ingestion.
+    Pipeline: ingest -> classify -> download -> extract -> batch_dedup -> batch_enrich
     """
     logger.info("[CITIES_PIPELINE] Starting full city pipeline")
     
     # Step 1: Ingest cities
     ingest_result = await ingest_cities_task(ctx, cities=cities, when=when)
     
-    # Step 2: Download pending sources
-    download_result = await download_pending_task(ctx, limit=500)
+    # Step 2: Classify pending sources
+    classify_result = await classify_pending_task(ctx, limit=500)
     
-    # Step 3: Extract downloaded sources
-    extract_result = await extract_downloaded_task(ctx, limit=100)
+    # Step 3: Download classified sources
+    download_result = await download_classified_task(ctx, limit=500)
+    
+    # Step 4: Extract ready sources
+    extract_result = await extract_ready_task(ctx, limit=100)
+    
+    # Step 5: Batch deduplication (creates UniqueEvents from pending RawEvents)
+    dedup_result = await batch_dedup_task(ctx, limit=200)
+    
+    # Step 6: Batch enrichment (enriches UniqueEvents that need it)
+    enrich_result = await batch_enrich_task(ctx, limit=50)
     
     return {
         "status": "completed",
         "task": "cities_full_pipeline",
         "ingest": ingest_result,
+        "classify": classify_result,
         "download": download_result,
         "extract": extract_result,
+        "dedup": dedup_result,
+        "enrich": enrich_result,
     }
 
 
 # List of all task functions for the worker
 TASK_FUNCTIONS = [
     ingest_task,
+    classify_task,
+    classify_pending_task,
     download_task,
+    download_classified_task,
     extract_task,
+    extract_ready_task,
     enrich_task,
-    download_pending_task,
-    extract_downloaded_task,
+    batch_dedup_task,
+    batch_enrich_task,
     run_full_pipeline,
     ingest_cities_task,
     ingest_cities_full_pipeline,

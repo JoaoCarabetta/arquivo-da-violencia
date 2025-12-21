@@ -1,0 +1,46 @@
+# =============================================================================
+# Arquivo da Violência - Development Docker Compose (with auto-reload)
+# =============================================================================
+#
+# Usage:
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml up
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml watch
+#
+# This enables:
+#   1. Vite dev server with hot-reload (no rebuild needed for code changes)
+#   2. Automatic rebuilds when package.json or Dockerfile changes
+# =============================================================================
+
+services:
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.dev
+    ports:
+      - "5173:5173"  # Vite dev server port
+    environment:
+      - DOCKER_ENV=true
+      - VITE_API_URL=http://api:8000
+    depends_on:
+      - api
+    volumes:
+      # Mount source code for instant hot-reload (no rebuild needed)
+      - ./frontend/src:/app/src
+      - ./frontend/public:/app/public
+      - ./frontend/index.html:/app/index.html
+      - ./frontend/vite.config.ts:/app/vite.config.ts
+      - ./frontend/tsconfig.json:/app/tsconfig.json
+      - ./frontend/tsconfig.app.json:/app/tsconfig.app.json
+      - ./frontend/tsconfig.node.json:/app/tsconfig.node.json
+      # Exclude node_modules (use container's installed version)
+      - /app/node_modules
+    develop:
+      watch:
+        # Rebuild when dependencies or Dockerfile change
+        - action: rebuild
+          path: ./frontend/package.json
+        - action: rebuild
+          path: ./frontend/package-lock.json
+        - action: rebuild
+          path: ./frontend/Dockerfile.dev
+

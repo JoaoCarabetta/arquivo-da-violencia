@@ -18,7 +18,7 @@ RUN npm ci
 # Copy source code
 COPY . .
 
-# Build the app
+# Build the app (Vite will embed VITE_* env vars at build time)
 RUN npm run build
 
 # =============================================================================

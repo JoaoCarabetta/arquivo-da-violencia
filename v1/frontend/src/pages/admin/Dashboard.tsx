@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { fetchStats, type Stats } from '@/lib/api';
-import { Loader2, Newspaper, FileText, CheckCircle, AlertCircle, Clock, Download } from 'lucide-react';
+import { Loader2, Newspaper, FileText, CheckCircle, AlertCircle, Clock, Download, XCircle, Search, Skull } from 'lucide-react';
 
 function StatCard({
   title,
@@ -71,6 +71,7 @@ export function Dashboard() {
         <p className="text-muted-foreground">Overview of the violence archive pipeline</p>
       </div>
 
+      {/* Classification Stats */}
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
         <StatCard
           title="Total Sources"
@@ -79,35 +80,60 @@ export function Dashboard() {
           description="Google News articles collected"
         />
         <StatCard
-          title="Pending"
-          value={stats.sources.pending}
-          icon={Clock}
+          title="Violent Deaths"
+          value={stats.classification.violent_death}
+          icon={Skull}
+          variant="danger"
+          description="Classified as violent death"
+        />
+        <StatCard
+          title="Discarded"
+          value={stats.sources.discarded}
+          icon={XCircle}
+          description="Not about violent deaths"
+        />
+        <StatCard
+          title="Ready to Classify"
+          value={stats.sources.ready_for_classification}
+          icon={Search}
           variant="warning"
-          description="Awaiting content download"
-        />
-        <StatCard
-          title="Downloaded"
-          value={stats.sources.downloaded}
-          icon={Download}
-          description="Ready for extraction"
-        />
-        <StatCard
-          title="Processed"
-          value={stats.sources.processed}
-          icon={CheckCircle}
-          variant="success"
-          description="Extraction complete"
+          description="Awaiting classification"
         />
       </div>
 
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+      {/* Pipeline Stats */}
+      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+        <StatCard
+          title="Ready to Download"
+          value={stats.sources.ready_for_download}
+          icon={Clock}
+          variant="warning"
+          description="Passed classification"
+        />
+        <StatCard
+          title="Ready to Extract"
+          value={stats.sources.ready_for_extraction}
+          icon={Download}
+          description="Content downloaded"
+        />
+        <StatCard
+          title="Extracted"
+          value={stats.sources.extracted}
+          icon={CheckCircle}
+          variant="success"
+          description="LLM extraction complete"
+        />
         <StatCard
           title="Failed"
-          value={stats.sources.failed}
+          value={stats.sources.failed_in_download + stats.sources.failed_in_extraction}
           icon={AlertCircle}
           variant="danger"
-          description="Sources with errors"
+          description="Download or extraction errors"
         />
+      </div>
+
+      {/* Events Stats */}
+      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-2">
         <StatCard
           title="Raw Events"
           value={stats.raw_events.total}

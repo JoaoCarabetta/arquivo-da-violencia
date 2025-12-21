@@ -108,30 +108,47 @@ async def get_sources_by_hour(
     session: AsyncSession = Depends(get_session),
     hours: int = Query(24, ge=1, le=168),  # Default 24 hours, max 7 days
 ):
-    """Get sources grouped by hour for the last N hours."""
+    """Get sources grouped by hour and status for the last N hours."""
     # Calculate the cutoff time
     cutoff_time = datetime.utcnow() - timedelta(hours=hours)
     
-    # Use raw SQL to group by hour (SQLite uses strftime)
+    # Use raw SQL to group by hour and status (SQLite uses strftime)
     query = text("""
         SELECT 
             strftime('%Y-%m-%d %H:00:00', fetched_at) as hour,
+            status,
             COUNT(*) as count
         FROM source_google_news
         WHERE fetched_at >= :cutoff_time
-        GROUP BY hour
-        ORDER BY hour ASC
+        GROUP BY hour, status
+        ORDER BY hour ASC, status ASC
     """)
     
     result = await session.execute(query, {"cutoff_time": cutoff_time})
     rows = result.fetchall()
     
-    # Format the data
-    chart_data = []
+    # Group by hour and aggregate status counts
+    hour_data = {}
     for row in rows:
+        hour = row[0]
+        status = row[1]
+        count = row[2]
+        
+        if hour not in hour_data:
+            hour_data[hour] = {}
+        
+        hour_data[hour][status] = count
+    
+    # Format the data - ensure all statuses are present for each hour
+    chart_data = []
+    all_statuses = [status.value for status in SourceStatus]
+    
+    for hour in sorted(hour_data.keys()):
+        status_counts = hour_data[hour]
         chart_data.append({
-            "hour": row[0],
-            "count": row[1],
+            "hour": hour,
+            "count": sum(status_counts.values()),
+            **{status: status_counts.get(status, 0) for status in all_statuses},
         })
     
     return {

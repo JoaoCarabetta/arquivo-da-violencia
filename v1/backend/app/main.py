@@ -59,8 +59,13 @@ def create_app() -> FastAPI:
         return {"status": "healthy", "version": settings.app_version}
 
     # Import and include routers
-    from app.routers import unique_events, source_google_news, raw_events, pipeline, stats
+    from app.routers import unique_events, source_google_news, raw_events, pipeline, stats, public, auth
     
+    # Public routes (no auth required)
+    app.include_router(public.router, prefix=settings.api_prefix)
+    app.include_router(auth.router, prefix=settings.api_prefix)
+    
+    # Admin routes (auth required)
     app.include_router(unique_events.router, prefix=settings.api_prefix)
     app.include_router(source_google_news.router, prefix=settings.api_prefix)
     app.include_router(raw_events.router, prefix=settings.api_prefix)

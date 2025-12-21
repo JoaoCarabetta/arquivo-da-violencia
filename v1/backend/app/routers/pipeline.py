@@ -102,7 +102,7 @@ async def run_city_pipeline(
     when: str = Query("1h", description="Time filter"),
 ):
     """
-    Run FULL city pipeline: ingest cities -> download -> extract.
+    Run FULL city pipeline: ingest cities -> classify -> download -> extract.
     
     This is the complete hourly production pipeline.
     """
@@ -114,7 +114,44 @@ async def run_city_pipeline(
         "status": "queued",
         "job_id": job.job_id,
         "task": "ingest_cities_full_pipeline",
-        "message": "Full city pipeline queued",
+        "message": "Full city pipeline queued (ingest -> classify -> download -> extract)",
+    }
+
+
+@router.post("/classify")
+async def run_classify_batch(
+    limit: int = Query(50, description="Maximum sources to classify"),
+):
+    """
+    Stage 1.5 (batch): Classify headlines for all pending sources.
+    
+    Uses lightweight LLM to determine if headlines indicate violent death.
+    Sources that pass classification move to ready-for-download.
+    """
+    pool = await get_arq_pool()
+    job = await pool.enqueue_job("classify_pending_task", limit)
+    await pool.close()
+
+    return {
+        "status": "queued",
+        "job_id": job.job_id,
+        "task": "classify_pending_task",
+        "message": f"Classification batch task queued (limit: {limit})",
+    }
+
+
+@router.post("/classify/{source_id}")
+async def run_classify_single(source_id: int):
+    """Stage 1.5: Classify headline for a single source."""
+    pool = await get_arq_pool()
+    job = await pool.enqueue_job("classify_task", source_id)
+    await pool.close()
+
+    return {
+        "status": "queued",
+        "job_id": job.job_id,
+        "task": "classify_task",
+        "source_id": source_id,
     }
 
 
@@ -123,16 +160,18 @@ async def run_download_batch(
     limit: int = Query(50, description="Maximum sources to download"),
 ):
     """
-    Stage 2 (batch): Download content for all pending sources.
+    Stage 2 (batch): Download content for all classified sources.
+    
+    Only downloads sources that passed headline classification.
     """
     pool = await get_arq_pool()
-    job = await pool.enqueue_job("download_pending_task", limit)
+    job = await pool.enqueue_job("download_classified_task", limit)
     await pool.close()
 
     return {
         "status": "queued",
         "job_id": job.job_id,
-        "task": "download_pending_task",
+        "task": "download_classified_task",
         "message": f"Download batch task queued (limit: {limit})",
     }
 
@@ -157,16 +196,16 @@ async def run_extract_batch(
     limit: int = Query(10, description="Maximum sources to extract"),
 ):
     """
-    Stage 3 (batch): Extract events from all downloaded sources.
+    Stage 3 (batch): Extract events from all sources ready for extraction.
     """
     pool = await get_arq_pool()
-    job = await pool.enqueue_job("extract_downloaded_task", limit)
+    job = await pool.enqueue_job("extract_ready_task", limit)
     await pool.close()
 
     return {
         "status": "queued",
         "job_id": job.job_id,
-        "task": "extract_downloaded_task",
+        "task": "extract_ready_task",
         "message": f"Extract batch task queued (limit: {limit})",
     }
 
@@ -198,6 +237,55 @@ async def run_enrichment(raw_event_id: int):
         "job_id": job.job_id,
         "task": "enrich_task",
         "raw_event_id": raw_event_id,
+    }
+
+
+@router.post("/batch-dedup")
+async def run_batch_deduplication(
+    limit: int = Query(100, description="Maximum RawEvents to process"),
+):
+    """
+    Batch deduplication: Process pending RawEvents through clustering.
+    
+    This is Phase 2 of deduplication:
+    - Gets all RawEvents with deduplication_status='pending'
+    - Groups by date+city
+    - Clusters within each group (using victim names + LLM)
+    - Creates UniqueEvents for each cluster
+    """
+    pool = await get_arq_pool()
+    job = await pool.enqueue_job("batch_dedup_task", limit)
+    await pool.close()
+
+    return {
+        "status": "queued",
+        "job_id": job.job_id,
+        "task": "batch_dedup_task",
+        "message": f"Batch deduplication queued (limit: {limit})",
+    }
+
+
+@router.post("/batch-enrich")
+async def run_batch_enrichment(
+    limit: int = Query(50, description="Maximum UniqueEvents to enrich"),
+):
+    """
+    Batch enrichment: Enrich UniqueEvents that need enrichment.
+    
+    Processes all UniqueEvents with needs_enrichment=True:
+    - Fetches all linked RawEvents and source content
+    - Uses LLM to synthesize best information
+    - Updates UniqueEvent fields
+    """
+    pool = await get_arq_pool()
+    job = await pool.enqueue_job("batch_enrich_task", limit)
+    await pool.close()
+
+    return {
+        "status": "queued",
+        "job_id": job.job_id,
+        "task": "batch_enrich_task",
+        "message": f"Batch enrichment queued (limit: {limit})",
     }
 
 

@@ -202,48 +202,67 @@ class DateVerification(BaseModel):
     has_explicit_date: bool = Field(
         ...,
         description="""
-        O texto contém uma data COMPLETA e EXPLÍCITA (dia/mês/ano OU dia/mês com ano claro no contexto)?
+        Você consegue determinar a data COMPLETA (dia/mês/ano) do evento?
         
-        TRUE apenas se houver:
-        - "15 de dezembro de 2025"
-        - "15/12/2025"
-        - "em 12 de março" (se o ano 2024 está claramente estabelecido no contexto)
+        TRUE se:
+        - Data completa explícita no texto: "15 de dezembro de 2025", "15/12/2025"
+        - Data relativa que pode ser resolvida usando a DATA DE PUBLICAÇÃO fornecida nos metadados:
+          * "ontem" + publicação em 21/12/2025 → 20/12/2025
+          * "na sexta-feira" + publicação conhecida → calcular a sexta-feira mais recente
+          * "há três dias" + publicação em 21/12/2025 → 18/12/2025
         
-        FALSE se houver apenas:
-        - "ontem", "hoje", "na semana passada"
-        - "sexta-feira (12)", "segunda-feira (15)" (dia da semana com número mas SEM ano explícito)
-        - "há três dias", "recentemente"
-        - Qualquer termo relativo
+        FALSE se:
+        - Termos vagos sem referência: "recentemente", "há alguns dias"
+        - Nenhuma data de publicação disponível E apenas termos relativos no texto
+        - Ambiguidade impossível de resolver
+        """,
+    )
+
+    date_source: Literal["explicit", "inferred_from_publication", "none"] = Field(
+        ...,
+        description="""
+        Como a data foi determinada:
+        - "explicit": Data completa (dia/mês/ano) está literalmente no texto da notícia
+        - "inferred_from_publication": Data calculada a partir de termo relativo ("ontem", "sexta-feira") 
+          usando a data de publicação da notícia como referência
+        - "none": Não foi possível determinar a data
         """,
     )
 
     date_text_quote: Optional[str] = Field(
         None,
         description="""
-        Se has_explicit_date é TRUE, copie EXATAMENTE o trecho do texto que contém a data completa.
+        Copie EXATAMENTE o trecho do texto que menciona a data ou termo temporal.
         
-        Deve ser uma citação LITERAL do texto original, palavra por palavra.
-        Se has_explicit_date é FALSE, deixe como null.
+        Exemplos:
+        - "15 de dezembro de 2025" (explícita)
+        - "ontem à noite" (relativa, requer data de publicação)
+        - "na sexta-feira passada" (relativa, requer data de publicação)
+        
+        Deixe null apenas se não houver menção temporal alguma.
         """,
     )
 
     year_explicitly_mentioned: bool = Field(
         ...,
         description="""
-        O ANO está explicitamente mencionado no trecho da data?
+        O ANO está explicitamente mencionado no texto?
         
         TRUE: "15 de dezembro de 2025", "12/03/2024"
-        FALSE: "sexta-feira (12)", "no dia 15", "em março"
+        FALSE: "ontem", "sexta-feira (12)", "no dia 15", "em março"
+        
+        Nota: Mesmo com FALSE, se has_explicit_date é TRUE (via inferência), a data pode ser válida.
         """,
     )
 
     verification_reasoning: str = Field(
         ...,
         description="""
-        Explique seu raciocínio sobre a data:
-        - O que o texto diz exatamente?
-        - Por que você marcou has_explicit_date como TRUE ou FALSE?
-        - Se FALSE, por que não é possível extrair a data?
+        Explique detalhadamente seu raciocínio sobre a data:
+        - O que o texto diz exatamente sobre quando ocorreu o evento?
+        - Se usou data de publicação para inferir: qual era a data de publicação e como calculou?
+        - Por que marcou has_explicit_date como TRUE ou FALSE?
+        - Se FALSE, por que não foi possível determinar a data?
         """,
     )
 
@@ -260,14 +279,15 @@ class DateTime(BaseModel):
         description="""
         Data da morte violenta no formato AAAA-MM-DD.
         
-        REGRA ABSOLUTA: Este campo DEVE ser null se date_verification.has_explicit_date é FALSE.
+        REGRA: Este campo DEVE ser null se date_verification.has_explicit_date é FALSE.
         
-        Use data SOMENTE se:
-        1. date_verification.has_explicit_date é TRUE
-        2. date_verification.year_explicitly_mentioned é TRUE
-        3. Há uma data completa no formato dia/mês/ano no texto
+        Use data quando:
+        1. date_verification.has_explicit_date é TRUE, E
+        2. date_source é "explicit" (data completa no texto), OU
+        3. date_source é "inferred_from_publication" (calculada a partir de "ontem", "sexta-feira", etc. 
+           usando a data de publicação fornecida nos metadados)
         
-        NUNCA calcule ou infira datas de termos relativos.
+        NUNCA invente datas sem base textual ou sem data de publicação para calcular.
         """,
     )
 
@@ -313,10 +333,11 @@ class DateTime(BaseModel):
                     f"ERRO: Campo 'date' está preenchido mas date_verification.has_explicit_date é FALSE. "
                     f"Raciocínio: {self.date_verification.verification_reasoning}"
                 )
-            if not self.date_verification.year_explicitly_mentioned:
+            # Allow dates inferred from publication date (year not explicitly mentioned in article)
+            if self.date_verification.date_source == "none":
                 raise ValueError(
-                    f"ERRO: Campo 'date' está preenchido mas date_verification.year_explicitly_mentioned é FALSE. "
-                    f"Não é possível extrair data completa sem ano explícito."
+                    f"ERRO: Campo 'date' está preenchido mas date_source é 'none'. "
+                    f"Raciocínio: {self.date_verification.verification_reasoning}"
                 )
         return self
 

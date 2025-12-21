@@ -182,7 +182,7 @@ async def ingest_feeds(
                 publisher_url=publisher_url,
                 published_at=published_at,
                 search_query=entry.get("_search_query"),
-                status=SourceStatus.pending,
+                status=SourceStatus.ready_for_classification,
                 fetched_at=datetime.utcnow(),
             )
             
@@ -405,7 +405,7 @@ async def ingest_city(
                 publisher_url=publisher_url,
                 published_at=published_at,
                 search_query=entry.get("_search_query"),
-                status=SourceStatus.pending,
+                status=SourceStatus.ready_for_classification,
                 fetched_at=datetime.utcnow(),
             )
             

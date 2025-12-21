@@ -33,7 +33,7 @@ class Settings(BaseSettings):
     # LLM (Gemini)
     gemini_api_key: str | None = None
     extraction_model: str = "gemini-2.5-flash"
-    selection_model: str = "gemini-2.5-flash"
+    selection_model: str = "gemini-2.0-flash-lite"  # Lightweight model for classification
     
     # Pipeline settings
     pipeline_max_workers: int = 10
