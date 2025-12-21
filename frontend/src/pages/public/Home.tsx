@@ -97,7 +97,7 @@ export function Home() {
             {stats?.total.toLocaleString() || 0}
           </div>
           <div className="text-xl text-muted-foreground">
-            mortes violentas registradas desde {stats?.since ? new Date(stats.since).toLocaleDateString('pt-BR') : '...'}
+            mortes violentas registradas 
           </div>
         </div>
       </section>
@@ -226,12 +226,13 @@ export function Home() {
                       <div className="flex items-center gap-2">
                         <Clock className="h-4 w-4 text-muted-foreground" />
                         <span className="text-sm text-muted-foreground">
-                          {new Date(event.created_at).toLocaleString('pt-BR', {
-                            day: '2-digit',
-                            month: 'short',
-                            hour: '2-digit',
-                            minute: '2-digit',
-                          })}
+                          {event.event_date 
+                            ? new Date(event.event_date).toLocaleDateString('pt-BR', {
+                                day: '2-digit',
+                                month: 'short',
+                                year: 'numeric',
+                              })
+                            : 'Data não disponível'}
                         </span>
                       </div>
                       {event.homicide_type && (
