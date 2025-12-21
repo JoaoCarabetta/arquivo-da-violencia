@@ -113,7 +113,7 @@ services:
       context: ./frontend
     container_name: arquivo-frontend
     ports:
-      - "80:80"
+      - "9080:80"
     depends_on:
       - api
     restart: unless-stopped
