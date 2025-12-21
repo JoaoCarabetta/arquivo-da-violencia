@@ -257,12 +257,14 @@ async def get_public_events(
             "homicide_type": event.homicide_type,
             "method_of_death": event.method_of_death,
             "victim_count": event.victim_count,
+            "victims_summary": event.victims_summary,
             "security_force_involved": event.security_force_involved,
             "title": event.title,
             "chronological_description": event.chronological_description,
             "latitude": float(event.latitude) if event.latitude else None,
             "longitude": float(event.longitude) if event.longitude else None,
             "source_count": event.source_count,
+            "merged_data": event.merged_data,
             "created_at": event.created_at.isoformat(),
         })
     
@@ -311,12 +313,14 @@ async def export_events(
             "homicide_type": event.homicide_type,
             "method_of_death": event.method_of_death,
             "victim_count": event.victim_count,
+            "victims_summary": event.victims_summary,
             "security_force_involved": event.security_force_involved,
             "title": event.title,
             "chronological_description": event.chronological_description,
             "latitude": float(event.latitude) if event.latitude else None,
             "longitude": float(event.longitude) if event.longitude else None,
             "source_count": event.source_count,
+            "merged_data": event.merged_data,
             "created_at": event.created_at.isoformat(),
         })
     

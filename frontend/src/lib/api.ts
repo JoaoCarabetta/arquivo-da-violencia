@@ -146,6 +146,7 @@ export interface PublicEvent {
   latitude: number | null;
   longitude: number | null;
   source_count: number;
+  merged_data: Record<string, any> | null;
   created_at: string;
 }
 
