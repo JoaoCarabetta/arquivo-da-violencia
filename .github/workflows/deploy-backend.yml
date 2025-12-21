@@ -1,0 +1,228 @@
+# =============================================================================
+# Backend Deployment Workflow
+# =============================================================================
+# Triggers on changes to backend/ directory on main or develop branches.
+# - main branch: deploys to production, then syncs DB to staging
+# - develop branch: deploys to staging only
+#
+# Uses graceful worker shutdown to avoid interrupting running jobs.
+# =============================================================================
+
+name: Deploy Backend
+
+on:
+  push:
+    branches:
+      - main
+      - develop
+    paths:
+      - 'backend/**'
+      - '.github/workflows/deploy-backend.yml'
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to deploy to'
+        required: true
+        default: 'staging'
+        type: choice
+        options:
+          - staging
+          - production
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}/backend
+
+jobs:
+  build:
+    name: Build Backend Image
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    outputs:
+      image_tag: ${{ steps.meta.outputs.tags }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=ref,event=branch
+            type=sha,prefix=
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./backend
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  deploy-staging:
+    name: Deploy to Staging
+    needs: build
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/develop' || (github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'staging')
+    environment: staging
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Deploy to staging server
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          script_stop: true
+          script: |
+            set -e
+            cd /opt/arquivo-da-violencia
+            
+            echo "🚀 Starting staging backend deployment..."
+            
+            # Log in to GitHub Container Registry
+            echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+            
+            # Pull new images
+            echo "📥 Pulling new images..."
+            docker compose -f docker-compose.yml -f docker-compose.staging.yml pull api worker
+            
+            # Graceful worker shutdown (wait for current job to finish, up to 120s)
+            echo "⏳ Gracefully stopping staging worker..."
+            docker stop --time=120 staging-arquivo-worker || true
+            
+            # Run database migrations
+            echo "🔄 Running database migrations..."
+            docker compose -f docker-compose.yml -f docker-compose.staging.yml run --rm api alembic upgrade head
+            
+            # Start new containers
+            echo "🔄 Starting new containers..."
+            docker compose -f docker-compose.yml -f docker-compose.staging.yml up -d api worker
+            
+            # Wait for API to be healthy
+            echo "🏥 Waiting for API health check..."
+            for i in {1..30}; do
+              if curl -sf http://localhost:8001/health > /dev/null 2>&1; then
+                echo "✅ Staging API is healthy"
+                break
+              fi
+              if [ $i -eq 30 ]; then
+                echo "❌ Health check failed after 30 attempts"
+                exit 1
+              fi
+              sleep 2
+            done
+            
+            # Clean up old images
+            docker image prune -f
+            
+            echo "✅ Staging backend deployed successfully"
+
+  deploy-production:
+    name: Deploy to Production
+    needs: build
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' || (github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'production')
+    environment: production
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Deploy to production server
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          script_stop: true
+          script: |
+            set -e
+            cd /opt/arquivo-da-violencia
+            
+            echo "🚀 Starting production backend deployment..."
+            
+            # Log in to GitHub Container Registry
+            echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+            
+            # Pull new images
+            echo "📥 Pulling new images..."
+            docker compose pull api worker
+            
+            # Graceful worker shutdown (wait for current job to finish, up to 120s)
+            echo "⏳ Gracefully stopping production worker (waiting for current job)..."
+            docker stop --time=120 arquivo-worker || true
+            
+            # Run database migrations
+            echo "🔄 Running database migrations..."
+            docker compose run --rm api alembic upgrade head
+            
+            # Start new containers
+            echo "🔄 Starting new containers..."
+            docker compose up -d api worker
+            
+            # Wait for API to be healthy
+            echo "🏥 Waiting for API health check..."
+            for i in {1..30}; do
+              if curl -sf http://localhost:8000/health > /dev/null 2>&1; then
+                echo "✅ Production API is healthy"
+                break
+              fi
+              if [ $i -eq 30 ]; then
+                echo "❌ Health check failed after 30 attempts"
+                exit 1
+              fi
+              sleep 2
+            done
+            
+            # Clean up old images
+            docker image prune -f
+            
+            echo "✅ Production backend deployed successfully"
+
+  sync-staging-db:
+    name: Sync Production DB to Staging
+    needs: deploy-production
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' || (github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'production')
+
+    steps:
+      - name: Sync database to staging
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          script_stop: true
+          script: |
+            set -e
+            cd /opt/arquivo-da-violencia
+            
+            echo "🔄 Syncing production database to staging..."
+            
+            # Run the sync script
+            bash scripts/sync-staging-db.sh
+            
+            echo "✅ Staging database synced with production"
+

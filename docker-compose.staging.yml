@@ -1,0 +1,88 @@
+# =============================================================================
+# Arquivo da Violência - Staging Docker Compose Overlay
+# =============================================================================
+#
+# Usage (always use with base docker-compose.yml):
+#   docker compose -f docker-compose.yml -f docker-compose.staging.yml up -d
+#   docker compose -f docker-compose.yml -f docker-compose.staging.yml logs -f
+#
+# This overlay:
+#   - Uses different container names (staging-arquivo-*)
+#   - Uses different ports (8080 for frontend, 8001 for API, 6380 for Redis)
+#   - Uses separate data volumes for isolation from production
+#   - Configures staging-specific environment variables
+#
+# =============================================================================
+
+services:
+  # ---------------------------------------------------------------------------
+  # Redis - Staging instance on port 6380
+  # ---------------------------------------------------------------------------
+  redis:
+    container_name: staging-arquivo-redis
+    ports:
+      - "6380:6379"
+    volumes:
+      - staging_redis_data:/data
+
+  # ---------------------------------------------------------------------------
+  # API - Staging instance on port 8001
+  # ---------------------------------------------------------------------------
+  api:
+    container_name: staging-arquivo-api
+    ports:
+      - "8001:8000"
+    environment:
+      - REDIS_URL=redis://redis:6379
+      - DATABASE_URL=sqlite+aiosqlite:///./instance/violence.db
+      - GEMINI_API_KEY=${STAGING_GEMINI_API_KEY:-${GEMINI_API_KEY:-}}
+      - DEBUG=true
+      - CORS_ORIGINS=["http://localhost:5173","http://localhost:8080","https://staging.arquivodaviolencia.com.br"]
+      - JWT_SECRET_KEY=${STAGING_JWT_SECRET_KEY:-staging-secret-key}
+      - ADMIN_USERNAME=${STAGING_ADMIN_USERNAME:-admin}
+      - ADMIN_PASSWORD=${STAGING_ADMIN_PASSWORD:-admin123}
+      - TELEGRAM_BOT_TOKEN=${STAGING_TELEGRAM_BOT_TOKEN:-}
+      - TELEGRAM_CHAT_ID=${STAGING_TELEGRAM_CHAT_ID:-}
+    volumes:
+      - ./staging_instance:/app/instance
+
+  # ---------------------------------------------------------------------------
+  # Worker - Staging instance
+  # ---------------------------------------------------------------------------
+  worker:
+    container_name: staging-arquivo-worker
+    environment:
+      - REDIS_URL=redis://redis:6379
+      - DATABASE_URL=sqlite+aiosqlite:///./instance/violence.db
+      - GEMINI_API_KEY=${STAGING_GEMINI_API_KEY:-${GEMINI_API_KEY:-}}
+      - ENABLE_CRON=${STAGING_ENABLE_CRON:-false}
+      - JWT_SECRET_KEY=${STAGING_JWT_SECRET_KEY:-staging-secret-key}
+      - ADMIN_USERNAME=${STAGING_ADMIN_USERNAME:-admin}
+      - ADMIN_PASSWORD=${STAGING_ADMIN_PASSWORD:-admin123}
+      - TELEGRAM_BOT_TOKEN=${STAGING_TELEGRAM_BOT_TOKEN:-}
+      - TELEGRAM_CHAT_ID=${STAGING_TELEGRAM_CHAT_ID:-}
+    volumes:
+      - ./staging_instance:/app/instance
+    # Allow worker 120s to finish current job before forced shutdown
+    stop_grace_period: 120s
+
+  # ---------------------------------------------------------------------------
+  # Frontend - Staging instance on port 8080
+  # ---------------------------------------------------------------------------
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        - NGINX_CONF=nginx.staging.conf
+    container_name: staging-arquivo-frontend
+    ports:
+      - "8080:80"
+      - "8443:443"
+    volumes:
+      - /etc/letsencrypt:/etc/letsencrypt:ro
+
+volumes:
+  staging_redis_data:
+    name: staging-arquivo-redis-data
+

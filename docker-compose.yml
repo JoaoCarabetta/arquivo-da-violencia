@@ -92,6 +92,8 @@ services:
       - TELEGRAM_CHAT_ID=${TELEGRAM_CHAT_ID:-}
     volumes:
       - ./backend/app/instance:/app/instance
+    # Allow worker 120s to finish current job before forced shutdown
+    stop_grace_period: 120s
     restart: unless-stopped
 
   # ---------------------------------------------------------------------------
