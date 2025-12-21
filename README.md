@@ -1,253 +1,465 @@
-# Arquivo da Violência
+<div align="center">
 
-Violence tracking system for Brazilian cities. Automatically ingests news from Google News RSS, extracts structured event data using LLMs, and deduplicates across sources.
+# 🚨 Arquivo da Violência
 
-## Architecture
+### Monitoramento de Mortes Violentas no Brasil em Tempo Real
+
+*Dados abertos para pesquisa, jornalismo e sociedade civil*
+
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
+[![Docker](https://img.shields.io/badge/docker-ready-brightgreen.svg)](https://www.docker.com/)
+[![Contributions Welcome](https://img.shields.io/badge/contributions-welcome-brightgreen.svg)](CONTRIBUTING.md)
+
+[🌐 Site Público](http://localhost) • [📊 Ver Dados](http://localhost/dados) • [📖 Documentação](#documentação) • [🤝 Contribuir](#como-contribuir)
+
+</div>
+
+---
+
+## 📖 Sobre o Projeto
+
+O **Arquivo da Violência** é um sistema automatizado de monitoramento de mortes violentas no Brasil, coletando e estruturando dados em tempo real a partir de fontes jornalísticas.
+
+### 🎯 O Problema
+
+A violência é um dos maiores problemas do Brasil, mas os dados oficiais:
+- 📅 São divulgados **apenas anualmente**
+- 🐢 Demoram meses ou anos para serem consolidados
+- 🔒 Frequentemente são **incompletos** ou de difícil acesso
+- 🗺️ Não permitem **monitoramento em tempo real**
+
+### 💡 Nossa Solução
+
+Criamos um sistema que:
+- 🤖 **Coleta automaticamente** notícias de veículos jornalísticos
+- 🧠 **Extrai informações estruturadas** usando LLMs (Large Language Models)
+- 🔍 **Deduplica eventos** mencionados em múltiplas fontes
+- 📊 **Disponibiliza dados abertos** para download (CSV/JSON)
+- 🌐 **Interface pública** com estatísticas em tempo real
+
+---
+
+## ✨ Funcionalidades
+
+### 🌍 Site Público
+- **Dashboard em tempo real** com estatísticas atualizadas
+- **Linha do tempo de eventos** com filtros por estado e tipo
+- **Gráficos interativos** de tendências e distribuições
+- **Download de dados** em CSV e JSON
+- **API pública** para integração com outras ferramentas
+
+### 🔐 Painel Administrativo
+- Monitoramento do pipeline de coleta
+- Gerenciamento de fontes e eventos
+- Visualização de jobs e status
+- Sistema de filas (ARQ + Redis)
+
+---
+
+## 🏗️ Arquitetura
 
 ```
-┌─────────────┐     ┌─────────────┐     ┌─────────────┐
-│  Frontend   │────▶│   API       │────▶│   Redis     │
-│  (React)    │     │  (FastAPI)  │     │  (Queue)    │
-└─────────────┘     └─────────────┘     └─────────────┘
-       │                   │                   │
-       │                   ▼                   ▼
-       │            ┌─────────────┐     ┌─────────────┐
-       │            │   SQLite    │◀────│   Worker    │
-       │            │  (Database) │     │   (ARQ)     │
-       └────────────┴─────────────┴─────┴─────────────┘
+┌─────────────────┐
+│  Google News    │
+│  RSS Feeds      │
+└────────┬────────┘
+         │
+         ▼
+┌─────────────────┐     ┌─────────────────┐
+│   Ingest        │────▶│   Download      │
+│   (Discover)    │     │   (Fetch HTML)  │
+└─────────────────┘     └────────┬────────┘
+                                 │
+                                 ▼
+                        ┌─────────────────┐
+                        │   Extract       │
+                        │   (LLM Parse)   │
+                        └────────┬────────┘
+                                 │
+                                 ▼
+                        ┌─────────────────┐     ┌─────────────────┐
+                        │   Enrich        │────▶│   SQLite DB     │
+                        │   (Dedupe)      │     │   (Storage)     │
+                        └─────────────────┘     └─────────────────┘
+                                                          │
+                                                          ▼
+                                                 ┌─────────────────┐
+                                                 │   API REST      │
+                                                 │   (Public +     │
+                                                 │    Admin)       │
+                                                 └────────┬────────┘
+                                                          │
+                                                          ▼
+                                                 ┌─────────────────┐
+                                                 │   React SPA     │
+                                                 │   (Frontend)    │
+                                                 └─────────────────┘
 ```
 
-## Quick Start
+### 🔧 Stack Tecnológica
 
-### 1. Create environment file
+**Backend:**
+- 🐍 Python 3.11+ com FastAPI
+- 🗄️ SQLite + SQLModel (ORM)
+- 📮 ARQ (async task queue) + Redis
+- 🤖 Google Gemini (LLM para extração)
+- 🌐 Trafilatura (extração de conteúdo web)
+
+**Frontend:**
+- ⚛️ React 18 + TypeScript
+- 🎨 TailwindCSS + shadcn/ui
+- 📊 Recharts (visualização de dados)
+- 🔄 TanStack Query (data fetching)
+- 🛣️ React Router (navegação)
+
+**Infraestrutura:**
+- 🐳 Docker + Docker Compose
+- 🔐 JWT para autenticação
+- 🌐 Nginx (reverse proxy)
+
+---
+
+## 🚀 Quick Start
+
+### Pré-requisitos
+
+- Docker e Docker Compose instalados
+- Chave de API do Google Gemini ([obtenha aqui](https://aistudio.google.com/app/apikey))
+
+### 1️⃣ Clone o repositório
+
+```bash
+git clone https://github.com/JoaoCarabetta/arquivo-da-violencia.git
+cd arquivo-da-violencia
+```
+
+### 2️⃣ Configure as variáveis de ambiente
 
 ```bash
 cp env.example .env
 ```
 
-Edit `.env` and add your Gemini API key:
+Edite o arquivo `.env` e adicione sua chave do Gemini:
 
 ```env
-GEMINI_API_KEY=your-gemini-api-key-here
-ENABLE_CRON=false
+# Chave da API Gemini (OBRIGATÓRIO)
+GEMINI_API_KEY=sua-chave-aqui
+
+# Credenciais do admin (mude em produção!)
+JWT_SECRET_KEY=$(openssl rand -hex 32)
+ADMIN_USERNAME=admin
+ADMIN_PASSWORD=sua-senha-segura
+
+# Configurações opcionais
+ENABLE_CRON=true  # Habilitar coleta automática a cada hora
 DEBUG=false
 ```
 
-### 2. Build and start all services
+### 3️⃣ Inicie os serviços
 
 ```bash
+./docker-up.sh
+# ou
 docker compose up -d --build
 ```
 
-### 3. Run database migrations
+### 4️⃣ Execute as migrações do banco de dados
 
 ```bash
 docker compose exec api alembic upgrade head
 ```
 
-### 4. Access the application
+### 5️⃣ Acesse a aplicação
 
-| Service   | URL                    | Description              |
-|-----------|------------------------|--------------------------|
-| Frontend  | http://localhost       | React dashboard          |
-| API       | http://localhost:8000  | FastAPI backend          |
-| API Docs  | http://localhost:8000/docs | Swagger documentation |
+- **Site público:** http://localhost
+- **Painel admin:** http://localhost/admin
+- **API docs:** http://localhost:8000/docs
 
-## Services
+---
 
-### API (FastAPI)
+## 📚 Documentação
 
-REST API for the frontend and pipeline control.
+### Pipeline de Dados
+
+O sistema funciona em 4 etapas principais:
+
+#### 1. **Ingest** 🔍
+Busca notícias no Google News RSS feeds usando queries específicas (ex: "homicídio São Paulo").
+
+#### 2. **Download** 📥
+Baixa o conteúdo HTML completo das URLs encontradas e extrai o texto limpo.
+
+#### 3. **Extract** 🧠
+Usa um LLM (Gemini) para extrair informações estruturadas:
+- Tipo de morte (homicídio, feminicídio, chacina, etc.)
+- Local (cidade, estado, bairro)
+- Data e hora
+- Número de vítimas
+- Envolvimento de forças de segurança
+- Perfil das vítimas (quando disponível)
+
+#### 4. **Enrich** 🔗
+Deduplica eventos mencionados em múltiplas fontes e enriquece os dados.
+
+### API Endpoints
+
+#### Públicos (sem autenticação)
 
 ```bash
-# View logs
-docker compose logs -f api
+# Estatísticas gerais
+GET /api/public/stats
 
-# Restart
-docker compose restart api
+# Mortes por tipo
+GET /api/public/stats/by-type
+
+# Mortes por estado
+GET /api/public/stats/by-state
+
+# Série temporal diária
+GET /api/public/stats/by-day?days=30
+
+# Listar eventos (com filtros)
+GET /api/public/events?state=SP&type=Homicidio&page=1
+
+# Download de dados
+GET /api/public/events/export?format=csv
 ```
 
-### Worker (ARQ)
-
-Background task processor for:
-- News ingestion from Google News RSS
-- Content downloading with trafilatura
-- LLM extraction with Gemini
-- Event deduplication
+#### Admin (requer JWT)
 
 ```bash
-# View logs
-docker compose logs -f worker
+# Login
+POST /api/auth/login
 
-# Restart
-docker compose restart worker
+# Triggers do pipeline
+POST /api/pipeline/ingest?query=feminicidio&when=3d
+POST /api/pipeline/download?limit=50
+POST /api/pipeline/extract?limit=10
+POST /api/pipeline/enrich/{event_id}
+
+# Monitoramento
+GET /api/stats
+GET /api/sources
+GET /api/raw-events
+GET /api/unique-events
 ```
 
-### Redis
+### Desenvolvimento Local
 
-Task queue and result storage.
+Para desenvolver sem Docker:
 
-```bash
-# Check status
-docker compose exec redis redis-cli ping
-```
-
-## Pipeline Operations
-
-### Manual Ingestion
-
-Trigger city ingestion via API:
+#### Backend
 
 ```bash
-# Ingest all 52 Brazilian cities (last 1 hour)
-curl -X POST http://localhost:8000/api/pipeline/ingest-cities
-
-# Full pipeline: ingest → download → extract
-curl -X POST http://localhost:8000/api/pipeline/ingest-cities-pipeline
-
-# Check city statistics
-curl http://localhost:8000/api/pipeline/city-stats
-```
-
-### Automatic Hourly Ingestion
-
-Enable the cron job by setting `ENABLE_CRON=true` in your `.env`:
-
-```bash
-# Edit .env
-ENABLE_CRON=true
-
-# Restart worker to apply
-docker compose restart worker
-```
-
-The worker will run city ingestion at minute :05 of every hour.
-
-### Check Queue Status
-
-```bash
-curl http://localhost:8000/api/pipeline/status
-```
-
-## City Coverage
-
-The system monitors **52 Brazilian cities**:
-
-- All state capitals (27)
-- All cities with 500k+ population
-- Major metropolitan areas
-
-Cities that consistently hit the 100-result limit automatically switch to **source-based sharding** (querying each news outlet separately).
-
-## Development
-
-### Docker Development (with Auto-Reload)
-
-For active development with automatic hot-reload:
-
-```bash
-# Start with development config (Vite dev server + hot-reload)
-docker compose -f docker-compose.yml -f docker-compose.dev.yml up
-
-# Frontend will be available at http://localhost:5173
-# Changes to frontend files appear instantly without rebuild
-```
-
-**Features:**
-- ✅ **Hot Module Replacement (HMR)**: Frontend changes appear instantly
-- ✅ **Volume mounts**: Source files synced automatically
-- ✅ **No rebuilds needed**: Edit code and see changes immediately
-- ✅ **Vite dev server**: Fast development experience
-
-**How it works:**
-- Frontend source files are mounted as volumes
-- Vite dev server runs inside Docker with HMR enabled
-- Edit files in `frontend/src/` → changes appear in browser automatically
-
-**For production builds:**
-```bash
-# Rebuild and restart frontend
-docker compose up -d --build frontend
-```
-
-### Local Development (without Docker)
-
-```bash
-# Backend
 cd backend
+
+# Instalar dependências com uv
 uv sync
-uv run alembic upgrade head
-uv run uvicorn app.main:app --reload
 
-# Worker (separate terminal)
-uv run arq app.tasks.worker.WorkerSettings
+# Ativar ambiente virtual
+source .venv/bin/activate
 
-# Frontend (separate terminal)
+# Rodar servidor
+uvicorn app.main:app --reload
+
+# Rodar testes
+pytest
+```
+
+#### Frontend
+
+```bash
 cd frontend
+
+# Instalar dependências
 npm install
+
+# Rodar dev server
 npm run dev
+
+# Build para produção
+npm run build
 ```
 
-### Running Tests
+---
 
-```bash
-cd backend
-uv run pytest
-```
+## 🤝 Como Contribuir
 
-## Configuration
+Adoramos contribuições da comunidade! Há várias formas de ajudar:
 
-### Environment Variables
+### 🐛 Reportar Bugs
 
-| Variable         | Default                                      | Description                    |
-|------------------|----------------------------------------------|--------------------------------|
-| `GEMINI_API_KEY` | (required)                                   | Google Gemini API key          |
-| `ENABLE_CRON`    | `false`                                      | Enable hourly ingestion        |
-| `DEBUG`          | `false`                                      | Enable debug logging           |
-| `DATABASE_URL`   | `sqlite+aiosqlite:///./instance/violence.db` | Database connection string     |
-| `REDIS_URL`      | `redis://localhost:6379`                     | Redis connection string        |
+Encontrou um bug? [Abra uma issue](https://github.com/JoaoCarabetta/arquivo-da-violencia/issues/new) com:
+- Descrição clara do problema
+- Passos para reproduzir
+- Comportamento esperado vs. atual
+- Screenshots (se aplicável)
+- Ambiente (OS, Docker version, etc.)
 
-## Data Model
+### 💡 Sugerir Funcionalidades
 
-```
-SourceGoogleNews  →  RawEvent  →  UniqueEvent
-   (news article)    (extracted)   (deduplicated)
-```
+Tem uma ideia? [Crie uma issue](https://github.com/JoaoCarabetta/arquivo-da-violencia/issues/new) descrevendo:
+- Qual problema a funcionalidade resolve
+- Como você imagina que funcionaria
+- Por que seria útil para a comunidade
 
-- **SourceGoogleNews**: Raw news articles from Google News RSS
-- **RawEvent**: Structured event data extracted by LLM
-- **UniqueEvent**: Deduplicated events with geocoding
+### 🔧 Contribuir com Código
 
-## Useful Commands
+1. **Fork** o repositório
+2. **Clone** seu fork: `git clone https://github.com/seu-usuario/arquivo-da-violencia.git`
+3. **Crie uma branch**: `git checkout -b feature/minha-feature`
+4. **Faça suas mudanças** e commit: `git commit -m 'Adiciona nova feature'`
+5. **Push** para o GitHub: `git push origin feature/minha-feature`
+6. **Abra um Pull Request** descrevendo suas mudanças
 
-```bash
-# Start all services (production)
-docker compose up -d
+#### Diretrizes
 
-# Start with development mode (auto-reload)
-docker compose -f docker-compose.yml -f docker-compose.dev.yml up
+- Siga o estilo de código existente
+- Adicione testes para novas funcionalidades
+- Atualize a documentação quando necessário
+- Commits em português ou inglês são aceitos
 
-# Stop all services
-docker compose down
+### 📖 Melhorar a Documentação
 
-# View all logs
-docker compose logs -f
+Documentação nunca é demais! PRs para:
+- Corrigir erros de digitação
+- Clarificar instruções
+- Adicionar exemplos
+- Traduzir para outros idiomas
 
-# Rebuild after code changes (production)
-docker compose up -d --build
+são sempre bem-vindos!
 
-# Rebuild frontend only
-docker compose up -d --build frontend
+### 💬 Participar da Comunidade
 
-# Access API container shell
-docker compose exec api bash
+- ⭐ Dê uma estrela no projeto
+- 🐦 Compartilhe nas redes sociais
+- 📧 Entre em contato: [joao.carabetta@gmail.com](mailto:joao.carabetta@gmail.com)
 
-# Access database
-docker compose exec api sqlite3 instance/violence.db
+---
 
-# Clear all data and start fresh
-docker compose down -v
-docker compose up -d --build
-docker compose exec api alembic upgrade head
-```
+## 🗺️ Roadmap
 
+### Versão Atual (v1.0)
+
+- ✅ Pipeline completo de coleta e extração
+- ✅ Site público com estatísticas em tempo real
+- ✅ Painel administrativo
+- ✅ API REST pública
+- ✅ Download de dados (CSV/JSON)
+- ✅ Autenticação JWT
+
+### Próximas Versões
+
+**v1.1 - Melhorias de UX**
+- [ ] Mapa interativo de eventos
+- [ ] Comparação entre períodos
+- [ ] Notificações por e-mail para novos eventos
+- [ ] Modo escuro
+
+**v1.2 - Dados Históricos**
+- [ ] Importação de dados históricos
+- [ ] Análise de tendências temporais
+- [ ] Comparações ano a ano
+
+**v1.3 - Expansão de Fontes**
+- [ ] Suporte a mais fontes jornalísticas
+- [ ] Integração com dados oficiais (quando disponíveis)
+- [ ] Verificação cruzada de fontes
+
+**v2.0 - Analytics Avançado**
+- [ ] Machine Learning para classificação automática
+- [ ] Detecção de padrões e anomalias
+- [ ] Predição de tendências
+- [ ] API GraphQL
+
+---
+
+## ⚠️ Limitações Importantes
+
+**Este projeto tem limitações metodológicas importantes:**
+
+1. **Cobertura parcial:** Dependemos de notícias publicadas. Muitos casos não são noticiados.
+2. **Viés jornalístico:** A cobertura midiática pode ter vieses geográficos, sociais e econômicos.
+3. **Precisão do LLM:** A extração automática pode conter erros. Sempre verifique a fonte original.
+4. **Deduplicação:** Múltiplas notícias sobre o mesmo evento podem não ser sempre identificadas como duplicatas.
+5. **Dados não oficiais:** Este NÃO é um sistema oficial. Use como complemento, não substituto, de dados oficiais.
+
+**Use os dados com responsabilidade e contexto adequado.**
+
+---
+
+## 📊 Categorias de Mortes
+
+O sistema classifica mortes violentas em:
+
+- **Homicídio:** Morte intencional de uma pessoa por outra
+- **Feminicídio:** Homicídio de mulher por razões de gênero
+- **Latrocínio:** Roubo seguido de morte
+- **Chacina:** Múltiplas mortes no mesmo evento (geralmente 3+)
+- **Morte em confronto:** Mortes durante operações policiais
+- **Linchamento:** Morte causada por multidão
+- **Outro:** Outras formas de morte violenta
+
+---
+
+## 📄 Licença
+
+Este projeto é licenciado sob a [Licença MIT](LICENSE) - veja o arquivo LICENSE para detalhes.
+
+**Isso significa que você pode:**
+- ✅ Usar comercialmente
+- ✅ Modificar
+- ✅ Distribuir
+- ✅ Uso privado
+
+**Desde que:**
+- 📄 Inclua a licença e copyright
+- 📄 Documente mudanças significativas
+
+---
+
+## 🙏 Agradecimentos
+
+Este projeto só é possível graças a:
+
+- **Comunidade open source** por ferramentas incríveis
+- **Veículos jornalísticos** que cobrem esses eventos
+- **Pesquisadores e ativistas** que inspiram este trabalho
+- **Contribuidores** que ajudam a melhorar o sistema
+- **Google** pelo acesso à API Gemini
+
+---
+
+## 💬 Contato
+
+- **Desenvolvedor:** João Carabetta
+- **Email:** joao.carabetta@gmail.com
+- **GitHub:** [@JoaoCarabetta](https://github.com/JoaoCarabetta)
+- **Repositório:** [arquivo-da-violencia](https://github.com/JoaoCarabetta/arquivo-da-violencia)
+
+---
+
+## ⚖️ Nota sobre Uso dos Dados
+
+Os dados disponibilizados por este projeto são coletados de fontes públicas (notícias) e processados automaticamente. 
+
+**Ao usar estes dados, você concorda em:**
+
+1. **Verificar a fonte original** antes de publicar análises
+2. **Citar este projeto** como fonte secundária
+3. **Reconhecer as limitações** metodológicas
+4. **Usar com responsabilidade** social e ética
+5. **Não usar para fins discriminatórios** ou prejudiciais
+
+---
+
+<div align="center">
+
+### 🌟 Se este projeto é útil para você, considere dar uma estrela!
+
+**Juntos podemos ter dados mais transparentes e acessíveis sobre violência no Brasil.**
+
+[![Star on GitHub](https://img.shields.io/github/stars/JoaoCarabetta/arquivo-da-violencia.svg?style=social)](https://github.com/JoaoCarabetta/arquivo-da-violencia/stargazers)
+
+</div>
