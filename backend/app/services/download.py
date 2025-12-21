@@ -162,9 +162,36 @@ async def download_classified_sources(limit: int = 50, concurrency: int = 10) ->
             """),
             {"limit": limit}
         )
+        candidate_ids = [row[0] for row in result.fetchall()]
+        
+        if not candidate_ids:
+            logger.info(f"Found 0 classified sources to download")
+            return {
+                "processed": 0,
+                "successful": 0,
+                "failed": 0,
+            }
+        
+        # Atomically claim these sources by updating status to prevent race conditions
+        await session.execute(
+            text("""
+                UPDATE source_google_news 
+                SET status = 'downloading', updated_at = CURRENT_TIMESTAMP
+                WHERE id IN ({}) AND status = 'ready_for_download'
+            """.format(",".join(str(id) for id in candidate_ids)))
+        )
+        await session.commit()
+        
+        # Get the IDs we actually claimed
+        result = await session.execute(
+            text("""
+                SELECT id FROM source_google_news 
+                WHERE id IN ({}) AND status = 'downloading'
+            """.format(",".join(str(id) for id in candidate_ids)))
+        )
         source_ids = [row[0] for row in result.fetchall()]
     
-    logger.info(f"Found {len(source_ids)} classified sources to download")
+    logger.info(f"Claimed {len(source_ids)} sources for download")
     
     if not source_ids:
         return {

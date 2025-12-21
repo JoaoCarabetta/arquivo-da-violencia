@@ -232,9 +232,37 @@ async def classify_pending_sources(limit: int = 50, concurrency: int = 10) -> di
             """),
             {"limit": limit}
         )
+        candidate_ids = [row[0] for row in result.fetchall()]
+        
+        if not candidate_ids:
+            logger.info(f"Found 0 sources to classify")
+            return {
+                "processed": 0,
+                "violent_death": 0,
+                "discarded": 0,
+                "errors": 0,
+            }
+        
+        # Atomically claim these sources by updating status to prevent race conditions
+        await session.execute(
+            text("""
+                UPDATE source_google_news 
+                SET status = 'classifying', updated_at = CURRENT_TIMESTAMP
+                WHERE id IN ({}) AND status = 'ready_for_classification'
+            """.format(",".join(str(id) for id in candidate_ids)))
+        )
+        await session.commit()
+        
+        # Get the IDs we actually claimed
+        result = await session.execute(
+            text("""
+                SELECT id FROM source_google_news 
+                WHERE id IN ({}) AND status = 'classifying'
+            """.format(",".join(str(id) for id in candidate_ids)))
+        )
         source_ids = [row[0] for row in result.fetchall()]
     
-    logger.info(f"Found {len(source_ids)} sources to classify")
+    logger.info(f"Claimed {len(source_ids)} sources for classification")
     
     if not source_ids:
         return {
