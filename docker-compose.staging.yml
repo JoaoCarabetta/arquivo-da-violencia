@@ -29,6 +29,7 @@ services:
   # API - Staging instance on port 8001
   # ---------------------------------------------------------------------------
   api:
+    image: ghcr.io/joaocarabetta/arquivo-da-violencia/backend:develop
     container_name: staging-arquivo-api
     ports: !override
       - "8001:8000"
@@ -50,6 +51,7 @@ services:
   # Worker - Staging instance
   # ---------------------------------------------------------------------------
   worker:
+    image: ghcr.io/joaocarabetta/arquivo-da-violencia/backend:develop
     container_name: staging-arquivo-worker
     environment:
       - REDIS_URL=redis://redis:6379
@@ -70,6 +72,7 @@ services:
   # Frontend - Staging instance on port 8080
   # ---------------------------------------------------------------------------
   frontend:
+    image: ghcr.io/joaocarabetta/arquivo-da-violencia/frontend:develop
     build:
       context: ./frontend
       dockerfile: Dockerfile

@@ -41,6 +41,7 @@ services:
   # API - FastAPI backend
   # ---------------------------------------------------------------------------
   api:
+    image: ghcr.io/joaocarabetta/arquivo-da-violencia/backend:master
     build: ./backend
     container_name: arquivo-api
     ports:
@@ -74,6 +75,7 @@ services:
   # Worker - ARQ background task processor
   # ---------------------------------------------------------------------------
   worker:
+    image: ghcr.io/joaocarabetta/arquivo-da-violencia/backend:master
     build: ./backend
     container_name: arquivo-worker
     command: arq app.tasks.worker.WorkerSettings
@@ -106,6 +108,7 @@ services:
   # Frontend - React Vite app (production build)
   # ---------------------------------------------------------------------------
   frontend:
+    image: ghcr.io/joaocarabetta/arquivo-da-violencia/frontend:master
     build:
       context: ./frontend
     container_name: arquivo-frontend
