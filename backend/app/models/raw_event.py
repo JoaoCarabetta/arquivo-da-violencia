@@ -80,6 +80,9 @@ class RawEventBase(SQLModel):
     # matched: linked to existing UniqueEvent
     # clustered: grouped with other RawEvents into new UniqueEvent
     deduplication_status: str = Field(default="pending", max_length=20, index=True)
+    
+    # === Gold standard flag for test set curation ===
+    is_gold_standard: bool = Field(default=False, index=True)
 
 
 class RawEvent(RawEventBase, table=True):
@@ -121,3 +124,10 @@ class RawEventRead(RawEventBase):
     deduplication_status: str
     created_at: datetime
     updated_at: datetime
+
+
+class RawEventUpdate(SQLModel):
+    """Schema for updating a raw event."""
+    
+    extraction_data: dict | None = None
+    is_gold_standard: bool | None = None

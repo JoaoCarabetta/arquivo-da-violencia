@@ -5,7 +5,8 @@ import path from 'path'
 
 // API URL: Use service name in Docker, localhost for local dev
 // When running in Docker, the service name 'api' resolves to the API container
-const apiUrl = process.env.VITE_API_URL || 'http://api:8000'
+// Note: In dev mode, Vite proxy runs in Node.js context, so it can use Docker service names
+const apiUrl = 'http://api:8000'
 
 // https://vite.dev/config/
 export default defineConfig({

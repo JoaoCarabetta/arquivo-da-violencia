@@ -83,6 +83,7 @@ export interface RawEvent {
   extraction_error: string | null;
   extraction_model: string | null;
   deduplication_status: string | null;
+  is_gold_standard: boolean;
   created_at: string | null;
   updated_at: string | null;
 }
@@ -258,6 +259,23 @@ export async function fetchRawEvents(
   perPage: number = 20
 ): Promise<PaginatedResponse<RawEvent>> {
   return fetchJson(`${API_BASE}/raw-events?page=${page}&per_page=${perPage}`);
+}
+
+export async function fetchRawEventById(id: number): Promise<RawEvent> {
+  return fetchJson<RawEvent>(`${API_BASE}/raw-events/${id}`);
+}
+
+export async function updateRawEvent(
+  id: number,
+  data: {
+    extraction_data?: Record<string, unknown>;
+    is_gold_standard?: boolean;
+  }
+): Promise<RawEvent> {
+  return fetchJson<RawEvent>(`${API_BASE}/raw-events/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify(data),
+  });
 }
 
 // Unique Events

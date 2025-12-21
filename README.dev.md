@@ -1,62 +1,156 @@
-# Development Setup with Auto-Reload
+# Development Setup
 
 ## Quick Start
 
-### Option 1: Development Mode (Hot Reload - Recommended for Development)
-
-Uses Vite dev server with instant hot-reload. No rebuild needed for code changes.
-
 ```bash
-# Start with development config
-docker compose -f docker-compose.yml -f docker-compose.dev.yml up
+# Start development environment
+docker compose -f docker-compose.dev.yml up
 
-# Or with watch mode (auto-rebuilds on config changes)
-docker compose -f docker-compose.yml -f docker-compose.dev.yml watch
+# Or run in background
+docker compose -f docker-compose.dev.yml up -d
+
+# View logs
+docker compose -f docker-compose.dev.yml logs -f
+
+# Stop
+docker compose -f docker-compose.dev.yml down
 ```
 
-Frontend will be available at: `http://localhost:5173`
+## Development Features
 
-### Option 2: Production Mode with Auto-Rebuild
+### ✅ No Authentication Required
+- `ENABLE_AUTH=false` - No password needed to access admin panel
+- Just go to http://localhost/admin and start working
 
-For production builds with automatic rebuilds when files change:
+### ✅ Frontend Hot-Reload
+- Changes to files in `frontend/src/` automatically reload in the browser
+- No need to rebuild the container
+- Vite dev server with HMR (Hot Module Replacement)
 
-1. Uncomment the `develop.watch` section in `docker-compose.yml` (frontend service)
-2. Run:
+### ✅ Backend Hot-Reload  
+- Changes to `backend/app/` automatically reload the API
+- Using `uvicorn --reload` flag
+- No need to rebuild the container
+
+### ✅ No Cron Jobs
+- `ENABLE_CRON=false` - Pipeline doesn't run automatically
+- Trigger jobs manually from the admin panel when needed
+
+### ✅ Debug Mode
+- `DEBUG=true` - More verbose logging
+- Better error messages
+
+## Access URLs
+
+- **Frontend**: http://localhost (port 80)
+- **Backend API**: http://localhost:8000
+- **API Docs**: http://localhost:8000/docs
+- **Admin Panel**: http://localhost/admin (no login required!)
+
+## Environment Variables
+
+Development uses `.env` file with these key settings:
+
+```env
+# Required
+GEMINI_API_KEY=your-key-here
+
+# Development settings (already configured in docker-compose.dev.yml)
+DEBUG=true
+ENABLE_AUTH=false
+ENABLE_CRON=false
+ADMIN_PASSWORD=
+```
+
+## File Structure
+
+```
+arquivo-da-violencia/
+├── docker-compose.dev.yml    # Development configuration
+├── docker-compose.yml         # Production configuration
+├── docker-compose.staging.yml # Staging configuration
+├── backend/
+│   ├── app/                   # Backend code (hot-reload enabled)
+│   └── Dockerfile
+└── frontend/
+    ├── src/                   # Frontend code (hot-reload enabled)
+    ├── Dockerfile.dev         # Development Dockerfile with Vite
+    └── Dockerfile             # Production Dockerfile with Nginx
+```
+
+## Development Workflow
+
+1. **Start services**:
    ```bash
-   docker compose watch
+   docker compose -f docker-compose.dev.yml up
    ```
 
-Frontend will be available at: `http://localhost:80`
+2. **Make changes**:
+   - Edit files in `frontend/src/` → Browser auto-refreshes
+   - Edit files in `backend/app/` → API auto-reloads
 
-### Option 3: Manual Rebuild (Production)
+3. **Test the Gold Standard Editor**:
+   - Go to http://localhost/admin/raw-events
+   - Click any row to open the split-view editor
+   - Edit JSON on the right, see original content on the left
+   - Toggle gold standard, click save
 
-For explicit control (recommended for production):
+4. **Run migrations** (if needed):
+   ```bash
+   docker compose -f docker-compose.dev.yml exec api alembic upgrade head
+   ```
 
+5. **Trigger pipeline manually**:
+   - Go to http://localhost/admin
+   - Use the pipeline controls to run jobs
+
+## Differences from Production
+
+| Feature | Development | Production |
+|---------|-------------|------------|
+| Authentication | Disabled | Required (JWT) |
+| Frontend | Vite dev server | Nginx static files |
+| Hot-reload | Enabled | Disabled |
+| Cron jobs | Disabled | Optional |
+| SSL/HTTPS | No | Yes |
+| Debug logs | Verbose | Minimal |
+
+## Troubleshooting
+
+### Port already in use
 ```bash
-# Rebuild and restart frontend
-docker compose up -d --build frontend
+# Stop all containers
+docker compose -f docker-compose.dev.yml down
 
-# Or rebuild all services
-docker compose up -d --build
+# Or kill process on port 80
+sudo lsof -ti:80 | xargs kill -9
 ```
 
-## How It Works
+### Changes not reflecting
+```bash
+# Restart the service
+docker compose -f docker-compose.dev.yml restart frontend
+# or
+docker compose -f docker-compose.dev.yml restart api
+```
 
-### Development Mode (`docker-compose.dev.yml`)
-- Uses `Dockerfile.dev` which runs Vite dev server
-- **File sync**: Source files are synced directly (instant changes, no rebuild)
-- **Auto-rebuild**: Only rebuilds when `package.json`, `Dockerfile`, or config files change
-- Hot module replacement (HMR) works automatically
+### Database issues
+```bash
+# Reset database
+rm backend/app/instance/violence.db
+docker compose -f docker-compose.dev.yml exec api alembic upgrade head
+```
 
-### Production Mode with Watch
-- Uses production `Dockerfile` (multi-stage build with nginx)
-- **Auto-rebuild**: Rebuilds entire image when source files change
-- Serves static files via nginx
-- Takes longer than dev mode but matches production environment
+## Production Deployment
 
-## When to Use Each
+When ready to deploy to production, use the production compose file:
 
-- **Development**: Use `docker-compose.dev.yml` for active development
-- **Production Testing**: Use production mode with watch to test production builds
-- **Production Deployment**: Use manual rebuilds for explicit control
+```bash
+# Production
+docker compose up -d
 
+# Staging
+docker compose -f docker-compose.staging.yml up -d
+```
+
+See [DEPLOYMENT.md](docs/DEPLOYMENT.md) for full production setup instructions.
