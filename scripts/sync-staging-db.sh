@@ -20,7 +20,7 @@ set -e
 
 cd /root/arquivo-da-violencia
 
-PROD_DB="./instance/violence.db"
+PROD_DB="./backend/app/instance/violence.db"
 STAGING_DB="./staging_instance/violence.db"
 STAGING_BACKUP="./staging_instance/violence.db.backup.$(date +%Y%m%d_%H%M%S)"
 COMPOSE_STAGING="-p staging -f docker-compose.yml -f docker-compose.staging.yml"
