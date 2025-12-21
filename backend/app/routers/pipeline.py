@@ -6,6 +6,7 @@ from arq.jobs import Job
 from loguru import logger
 
 from app.tasks.worker import get_redis_settings
+from app.services.telegram import send_test_message, get_notifier
 
 router = APIRouter(prefix="/pipeline", tags=["pipeline"])
 
@@ -27,10 +28,54 @@ async def get_arq_pool():
 # =============================================================================
 
 
+@router.post("/full")
+async def run_full_pipeline_endpoint(
+    when: str = Query("1h", description="Time filter (e.g., '1h', '1d', '3d')"),
+    cities: str | None = Query(None, description="Comma-separated city names (optional, uses all 52 cities if not provided)"),
+):
+    """
+    🚀 Run the COMPLETE pipeline from ingestion to enrichment.
+    
+    **Pipeline stages:**
+    1. **Ingest** - Fetch news from Google News for all Brazilian cities
+    2. **Classify** - Filter headlines using AI (violent death detection)
+    3. **Download** - Fetch full article content
+    4. **Extract** - Extract structured event data using LLM
+    5. **Deduplicate** - Cluster similar events
+    6. **Enrich** - Synthesize best information for unique events
+    
+    This is the main production endpoint for running the complete data pipeline.
+    """
+    pool = await get_arq_pool()
+    
+    # Parse cities if provided
+    city_list = None
+    if cities:
+        city_list = [c.strip() for c in cities.split(",") if c.strip()]
+    
+    job = await pool.enqueue_job("ingest_cities_full_pipeline", city_list, when)
+    await pool.close()
+
+    return {
+        "status": "queued",
+        "job_id": job.job_id,
+        "task": "ingest_cities_full_pipeline",
+        "message": f"Full pipeline started (when={when}, cities={'custom list' if city_list else 'all 52'})",
+        "stages": [
+            "1. Ingest (Google News RSS)",
+            "2. Classify (AI headline filter)",
+            "3. Download (article content)",
+            "4. Extract (LLM structured extraction)",
+            "5. Deduplicate (event clustering)",
+            "6. Enrich (synthesize best info)",
+        ],
+    }
+
+
 @router.post("/run")
 async def run_pipeline(
     query: str | None = Query(None, description="Search query for Google News"),
-    when: str = Query("3d", description="Time filter (e.g., '1d', '3d', '7d')"),
+    when: str = Query("1h", description="Time filter (e.g., '1d', '3d', '7d')"),
 ):
     """
     Run the full pipeline: ingest -> download -> extract -> enrich.
@@ -52,7 +97,7 @@ async def run_pipeline(
 @router.post("/ingest")
 async def run_ingestion(
     query: str | None = Query(None, description="Search query for Google News"),
-    when: str = Query("3d", description="Time filter"),
+    when: str = Query("1h", description="Time filter"),
 ):
     """
     Stage 1: Ingest Google News RSS feeds.
@@ -395,3 +440,44 @@ async def get_job_status(job_id: str):
     except Exception as e:
         await pool.close()
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# =============================================================================
+# Telegram Notifications
+# =============================================================================
+
+
+@router.get("/telegram/status")
+async def get_telegram_status():
+    """Check if Telegram notifications are configured."""
+    notifier = get_notifier()
+    return {
+        "enabled": notifier.enabled,
+        "chat_id": notifier.chat_id[:4] + "****" if notifier.chat_id else None,
+        "message": "Telegram notifications are " + ("enabled" if notifier.enabled else "disabled"),
+    }
+
+
+@router.post("/telegram/test")
+async def test_telegram():
+    """Send a test message to verify Telegram configuration."""
+    notifier = get_notifier()
+    
+    if not notifier.enabled:
+        raise HTTPException(
+            status_code=400,
+            detail="Telegram not configured. Set TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID in .env",
+        )
+    
+    success = await send_test_message()
+    
+    if success:
+        return {
+            "status": "success",
+            "message": "Test message sent successfully! Check your Telegram.",
+        }
+    else:
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to send test message. Check bot token and chat ID.",
+        )

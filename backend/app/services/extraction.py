@@ -302,7 +302,10 @@ async def extract_ready_sources(limit: int = 10, concurrency: int = 15) -> dict:
     from sqlalchemy import text
     
     async with async_session_maker() as session:
-        # Get sources ready for extraction using raw SQL
+        # Atomically select AND mark sources as 'extracting' to prevent race conditions
+        # This prevents multiple parallel workers from extracting the same source
+        
+        # First, get the IDs we want to claim
         result = await session.execute(
             text("""
                 SELECT id FROM source_google_news 
@@ -312,9 +315,37 @@ async def extract_ready_sources(limit: int = 10, concurrency: int = 15) -> dict:
             """),
             {"limit": limit}
         )
+        candidate_ids = [row[0] for row in result.fetchall()]
+        
+        if not candidate_ids:
+            logger.info(f"Found 0 sources ready for extraction")
+            return {
+                "processed": 0,
+                "successful": 0,
+                "failed": 0,
+            }
+        
+        # Atomically claim these sources by updating status
+        # Only sources still in 'ready_for_extraction' will be updated
+        await session.execute(
+            text("""
+                UPDATE source_google_news 
+                SET status = 'extracting', updated_at = CURRENT_TIMESTAMP
+                WHERE id IN ({}) AND status = 'ready_for_extraction'
+            """.format(",".join(str(id) for id in candidate_ids)))
+        )
+        await session.commit()
+        
+        # Now get the IDs we actually claimed (those now in 'extracting' status)
+        result = await session.execute(
+            text("""
+                SELECT id FROM source_google_news 
+                WHERE id IN ({}) AND status = 'extracting'
+            """.format(",".join(str(id) for id in candidate_ids)))
+        )
         source_ids = [row[0] for row in result.fetchall()]
     
-    logger.info(f"Found {len(source_ids)} sources ready for extraction")
+    logger.info(f"Claimed {len(source_ids)} sources for extraction (marked as extracting)")
     
     if not source_ids:
         return {

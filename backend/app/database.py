@@ -4,6 +4,7 @@ from collections.abc import AsyncGenerator
 from functools import lru_cache
 from pathlib import Path
 
+from sqlalchemy import event
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 from sqlmodel import SQLModel
 from sqlmodel.ext.asyncio.session import AsyncSession
@@ -30,11 +31,42 @@ def _normalize_database_url(db_url: str) -> str:
     return db_url
 
 
+def _set_sqlite_pragmas(dbapi_connection, connection_record):
+    """Set SQLite pragmas for better concurrency and performance."""
+    cursor = dbapi_connection.cursor()
+    # Enable WAL mode for concurrent reads/writes
+    cursor.execute("PRAGMA journal_mode=WAL")
+    # Wait up to 60 seconds for locks
+    cursor.execute("PRAGMA busy_timeout=60000")
+    # Synchronous NORMAL is safe with WAL
+    cursor.execute("PRAGMA synchronous=NORMAL")
+    # Enable foreign keys
+    cursor.execute("PRAGMA foreign_keys=ON")
+    # Temp store in memory
+    cursor.execute("PRAGMA temp_store=MEMORY")
+    cursor.close()
+
+
 @lru_cache
 def get_engine() -> AsyncEngine:
     """Get cached async engine instance."""
     settings = get_settings()
     db_url = _normalize_database_url(settings.database_url)
+    
+    # For SQLite, configure for better concurrency
+    if "sqlite" in db_url:
+        engine = create_async_engine(
+            db_url,
+            echo=settings.debug,
+            future=True,
+            connect_args={
+                "check_same_thread": False,
+                "timeout": 60,
+            },
+        )
+        # Set pragmas on each new connection
+        event.listen(engine.sync_engine, "connect", _set_sqlite_pragmas)
+        return engine
     
     return create_async_engine(
         db_url,
