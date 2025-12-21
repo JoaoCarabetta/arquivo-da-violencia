@@ -53,7 +53,8 @@ fi
 # Step 3: Run database migrations
 echo ""
 echo "🔄 Running database migrations..."
-docker compose $COMPOSE_FILES run --rm api alembic upgrade head
+# Use --no-deps to avoid recreating dependencies (redis) that are already running
+docker compose $COMPOSE_FILES run --rm --no-deps api alembic upgrade head
 
 # Step 4: Start new containers
 echo ""
