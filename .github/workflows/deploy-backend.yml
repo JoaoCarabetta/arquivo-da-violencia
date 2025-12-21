@@ -117,15 +117,15 @@ jobs:
             
             # Ensure Redis is running (but don't recreate it)
             echo "📦 Ensuring Redis is running..."
-            docker compose -f docker-compose.yml -f docker-compose.staging.yml up -d --no-recreate redis
+            docker compose -p staging -f docker-compose.yml -f docker-compose.staging.yml up -d --no-recreate redis
             
             # Run database migrations (--no-deps to avoid recreating redis)
             echo "🔄 Running database migrations..."
-            docker compose -f docker-compose.yml -f docker-compose.staging.yml run --rm --no-deps api alembic upgrade head
+            docker compose -p staging -f docker-compose.yml -f docker-compose.staging.yml run --rm --no-deps api alembic upgrade head
             
             # Start new API and Worker containers only
             echo "🔄 Starting API and Worker..."
-            docker compose -f docker-compose.yml -f docker-compose.staging.yml up -d --no-deps api worker
+            docker compose -p staging -f docker-compose.yml -f docker-compose.staging.yml up -d --no-deps api worker
             
             # Wait for API to be healthy
             echo "🏥 Waiting for API health check..."
@@ -200,15 +200,15 @@ jobs:
             
             # Ensure Redis is running (but don't recreate it)
             echo "📦 Ensuring Redis is running..."
-            docker compose up -d --no-recreate redis
+            docker compose -p prod up -d --no-recreate redis
             
             # Run database migrations (--no-deps to avoid recreating redis)
             echo "🔄 Running database migrations..."
-            docker compose run --rm --no-deps api alembic upgrade head
+            docker compose -p prod run --rm --no-deps api alembic upgrade head
             
             # Start new API and Worker containers only
             echo "🔄 Starting API and Worker..."
-            docker compose up -d --no-deps api worker
+            docker compose -p prod up -d --no-deps api worker
             
             # Wait for API to be healthy
             echo "🏥 Waiting for API health check..."

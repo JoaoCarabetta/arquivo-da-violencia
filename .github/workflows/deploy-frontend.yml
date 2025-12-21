@@ -99,10 +99,10 @@ jobs:
             docker logout ghcr.io 2>/dev/null || true
             
             # Pull the new image
-            docker compose -f docker-compose.yml -f docker-compose.staging.yml pull frontend
+            docker compose -p staging -f docker-compose.yml -f docker-compose.staging.yml pull frontend
             
             # Restart frontend container (instant, no downtime concerns)
-            docker compose -f docker-compose.yml -f docker-compose.staging.yml up -d frontend
+            docker compose -p staging -f docker-compose.yml -f docker-compose.staging.yml up -d frontend
             
             # Clean up old images
             docker image prune -f
@@ -129,10 +129,10 @@ jobs:
             docker logout ghcr.io 2>/dev/null || true
             
             # Pull the new image
-            docker compose pull frontend
+            docker compose -p prod pull frontend
             
             # Restart frontend container (instant, no downtime concerns)
-            docker compose up -d frontend
+            docker compose -p prod up -d frontend
             
             # Clean up old images
             docker image prune -f
