@@ -13,6 +13,8 @@
 #   ENABLE_CRON=true  # Enable hourly ingestion
 #   TELEGRAM_BOT_TOKEN=your-bot-token  # For notifications
 #   TELEGRAM_CHAT_ID=your-chat-id
+#   GITHUB_TOKEN=your-github-token  # For creating issues on failures
+#   GITHUB_REPO=owner/repo  # Repository for issues
 #
 # =============================================================================
 

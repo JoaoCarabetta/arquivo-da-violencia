@@ -23,27 +23,33 @@ async def get_public_stats(session: AsyncSession = Depends(get_session)):
     # Total events
     total = await session.scalar(select(func.count(UniqueEvent.id)))
     
-    # Today
+    # Today - based on event_date
     today_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
     today = await session.scalar(
         select(func.count(UniqueEvent.id)).where(
-            UniqueEvent.created_at >= today_start
+            UniqueEvent.event_date >= today_start
+        ).where(
+            UniqueEvent.event_date.isnot(None)
         )
     )
     
-    # This week
+    # This week - based on event_date
     week_start = today_start - timedelta(days=today_start.weekday())
     this_week = await session.scalar(
         select(func.count(UniqueEvent.id)).where(
-            UniqueEvent.created_at >= week_start
+            UniqueEvent.event_date >= week_start
+        ).where(
+            UniqueEvent.event_date.isnot(None)
         )
     )
     
-    # This month
+    # This month - based on event_date
     month_start = today_start.replace(day=1)
     this_month = await session.scalar(
         select(func.count(UniqueEvent.id)).where(
-            UniqueEvent.created_at >= month_start
+            UniqueEvent.event_date >= month_start
+        ).where(
+            UniqueEvent.event_date.isnot(None)
         )
     )
     
@@ -136,13 +142,13 @@ async def get_stats_by_day(
     
     cutoff = datetime.utcnow() - timedelta(days=days)
     
-    # Use SQLite date function
+    # Use SQLite date function with event_date instead of created_at
     query = text("""
         SELECT 
-            date(created_at) as date,
+            date(event_date) as date,
             COUNT(*) as count
         FROM unique_event
-        WHERE created_at >= :cutoff
+        WHERE event_date >= :cutoff AND event_date IS NOT NULL
         GROUP BY date
         ORDER BY date ASC
     """)
@@ -231,8 +237,8 @@ async def get_public_events(
     skip = (page - 1) * per_page
     pages = math.ceil(total_count / per_page) if total_count > 0 else 1
     
-    # Apply pagination and ordering
-    query = query.order_by(UniqueEvent.created_at.desc())
+    # Apply pagination and ordering by event_date (most recent first, nulls last)
+    query = query.order_by(UniqueEvent.event_date.desc().nullslast())
     query = query.offset(skip).limit(per_page)
     
     result = await session.execute(query)
@@ -287,7 +293,7 @@ async def export_events(
     if type:
         query = query.where(UniqueEvent.homicide_type == type)
     
-    query = query.order_by(UniqueEvent.created_at.desc())
+    query = query.order_by(UniqueEvent.event_date.desc().nullslast())
     
     result = await session.execute(query)
     events = result.scalars().all()

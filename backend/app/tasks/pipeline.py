@@ -1,8 +1,12 @@
 """Pipeline task definitions for ARQ."""
 
+import functools
 import time
+from typing import Any, Callable
+
 from loguru import logger
 
+from app.services.github import create_failure_issue
 from app.services.telegram import (
     notify_job_started,
     notify_job_finished,
@@ -11,6 +15,60 @@ from app.services.telegram import (
 )
 
 
+def notify_on_failure(task_name: str):
+    """
+    Decorator that sends Telegram notification and creates GitHub issue on task failure.
+    
+    Args:
+        task_name: Name of the task for the notification
+    
+    Usage:
+        @notify_on_failure("my_task")
+        async def my_task(ctx: dict, ...) -> dict:
+            ...
+    """
+    def decorator(func: Callable) -> Callable:
+        @functools.wraps(func)
+        async def wrapper(*args, **kwargs) -> Any:
+            try:
+                return await func(*args, **kwargs)
+            except Exception as e:
+                # Extract context details from args/kwargs for the notification
+                details = {}
+                
+                # Try to extract common parameters
+                if "source_id" in kwargs:
+                    details["source_id"] = kwargs["source_id"]
+                elif len(args) > 1 and isinstance(args[1], int):
+                    details["source_id"] = args[1]
+                
+                if "raw_event_id" in kwargs:
+                    details["raw_event_id"] = kwargs["raw_event_id"]
+                elif len(args) > 1 and isinstance(args[1], int) and "enrich" in task_name:
+                    details["raw_event_id"] = args[1]
+                
+                if "limit" in kwargs:
+                    details["limit"] = kwargs["limit"]
+                
+                if "query" in kwargs:
+                    details["query"] = kwargs["query"] or "default"
+                
+                if "when" in kwargs:
+                    details["when"] = kwargs["when"]
+                
+                logger.error(f"[{task_name.upper()}] Failed: {e}")
+                
+                # Send notifications in parallel
+                await notify_job_failed(task_name, str(e), details if details else None)
+                await create_failure_issue(task_name, str(e), details if details else None)
+                
+                raise
+        
+        return wrapper
+    return decorator
+
+
+@notify_on_failure("ingest")
 async def ingest_task(ctx: dict, query: str | None = None, when: str = "3d") -> dict:
     """
     Stage 1: Ingest - Fetch Google News RSS and create SourceGoogleNews records.
@@ -48,6 +106,7 @@ async def ingest_task(ctx: dict, query: str | None = None, when: str = "3d") -> 
     }
 
 
+@notify_on_failure("classify")
 async def classify_task(ctx: dict, source_id: int) -> dict:
     """
     Stage 1.5: Classify - Classify headline to filter violent death news.
@@ -87,6 +146,7 @@ async def classify_task(ctx: dict, source_id: int) -> dict:
         }
 
 
+@notify_on_failure("classify_batch")
 async def classify_pending_task(ctx: dict, limit: int = 50) -> dict:
     """
     Batch task: Classify headlines for all pending sources.
@@ -114,6 +174,7 @@ async def classify_pending_task(ctx: dict, limit: int = 50) -> dict:
     }
 
 
+@notify_on_failure("download")
 async def download_task(ctx: dict, source_id: int) -> dict:
     """
     Stage 2: Download - Fetch article content using trafilatura.
@@ -145,6 +206,8 @@ async def download_task(ctx: dict, source_id: int) -> dict:
         }
     else:
         logger.warning(f"[DOWNLOAD] Failed for source_id: {source_id}")
+        await notify_job_failed("download", "Download failed", {"source_id": source_id})
+        await create_failure_issue("download", "Download failed", {"source_id": source_id})
         return {
             "status": "failed",
             "task": "download",
@@ -152,6 +215,7 @@ async def download_task(ctx: dict, source_id: int) -> dict:
         }
 
 
+@notify_on_failure("extract")
 async def extract_task(ctx: dict, source_id: int) -> dict:
     """
     Stage 3: Extract - Extract structured event data using LLM.
@@ -185,6 +249,8 @@ async def extract_task(ctx: dict, source_id: int) -> dict:
         }
     else:
         logger.warning(f"[EXTRACT] Failed for source_id: {source_id}")
+        await notify_job_failed("extract", "Extraction failed", {"source_id": source_id})
+        await create_failure_issue("extract", "Extraction failed", {"source_id": source_id})
         return {
             "status": "failed",
             "task": "extract",
@@ -192,6 +258,7 @@ async def extract_task(ctx: dict, source_id: int) -> dict:
         }
 
 
+@notify_on_failure("enrich")
 async def enrich_task(ctx: dict, raw_event_id: int) -> dict:
     """
     Stage 4: Enrich - Try to match RawEvent to existing UniqueEvent.
@@ -223,6 +290,7 @@ async def enrich_task(ctx: dict, raw_event_id: int) -> dict:
     }
 
 
+@notify_on_failure("download_batch")
 async def download_classified_task(ctx: dict, limit: int = 50) -> dict:
     """
     Batch task: Download content for all classified sources (ready for download).
@@ -250,6 +318,7 @@ async def download_classified_task(ctx: dict, limit: int = 50) -> dict:
     }
 
 
+@notify_on_failure("extract_batch")
 async def extract_ready_task(ctx: dict, limit: int = 10) -> dict:
     """
     Batch task: Extract events from all sources ready for extraction.
@@ -278,6 +347,7 @@ async def extract_ready_task(ctx: dict, limit: int = 10) -> dict:
     }
 
 
+@notify_on_failure("batch_dedup")
 async def batch_dedup_task(ctx: dict, limit: int = 100) -> dict:
     """
     Periodic: Process pending RawEvents through batch clustering.
@@ -309,6 +379,7 @@ async def batch_dedup_task(ctx: dict, limit: int = 100) -> dict:
     }
 
 
+@notify_on_failure("batch_enrich")
 async def batch_enrich_task(ctx: dict, limit: int = 50) -> dict:
     """
     Periodic: Enrich UniqueEvents that need enrichment.
@@ -334,6 +405,7 @@ async def batch_enrich_task(ctx: dict, limit: int = 50) -> dict:
     }
 
 
+@notify_on_failure("full_pipeline")
 async def run_full_pipeline(ctx: dict, query: str | None = None, when: str = "3d") -> dict:
     """
     Run the full pipeline: ingest -> download -> extract -> enrich.
@@ -346,27 +418,21 @@ async def run_full_pipeline(ctx: dict, query: str | None = None, when: str = "3d
     # Notify job started
     await notify_job_started("full_pipeline", {"query": query or "default", "when": when})
     
-    try:
-        # Start with ingestion (which will chain to download -> extract -> enrich)
-        result = await ingest_task(ctx, query=query, when=when)
-        
-        duration = time.time() - start_time
-        await notify_job_finished("full_pipeline", result, duration)
-        
-        return {
-            "status": "started",
-            "task": "full_pipeline",
-            "message": "Pipeline started - tasks will chain automatically",
-            "ingestion_result": result,
-        }
-        
-    except Exception as e:
-        duration = time.time() - start_time
-        logger.error(f"[PIPELINE] Failed: {e}")
-        await notify_job_failed("full_pipeline", str(e), {"duration": f"{duration:.1f}s"})
-        raise
+    # Start with ingestion (which will chain to download -> extract -> enrich)
+    result = await ingest_task(ctx, query=query, when=when)
+    
+    duration = time.time() - start_time
+    await notify_job_finished("full_pipeline", result, duration)
+    
+    return {
+        "status": "started",
+        "task": "full_pipeline",
+        "message": "Pipeline started - tasks will chain automatically",
+        "ingestion_result": result,
+    }
 
 
+@notify_on_failure("ingest_cities")
 async def ingest_cities_task(
     ctx: dict, 
     cities: list[str] | None = None, 
@@ -395,36 +461,30 @@ async def ingest_cities_task(
     # Notify job started
     await notify_job_started("ingest_cities", {"when": when})
     
-    try:
-        from app.services.ingestion import ingest_all_cities
-        
-        result = await ingest_all_cities(cities=cities, when=when, resolve_urls=True)
-        
-        total_sources = result['total_sources_created']
-        logger.info(f"[INGEST_CITIES] Complete: {total_sources} new sources")
-        
-        # Enqueue classification tasks for all new sources
-        if total_sources > 0 and ctx.get("redis"):
-            # Batch classify all pending sources
-            await ctx["redis"].enqueue_job("classify_pending_task", limit=total_sources + 50)
-            logger.info(f"[INGEST_CITIES] Enqueued batch classification task")
-        
-        duration = time.time() - start_time
-        await notify_job_finished("ingest_cities", result, duration)
-        
-        return {
-            "status": "completed",
-            "task": "ingest_cities",
-            **result,
-        }
-        
-    except Exception as e:
-        duration = time.time() - start_time
-        logger.error(f"[INGEST_CITIES] Failed: {e}")
-        await notify_job_failed("ingest_cities", str(e), {"duration": f"{duration:.1f}s"})
-        raise
+    from app.services.ingestion import ingest_all_cities
+    
+    result = await ingest_all_cities(cities=cities, when=when, resolve_urls=True)
+    
+    total_sources = result['total_sources_created']
+    logger.info(f"[INGEST_CITIES] Complete: {total_sources} new sources")
+    
+    # Enqueue classification tasks for all new sources
+    if total_sources > 0 and ctx.get("redis"):
+        # Batch classify all pending sources
+        await ctx["redis"].enqueue_job("classify_pending_task", limit=total_sources + 50)
+        logger.info(f"[INGEST_CITIES] Enqueued batch classification task")
+    
+    duration = time.time() - start_time
+    await notify_job_finished("ingest_cities", result, duration)
+    
+    return {
+        "status": "completed",
+        "task": "ingest_cities",
+        **result,
+    }
 
 
+@notify_on_failure("cities_full_pipeline")
 async def ingest_cities_full_pipeline(
     ctx: dict,
     cities: list[str] | None = None,
@@ -442,54 +502,47 @@ async def ingest_cities_full_pipeline(
     # Notify job started
     await notify_job_started("cities_full_pipeline", {"when": when})
     
-    try:
-        # Step 1: Ingest cities
-        ingest_result = await ingest_cities_task(ctx, cities=cities, when=when)
-        
-        # Step 2: Classify pending sources
-        classify_result = await classify_pending_task(ctx, limit=500)
-        
-        # Step 3: Download classified sources
-        download_result = await download_classified_task(ctx, limit=500)
-        
-        # Step 4: Extract ready sources
-        extract_result = await extract_ready_task(ctx, limit=100)
-        
-        # Step 5: Batch deduplication (creates UniqueEvents from pending RawEvents)
-        dedup_result = await batch_dedup_task(ctx, limit=200)
-        
-        # Step 6: Batch enrichment (enriches UniqueEvents that need it)
-        enrich_result = await batch_enrich_task(ctx, limit=50)
-        
-        duration = time.time() - start_time
-        
-        # Send pipeline summary notification
-        await notify_pipeline_summary(
-            total_sources=ingest_result.get("total_sources_created", 0),
-            sources_classified=classify_result.get("violent_death", 0),
-            sources_downloaded=download_result.get("successful", 0),
-            raw_events_extracted=extract_result.get("raw_events_created", 0),
-            unique_events_created=dedup_result.get("unique_events_created", 0),
-            duration_seconds=duration,
-        )
-        
-        return {
-            "status": "completed",
-            "task": "cities_full_pipeline",
-            "duration_seconds": duration,
-            "ingest": ingest_result,
-            "classify": classify_result,
-            "download": download_result,
-            "extract": extract_result,
-            "dedup": dedup_result,
-            "enrich": enrich_result,
-        }
-        
-    except Exception as e:
-        duration = time.time() - start_time
-        logger.error(f"[CITIES_PIPELINE] Failed: {e}")
-        await notify_job_failed("cities_full_pipeline", str(e), {"duration": f"{duration:.1f}s"})
-        raise
+    # Step 1: Ingest cities
+    ingest_result = await ingest_cities_task(ctx, cities=cities, when=when)
+    
+    # Step 2: Classify pending sources
+    classify_result = await classify_pending_task(ctx, limit=500)
+    
+    # Step 3: Download classified sources
+    download_result = await download_classified_task(ctx, limit=500)
+    
+    # Step 4: Extract ready sources
+    extract_result = await extract_ready_task(ctx, limit=100)
+    
+    # Step 5: Batch deduplication (creates UniqueEvents from pending RawEvents)
+    dedup_result = await batch_dedup_task(ctx, limit=200)
+    
+    # Step 6: Batch enrichment (enriches UniqueEvents that need it)
+    enrich_result = await batch_enrich_task(ctx, limit=50)
+    
+    duration = time.time() - start_time
+    
+    # Send pipeline summary notification
+    await notify_pipeline_summary(
+        total_sources=ingest_result.get("total_sources_created", 0),
+        sources_classified=classify_result.get("violent_death", 0),
+        sources_downloaded=download_result.get("successful", 0),
+        raw_events_extracted=extract_result.get("raw_events_created", 0),
+        unique_events_created=dedup_result.get("unique_events_created", 0),
+        duration_seconds=duration,
+    )
+    
+    return {
+        "status": "completed",
+        "task": "cities_full_pipeline",
+        "duration_seconds": duration,
+        "ingest": ingest_result,
+        "classify": classify_result,
+        "download": download_result,
+        "extract": extract_result,
+        "dedup": dedup_result,
+        "enrich": enrich_result,
+    }
 
 
 # List of all task functions for the worker

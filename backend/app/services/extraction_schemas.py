@@ -58,7 +58,7 @@ class Location(BaseModel):
         description="Estado em sigla para Brasil (RJ, SP, MG, etc.) ou nome completo para outros países",
     )
     country: Optional[str] = Field(
-        "Brasil",
+        None,
         description="País onde ocorreu a morte violenta. Use as informações do texto para inferir o país.",
     )
     full_location_description: Optional[str] = Field(

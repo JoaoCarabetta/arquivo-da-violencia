@@ -42,6 +42,10 @@ class Settings(BaseSettings):
     # Telegram notifications
     telegram_bot_token: str | None = None
     telegram_chat_id: str | None = None
+    
+    # GitHub issue creation on failures
+    github_token: str | None = None
+    github_repo: str | None = None  # Format: "owner/repo"
 
     @property
     def database_path(self) -> Path:
