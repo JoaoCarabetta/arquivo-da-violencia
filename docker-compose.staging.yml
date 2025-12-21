@@ -69,7 +69,7 @@ services:
     stop_grace_period: 120s
 
   # ---------------------------------------------------------------------------
-  # Frontend - Staging instance on port 8080
+  # Frontend - Staging instance on ports 8080/8443
   # ---------------------------------------------------------------------------
   frontend:
     image: ghcr.io/joaocarabetta/arquivo-da-violencia/frontend:develop
