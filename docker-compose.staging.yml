@@ -69,7 +69,7 @@ services:
     stop_grace_period: 120s
 
   # ---------------------------------------------------------------------------
-  # Frontend - Staging instance on ports 8080/8443
+  # Frontend - Staging instance on port 8080 (SSL terminated by host nginx)
   # ---------------------------------------------------------------------------
   frontend:
     image: ghcr.io/joaocarabetta/arquivo-da-violencia/frontend:develop
@@ -81,9 +81,6 @@ services:
     container_name: staging-arquivo-frontend
     ports: !override
       - "8080:80"
-      - "8443:443"
-    volumes:
-      - /etc/letsencrypt:/etc/letsencrypt:ro
 
 volumes:
   staging_redis_data:

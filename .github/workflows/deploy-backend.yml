@@ -105,7 +105,7 @@ jobs:
             
             # Pull new images
             echo "📥 Pulling new images..."
-            docker compose -f docker-compose.yml -f docker-compose.staging.yml pull api worker
+            docker compose -p staging -f docker-compose.yml -f docker-compose.staging.yml pull api worker
             
             # Graceful worker shutdown (wait for current job to finish, up to 120s)
             echo "⏳ Gracefully stopping staging containers..."
@@ -188,7 +188,7 @@ jobs:
             
             # Pull new images
             echo "📥 Pulling new images..."
-            docker compose pull api worker
+            docker compose -p prod pull api worker
             
             # Graceful worker shutdown (wait for current job to finish, up to 120s)
             echo "⏳ Gracefully stopping production containers..."
