@@ -118,11 +118,7 @@ def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(securit
 # Dependency for protected routes
 def require_admin(username: str = Depends(get_current_user)) -> str:
     """Dependency that requires admin authentication."""
+    # Any authenticated user is considered an admin
     # In a more complex system, you'd check user roles here
-    if username != ADMIN_USERNAME:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Not enough permissions"
-        )
     return username
 

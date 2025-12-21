@@ -111,9 +111,9 @@ jobs:
             echo "⏳ Gracefully stopping staging worker..."
             docker stop --time=120 staging-arquivo-worker || true
             
-            # Run database migrations
+            # Run database migrations (--no-deps to avoid recreating redis)
             echo "🔄 Running database migrations..."
-            docker compose -f docker-compose.yml -f docker-compose.staging.yml run --rm api alembic upgrade head
+            docker compose -f docker-compose.yml -f docker-compose.staging.yml run --rm --no-deps api alembic upgrade head
             
             # Start new containers
             echo "🔄 Starting new containers..."
@@ -172,9 +172,9 @@ jobs:
             echo "⏳ Gracefully stopping production worker (waiting for current job)..."
             docker stop --time=120 arquivo-worker || true
             
-            # Run database migrations
+            # Run database migrations (--no-deps to avoid recreating redis)
             echo "🔄 Running database migrations..."
-            docker compose run --rm api alembic upgrade head
+            docker compose run --rm --no-deps api alembic upgrade head
             
             # Start new containers
             echo "🔄 Starting new containers..."
