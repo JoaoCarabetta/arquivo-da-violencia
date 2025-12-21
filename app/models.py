@@ -33,6 +33,22 @@ class ExtractedEvent(db.Model):
     def __repr__(self):
         return f'<ExtractedEvent {self.id} from Source {self.source_id}>'
 
+class EventsGroundTruth(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    source_id = db.Column(db.Integer, db.ForeignKey('source.id'), nullable=False)
+    incident_id = db.Column(db.Integer, db.ForeignKey('incident.id'), nullable=True)
+    
+    confidence_score = db.Column(db.Float, default=0.0)
+    extracted_date = db.Column(db.DateTime, nullable=True)
+    extracted_location = db.Column(db.String(256), nullable=True)
+    extracted_victim_name = db.Column(db.String(256), nullable=True)
+    summary = db.Column(db.Text, nullable=True)
+    death_count = db.Column(db.Integer, nullable=True)
+    group_id = db.Column(db.Integer, nullable=True)  # Groups events that refer to the same real-world incident
+
+    def __repr__(self):
+        return f'<EventsGroundTruth {self.id} from Source {self.source_id}, group_id={self.group_id}>'
+
 class Incident(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     title = db.Column(db.String(256), nullable=False)
