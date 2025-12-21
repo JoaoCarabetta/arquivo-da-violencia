@@ -23,18 +23,20 @@ async def get_public_stats(session: AsyncSession = Depends(get_session)):
     # Total events
     total = await session.scalar(select(func.count(UniqueEvent.id)))
     
-    # Today - based on event_date
-    today_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
-    today = await session.scalar(
-        select(func.count(UniqueEvent.id)).where(
-            UniqueEvent.event_date >= today_start
-        ).where(
-            UniqueEvent.event_date.isnot(None)
-        )
-    )
+    # Today - based on event_date (use date() function for timezone-safe comparison)
+    today_date = datetime.utcnow().date()
+    today_query = text("""
+        SELECT COUNT(*) 
+        FROM unique_event
+        WHERE date(event_date) = date(:today_date) 
+        AND event_date IS NOT NULL
+    """)
+    today_result = await session.execute(today_query, {"today_date": today_date.isoformat()})
+    today = today_result.scalar()
     
     # This week - based on event_date
-    week_start = today_start - timedelta(days=today_start.weekday())
+    today_datetime = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+    week_start = today_datetime - timedelta(days=today_datetime.weekday())
     this_week = await session.scalar(
         select(func.count(UniqueEvent.id)).where(
             UniqueEvent.event_date >= week_start
@@ -44,7 +46,7 @@ async def get_public_stats(session: AsyncSession = Depends(get_session)):
     )
     
     # This month - based on event_date
-    month_start = today_start.replace(day=1)
+    month_start = today_datetime.replace(day=1)
     this_month = await session.scalar(
         select(func.count(UniqueEvent.id)).where(
             UniqueEvent.event_date >= month_start
