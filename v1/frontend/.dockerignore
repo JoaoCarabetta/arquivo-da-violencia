@@ -1,0 +1,26 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+build/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Misc
+.git/
+.gitignore
+.dockerignore
+Dockerfile
+README.md
+*.md
+
+# Dev files
+.env
+.env.local
+*.log
+

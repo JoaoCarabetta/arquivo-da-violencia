@@ -1,0 +1,99 @@
+# =============================================================================
+# Arquivo da Violência - Production Docker Compose
+# =============================================================================
+#
+# Usage:
+#   docker compose up -d              # Start all services
+#   docker compose up -d api worker   # Start API and worker only
+#   docker compose logs -f worker     # Follow worker logs
+#   docker compose exec api alembic upgrade head  # Run migrations
+#
+# Environment variables (create .env file):
+#   GEMINI_API_KEY=your-api-key
+#   ENABLE_CRON=true  # Enable hourly ingestion
+#
+# =============================================================================
+
+services:
+  # ---------------------------------------------------------------------------
+  # Redis - Task queue and caching
+  # ---------------------------------------------------------------------------
+  redis:
+    image: redis:7-alpine
+    container_name: arquivo-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------------------
+  # API - FastAPI backend
+  # ---------------------------------------------------------------------------
+  api:
+    build: ./backend
+    container_name: arquivo-api
+    ports:
+      - "8000:8000"
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000
+    depends_on:
+      redis:
+        condition: service_healthy
+    environment:
+      - REDIS_URL=redis://redis:6379
+      - DATABASE_URL=sqlite+aiosqlite:///./instance/violence.db
+      - GEMINI_API_KEY=${GEMINI_API_KEY:-}
+      - DEBUG=${DEBUG:-false}
+      - CORS_ORIGINS=["http://localhost:5173","http://localhost:3000","http://localhost:80"]
+    volumes:
+      - db_data:/app/instance
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/health"]
+      interval: 30s
+      timeout: 10s
+      start_period: 10s
+      retries: 3
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------------------
+  # Worker - ARQ background task processor
+  # ---------------------------------------------------------------------------
+  worker:
+    build: ./backend
+    container_name: arquivo-worker
+    command: arq app.tasks.worker.WorkerSettings
+    depends_on:
+      redis:
+        condition: service_healthy
+    environment:
+      - REDIS_URL=redis://redis:6379
+      - DATABASE_URL=sqlite+aiosqlite:///./instance/violence.db
+      - GEMINI_API_KEY=${GEMINI_API_KEY:-}
+      - ENABLE_CRON=${ENABLE_CRON:-false}
+    volumes:
+      - db_data:/app/instance
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------------------
+  # Frontend - React Vite app (production build)
+  # ---------------------------------------------------------------------------
+  frontend:
+    build: ./frontend
+    container_name: arquivo-frontend
+    ports:
+      - "80:80"
+    depends_on:
+      - api
+    restart: unless-stopped
+
+volumes:
+  redis_data:
+    name: arquivo-redis-data
+  db_data:
+    name: arquivo-db-data
