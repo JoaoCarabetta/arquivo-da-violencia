@@ -52,10 +52,10 @@ COPY app/ ./app/
 # Create instance directory for SQLite
 RUN mkdir -p /app/instance && chmod 777 /app/instance
 
-# Health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD curl -f http://localhost:8000/health || exit 1
+# Note: Health checks are defined in docker-compose.yml per service
+# API checks HTTP endpoint, Worker checks process existence
 
 # Default command (can be overridden)
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+
 

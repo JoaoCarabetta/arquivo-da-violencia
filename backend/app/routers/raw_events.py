@@ -8,7 +8,8 @@ from sqlmodel import select, func
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.database import get_session
-from app.models import RawEvent, RawEventRead
+from app.models import RawEvent, RawEventRead, RawEventUpdate
+from app.auth import get_current_user
 
 router = APIRouter(prefix="/raw-events", tags=["raw-events"])
 
@@ -26,6 +27,7 @@ async def list_raw_events(
     security_force: bool | None = None,
     source_id: int | None = None,
     unique_event_id: int | None = None,
+    is_gold_standard: bool | None = None,
 ):
     """List all raw events with pagination and filtering."""
     # Base query
@@ -64,6 +66,10 @@ async def list_raw_events(
     if unique_event_id:
         query = query.where(RawEvent.unique_event_id == unique_event_id)
         count_query = count_query.where(RawEvent.unique_event_id == unique_event_id)
+    
+    if is_gold_standard is not None:
+        query = query.where(RawEvent.is_gold_standard == is_gold_standard)
+        count_query = count_query.where(RawEvent.is_gold_standard == is_gold_standard)
     
     # Get total count
     total = await session.exec(count_query)
@@ -118,6 +124,34 @@ async def get_raw_event_extraction(
         "extraction_error": event.extraction_error,
         "extraction_data": event.extraction_data,
     }
+
+
+@router.patch("/{event_id}", response_model=RawEventRead)
+async def update_raw_event(
+    event_id: int,
+    event_update: RawEventUpdate,
+    session: AsyncSession = Depends(get_session),
+    current_user: str = Depends(get_current_user),
+):
+    """Update extraction_data and/or is_gold_standard flag."""
+    # Get the event
+    event = await session.get(RawEvent, event_id)
+    if not event:
+        raise HTTPException(status_code=404, detail="Raw event not found")
+    
+    # Update fields if provided
+    if event_update.extraction_data is not None:
+        event.extraction_data = event_update.extraction_data
+    
+    if event_update.is_gold_standard is not None:
+        event.is_gold_standard = event_update.is_gold_standard
+    
+    # Save changes
+    session.add(event)
+    await session.commit()
+    await session.refresh(event)
+    
+    return event
 
 
 @router.get("/stats/summary", response_model=dict)

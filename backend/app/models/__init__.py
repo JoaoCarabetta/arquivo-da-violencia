@@ -12,6 +12,7 @@ from app.models.raw_event import (
     RawEventBase,
     RawEventCreate,
     RawEventRead,
+    RawEventUpdate,
 )
 from app.models.unique_event import (
     UniqueEvent,
@@ -37,6 +38,7 @@ __all__ = [
     "RawEventBase",
     "RawEventCreate",
     "RawEventRead",
+    "RawEventUpdate",
     # Unique Event
     "UniqueEvent",
     "UniqueEventBase",

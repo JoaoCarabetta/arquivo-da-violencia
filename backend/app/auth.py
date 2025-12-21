@@ -98,6 +98,11 @@ def decode_access_token(token: str) -> TokenData:
 
 def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)) -> str:
     """Dependency to get the current authenticated user from JWT token."""
+    # Skip authentication in development mode if ENABLE_AUTH=false
+    enable_auth = os.getenv("ENABLE_AUTH", "true").lower() == "true"
+    if not enable_auth:
+        return "dev-user"
+    
     token = credentials.credentials
     token_data = decode_access_token(token)
     

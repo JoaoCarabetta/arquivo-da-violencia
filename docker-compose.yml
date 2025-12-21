@@ -92,6 +92,12 @@ services:
       - TELEGRAM_CHAT_ID=${TELEGRAM_CHAT_ID:-}
     volumes:
       - ./backend/app/instance:/app/instance
+    healthcheck:
+      test: ["CMD-SHELL", "python -c 'import sys; sys.exit(0 if __import__(\"pathlib\").Path(\"/proc/1\").exists() else 1)'"]
+      interval: 30s
+      timeout: 10s
+      start_period: 10s
+      retries: 3
     # Allow worker 120s to finish current job before forced shutdown
     stop_grace_period: 120s
     restart: unless-stopped
@@ -105,9 +111,6 @@ services:
     container_name: arquivo-frontend
     ports:
       - "80:80"
-      - "443:443"
-    volumes:
-      - /etc/letsencrypt:/etc/letsencrypt:ro
     depends_on:
       - api
     restart: unless-stopped

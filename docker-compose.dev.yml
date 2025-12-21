@@ -1,46 +1,120 @@
 # =============================================================================
-# Arquivo da Violência - Development Docker Compose (with auto-reload)
+# Arquivo da Violência - Development Docker Compose
 # =============================================================================
 #
 # Usage:
-#   docker compose -f docker-compose.yml -f docker-compose.dev.yml up
-#   docker compose -f docker-compose.yml -f docker-compose.dev.yml watch
+#   docker compose -f docker-compose.dev.yml up
+#   docker compose -f docker-compose.dev.yml down
 #
-# This enables:
-#   1. Vite dev server with hot-reload (no rebuild needed for code changes)
-#   2. Automatic rebuilds when package.json or Dockerfile changes
+# Features:
+#   - No authentication required (no password)
+#   - Frontend hot-reload enabled
+#   - No cron/scheduled jobs
+#   - Development-friendly settings
+#
 # =============================================================================
 
 services:
+  # ---------------------------------------------------------------------------
+  # Redis - Task queue and caching
+  # ---------------------------------------------------------------------------
+  redis:
+    image: redis:7-alpine
+    container_name: arquivo-redis-dev
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_dev_data:/data
+    command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------------------
+  # API - FastAPI backend (with volume mount for hot-reload)
+  # ---------------------------------------------------------------------------
+  api:
+    build: ./backend
+    container_name: arquivo-api-dev
+    ports:
+      - "8000:8000"
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    depends_on:
+      redis:
+        condition: service_healthy
+    environment:
+      - REDIS_URL=redis://redis:6379
+      - DATABASE_URL=sqlite+aiosqlite:///./instance/violence.db
+      - GEMINI_API_KEY=${GEMINI_API_KEY:-}
+      - DEBUG=true
+      - CORS_ORIGINS=["http://localhost:5173","http://localhost:3000","http://localhost:80","http://localhost"]
+      - JWT_SECRET_KEY=dev-secret-key-not-for-production
+      - ADMIN_USERNAME=admin
+      - ADMIN_PASSWORD=
+      - ENABLE_AUTH=false
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN:-}
+      - TELEGRAM_CHAT_ID=${TELEGRAM_CHAT_ID:-}
+    volumes:
+      - ./backend/app:/app/app:ro
+      - ./backend/app/instance:/app/instance
+      - ./backend/alembic:/app/alembic:ro
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------------------
+  # Worker - ARQ background task processor (NO CRON in dev)
+  # ---------------------------------------------------------------------------
+  worker:
+    build: ./backend
+    container_name: arquivo-worker-dev
+    command: arq app.tasks.worker.WorkerSettings
+    depends_on:
+      redis:
+        condition: service_healthy
+    environment:
+      - REDIS_URL=redis://redis:6379
+      - DATABASE_URL=sqlite+aiosqlite:///./instance/violence.db
+      - GEMINI_API_KEY=${GEMINI_API_KEY:-}
+      - ENABLE_CRON=false
+      - DEBUG=true
+      - JWT_SECRET_KEY=dev-secret-key-not-for-production
+      - ADMIN_USERNAME=admin
+      - ADMIN_PASSWORD=
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN:-}
+      - TELEGRAM_CHAT_ID=${TELEGRAM_CHAT_ID:-}
+    volumes:
+      - ./backend/app:/app/app:ro
+      - ./backend/app/instance:/app/instance
+    stop_grace_period: 120s
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------------------
+  # Frontend - React Vite dev server with hot-reload
+  # ---------------------------------------------------------------------------
   frontend:
     build:
       context: ./frontend
       dockerfile: Dockerfile.dev
+    container_name: arquivo-frontend-dev
     ports:
-      - "5173:5173"  # Vite dev server port
+      - "80:5173"
     environment:
-      - DOCKER_ENV=true
-      - VITE_API_URL=http://api:8000
+      - VITE_API_URL=http://localhost:8000
+    volumes:
+      - ./frontend/src:/app/src:ro
+      - ./frontend/public:/app/public:ro
+      - ./frontend/index.html:/app/index.html:ro
+      - ./frontend/vite.config.ts:/app/vite.config.ts:ro
+      - ./frontend/tsconfig.json:/app/tsconfig.json:ro
+      - ./frontend/tsconfig.app.json:/app/tsconfig.app.json:ro
+      - ./frontend/tsconfig.node.json:/app/tsconfig.node.json:ro
+      - ./frontend/components.json:/app/components.json:ro
     depends_on:
       - api
-    volumes:
-      # Mount source code for instant hot-reload (no rebuild needed)
-      - ./frontend/src:/app/src
-      - ./frontend/public:/app/public
-      - ./frontend/index.html:/app/index.html
-      - ./frontend/vite.config.ts:/app/vite.config.ts
-      - ./frontend/tsconfig.json:/app/tsconfig.json
-      - ./frontend/tsconfig.app.json:/app/tsconfig.app.json
-      - ./frontend/tsconfig.node.json:/app/tsconfig.node.json
-      # Exclude node_modules (use container's installed version)
-      - /app/node_modules
-    develop:
-      watch:
-        # Rebuild when dependencies or Dockerfile change
-        - action: rebuild
-          path: ./frontend/package.json
-        - action: rebuild
-          path: ./frontend/package-lock.json
-        - action: rebuild
-          path: ./frontend/Dockerfile.dev
+    restart: unless-stopped
 
+volumes:
+  redis_dev_data:
+    name: arquivo-redis-dev-data

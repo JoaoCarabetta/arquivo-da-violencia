@@ -16,6 +16,7 @@ import { Login } from '@/pages/admin/Login';
 import { Dashboard } from '@/pages/admin/Dashboard';
 import { Sources } from '@/pages/admin/Sources';
 import { RawEvents } from '@/pages/admin/RawEvents';
+import { RawEventDetail } from '@/pages/admin/RawEventDetail';
 import { UniqueEvents } from '@/pages/admin/UniqueEvents';
 import { Jobs } from '@/pages/admin/Jobs';
 
@@ -47,6 +48,7 @@ function App() {
             <Route path="/admin" element={<ProtectedRoute><AdminLayout><Dashboard /></AdminLayout></ProtectedRoute>} />
             <Route path="/admin/sources" element={<ProtectedRoute><AdminLayout><Sources /></AdminLayout></ProtectedRoute>} />
             <Route path="/admin/raw-events" element={<ProtectedRoute><AdminLayout><RawEvents /></AdminLayout></ProtectedRoute>} />
+            <Route path="/admin/raw-events/:id" element={<ProtectedRoute><AdminLayout><RawEventDetail /></AdminLayout></ProtectedRoute>} />
             <Route path="/admin/unique-events" element={<ProtectedRoute><AdminLayout><UniqueEvents /></AdminLayout></ProtectedRoute>} />
             <Route path="/admin/jobs" element={<ProtectedRoute><AdminLayout><Jobs /></AdminLayout></ProtectedRoute>} />
           </Routes>

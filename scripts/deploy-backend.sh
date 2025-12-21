@@ -62,25 +62,48 @@ docker compose $COMPOSE_FILES up -d api worker
 
 # Step 5: Health check
 echo ""
-echo "🏥 Waiting for API health check..."
+echo "🏥 Waiting for containers to be healthy..."
 MAX_ATTEMPTS=30
 ATTEMPT=1
 
 while [ $ATTEMPT -le $MAX_ATTEMPTS ]; do
+    # Check API health via HTTP
+    API_HEALTHY=false
     if curl -sf "http://localhost:$API_PORT/health" > /dev/null 2>&1; then
-        echo "   ✅ API is healthy (attempt $ATTEMPT/$MAX_ATTEMPTS)"
+        API_HEALTHY=true
+    fi
+    
+    # Check Worker health via Docker
+    WORKER_HEALTHY=false
+    if docker inspect --format='{{.State.Health.Status}}' "$WORKER_CONTAINER" 2>/dev/null | grep -q "healthy"; then
+        WORKER_HEALTHY=true
+    fi
+    
+    # Both must be healthy
+    if [ "$API_HEALTHY" = true ] && [ "$WORKER_HEALTHY" = true ]; then
+        echo "   ✅ API is healthy"
+        echo "   ✅ Worker is healthy"
         break
     fi
     
     if [ $ATTEMPT -eq $MAX_ATTEMPTS ]; then
         echo "   ❌ Health check failed after $MAX_ATTEMPTS attempts"
         echo ""
+        echo "📋 Container status:"
+        docker ps --filter name="$API_CONTAINER" --filter name="$WORKER_CONTAINER" --format 'table {{.Names}}\t{{.Status}}'
+        echo ""
         echo "📋 Recent API logs:"
-        docker logs --tail=50 "$API_CONTAINER"
+        docker logs --tail=30 "$API_CONTAINER"
+        echo ""
+        echo "📋 Recent Worker logs:"
+        docker logs --tail=30 "$WORKER_CONTAINER"
         exit 1
     fi
     
-    echo "   Waiting... (attempt $ATTEMPT/$MAX_ATTEMPTS)"
+    STATUS=""
+    [ "$API_HEALTHY" = false ] && STATUS="$STATUS API"
+    [ "$WORKER_HEALTHY" = false ] && STATUS="$STATUS Worker"
+    echo "   Waiting for:$STATUS (attempt $ATTEMPT/$MAX_ATTEMPTS)"
     sleep 2
     ATTEMPT=$((ATTEMPT + 1))
 done
