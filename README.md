@@ -1,4 +1,4 @@
-# Arquivo da Violência v1
+# Arquivo da Violência
 
 Violence tracking system for Brazilian cities. Automatically ingests news from Google News RSS, extracts structured event data using LLMs, and deduplicates across sources.
 
@@ -22,7 +22,6 @@ Violence tracking system for Brazilian cities. Automatically ingests news from G
 ### 1. Create environment file
 
 ```bash
-cd v1
 cp env.example .env
 ```
 
@@ -163,7 +162,7 @@ docker compose -f docker-compose.yml -f docker-compose.dev.yml up
 **How it works:**
 - Frontend source files are mounted as volumes
 - Vite dev server runs inside Docker with HMR enabled
-- Edit files in `v1/frontend/src/` → changes appear in browser automatically
+- Edit files in `frontend/src/` → changes appear in browser automatically
 
 **For production builds:**
 ```bash
@@ -175,7 +174,7 @@ docker compose up -d --build frontend
 
 ```bash
 # Backend
-cd v1/backend
+cd backend
 uv sync
 uv run alembic upgrade head
 uv run uvicorn app.main:app --reload
@@ -184,7 +183,7 @@ uv run uvicorn app.main:app --reload
 uv run arq app.tasks.worker.WorkerSettings
 
 # Frontend (separate terminal)
-cd v1/frontend
+cd frontend
 npm install
 npm run dev
 ```
@@ -192,7 +191,7 @@ npm run dev
 ### Running Tests
 
 ```bash
-cd v1/backend
+cd backend
 uv run pytest
 ```
 
