@@ -50,6 +50,11 @@ else
     echo "   Worker was not running"
 fi
 
+# Step 2.5: Remove old containers to avoid naming conflicts
+echo ""
+echo "🗑️ Removing old containers..."
+docker rm -f "$API_CONTAINER" "$WORKER_CONTAINER" 2>/dev/null || true
+
 # Step 3: Run database migrations
 echo ""
 echo "🔄 Running database migrations..."

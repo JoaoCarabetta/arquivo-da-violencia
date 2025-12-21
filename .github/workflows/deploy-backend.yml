@@ -111,6 +111,10 @@ jobs:
             echo "⏳ Gracefully stopping staging worker..."
             docker stop --time=120 staging-arquivo-worker || true
             
+            # Remove old containers to avoid naming conflicts
+            echo "🗑️ Removing old containers..."
+            docker rm -f staging-arquivo-api staging-arquivo-worker 2>/dev/null || true
+            
             # Run database migrations (--no-deps to avoid recreating redis)
             echo "🔄 Running database migrations..."
             docker compose -f docker-compose.yml -f docker-compose.staging.yml run --rm --no-deps api alembic upgrade head
@@ -171,6 +175,10 @@ jobs:
             # Graceful worker shutdown (wait for current job to finish, up to 120s)
             echo "⏳ Gracefully stopping production worker (waiting for current job)..."
             docker stop --time=120 arquivo-worker || true
+            
+            # Remove old containers to avoid naming conflicts
+            echo "🗑️ Removing old containers..."
+            docker rm -f arquivo-api arquivo-worker 2>/dev/null || true
             
             # Run database migrations (--no-deps to avoid recreating redis)
             echo "🔄 Running database migrations..."
