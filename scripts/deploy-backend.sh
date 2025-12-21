@@ -40,20 +40,21 @@ echo ""
 echo "📥 Pulling new images..."
 docker compose $COMPOSE_FILES pull api worker
 
-# Step 2: Graceful worker shutdown
+# Step 2: Graceful shutdown of API and worker
 echo ""
-echo "⏳ Gracefully stopping worker (waiting up to 120s for current job)..."
-if docker ps -q -f name="$WORKER_CONTAINER" | grep -q .; then
-    docker stop --time=120 "$WORKER_CONTAINER" || true
-    echo "   Worker stopped"
-else
-    echo "   Worker was not running"
-fi
+echo "⏳ Gracefully stopping API and worker (waiting up to 120s for current job)..."
+docker stop --time=120 "$WORKER_CONTAINER" "$API_CONTAINER" 2>/dev/null || true
+echo "   Containers stopped"
 
 # Step 2.5: Remove old containers to avoid naming conflicts
 echo ""
 echo "🗑️ Removing old containers..."
 docker rm -f "$API_CONTAINER" "$WORKER_CONTAINER" 2>/dev/null || true
+
+# Step 2.6: Ensure Redis is running (but don't recreate)
+echo ""
+echo "📦 Ensuring Redis is running..."
+docker compose $COMPOSE_FILES up -d --no-recreate redis
 
 # Step 3: Run database migrations
 echo ""
@@ -61,10 +62,10 @@ echo "🔄 Running database migrations..."
 # Use --no-deps to avoid recreating dependencies (redis) that are already running
 docker compose $COMPOSE_FILES run --rm --no-deps api alembic upgrade head
 
-# Step 4: Start new containers
+# Step 4: Start new API and Worker containers only
 echo ""
-echo "🔄 Starting new containers..."
-docker compose $COMPOSE_FILES up -d api worker
+echo "🔄 Starting API and Worker..."
+docker compose $COMPOSE_FILES up -d --no-deps api worker
 
 # Step 5: Health check
 echo ""

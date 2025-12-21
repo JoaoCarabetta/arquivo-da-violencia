@@ -108,20 +108,24 @@ jobs:
             docker compose -f docker-compose.yml -f docker-compose.staging.yml pull api worker
             
             # Graceful worker shutdown (wait for current job to finish, up to 120s)
-            echo "⏳ Gracefully stopping staging worker..."
-            docker stop --time=120 staging-arquivo-worker || true
+            echo "⏳ Gracefully stopping staging containers..."
+            docker stop --time=120 staging-arquivo-worker staging-arquivo-api || true
             
             # Remove old containers to avoid naming conflicts
             echo "🗑️ Removing old containers..."
             docker rm -f staging-arquivo-api staging-arquivo-worker 2>/dev/null || true
             
+            # Ensure Redis is running (but don't recreate it)
+            echo "📦 Ensuring Redis is running..."
+            docker compose -f docker-compose.yml -f docker-compose.staging.yml up -d --no-recreate redis
+            
             # Run database migrations (--no-deps to avoid recreating redis)
             echo "🔄 Running database migrations..."
             docker compose -f docker-compose.yml -f docker-compose.staging.yml run --rm --no-deps api alembic upgrade head
             
-            # Start new containers
-            echo "🔄 Starting new containers..."
-            docker compose -f docker-compose.yml -f docker-compose.staging.yml up -d api worker
+            # Start new API and Worker containers only
+            echo "🔄 Starting API and Worker..."
+            docker compose -f docker-compose.yml -f docker-compose.staging.yml up -d --no-deps api worker
             
             # Wait for API to be healthy
             echo "🏥 Waiting for API health check..."
@@ -173,20 +177,24 @@ jobs:
             docker compose pull api worker
             
             # Graceful worker shutdown (wait for current job to finish, up to 120s)
-            echo "⏳ Gracefully stopping production worker (waiting for current job)..."
-            docker stop --time=120 arquivo-worker || true
+            echo "⏳ Gracefully stopping production containers..."
+            docker stop --time=120 arquivo-worker arquivo-api || true
             
             # Remove old containers to avoid naming conflicts
             echo "🗑️ Removing old containers..."
             docker rm -f arquivo-api arquivo-worker 2>/dev/null || true
             
+            # Ensure Redis is running (but don't recreate it)
+            echo "📦 Ensuring Redis is running..."
+            docker compose up -d --no-recreate redis
+            
             # Run database migrations (--no-deps to avoid recreating redis)
             echo "🔄 Running database migrations..."
             docker compose run --rm --no-deps api alembic upgrade head
             
-            # Start new containers
-            echo "🔄 Starting new containers..."
-            docker compose up -d api worker
+            # Start new API and Worker containers only
+            echo "🔄 Starting API and Worker..."
+            docker compose up -d --no-deps api worker
             
             # Wait for API to be healthy
             echo "🏥 Waiting for API health check..."
