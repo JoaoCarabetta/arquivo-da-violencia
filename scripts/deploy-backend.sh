@@ -33,7 +33,7 @@ else
     echo "🚀 Deploying to PRODUCTION environment"
 fi
 
-cd /opt/arquivo-da-violencia
+cd /root/arquivo-da-violencia
 
 # Step 1: Pull new images
 echo ""

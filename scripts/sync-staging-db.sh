@@ -18,7 +18,7 @@
 
 set -e
 
-cd /opt/arquivo-da-violencia
+cd /root/arquivo-da-violencia
 
 PROD_DB="./instance/violence.db"
 STAGING_DB="./staging_instance/violence.db"
