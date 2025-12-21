@@ -20,7 +20,7 @@ services:
   # ---------------------------------------------------------------------------
   redis:
     container_name: staging-arquivo-redis
-    ports:
+    ports: !override
       - "6380:6379"
     volumes:
       - staging_redis_data:/data
@@ -30,7 +30,7 @@ services:
   # ---------------------------------------------------------------------------
   api:
     container_name: staging-arquivo-api
-    ports:
+    ports: !override
       - "8001:8000"
     environment:
       - REDIS_URL=redis://redis:6379
@@ -76,7 +76,7 @@ services:
       args:
         - NGINX_CONF=nginx.staging.conf
     container_name: staging-arquivo-frontend
-    ports:
+    ports: !override
       - "8080:80"
       - "8443:443"
     volumes:
