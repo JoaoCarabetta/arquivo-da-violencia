@@ -100,8 +100,8 @@ jobs:
             
             echo "🚀 Starting staging backend deployment..."
             
-            # Log in to GitHub Container Registry
-            echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+            # Logout from GHCR to avoid stale auth (packages are public)
+            docker logout ghcr.io 2>/dev/null || true
             
             # Pull new images
             echo "📥 Pulling new images..."
@@ -169,8 +169,8 @@ jobs:
             
             echo "🚀 Starting production backend deployment..."
             
-            # Log in to GitHub Container Registry
-            echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+            # Logout from GHCR to avoid stale auth (packages are public)
+            docker logout ghcr.io 2>/dev/null || true
             
             # Pull new images
             echo "📥 Pulling new images..."
