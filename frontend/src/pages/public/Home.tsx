@@ -113,10 +113,10 @@ export function Home() {
 
           <h1 className="text-center leading-tight">
             <span className="text-6xl md:text-7xl lg:text-8xl font-bold text-rose-600">
-              {stats?.today?.toLocaleString?.() ?? 0}
+              {stats?.last_24h?.toLocaleString?.() ?? 0}
             </span>
             <span className="block mt-3 text-3xl md:text-4xl lg:text-5xl font-bold text-rose-700 dark:text-rose-500">
-              mortes violentas registradas hoje no Brasil
+              mortes violentas registradas nas últimas 24 horas no Brasil
             </span>
           </h1>
 
@@ -130,9 +130,9 @@ export function Home() {
       {/* Stats Cards */}
       <section className="container mx-auto px-6">
         <div className="grid gap-4 md:grid-cols-4">
-          <StatCard title="Hoje" value={stats?.today || 0} icon={Calendar} />
-          <StatCard title="Esta Semana" value={stats?.this_week || 0} icon={TrendingUp} />
-          <StatCard title="Este Mês" value={stats?.this_month || 0} icon={Users} />
+          <StatCard title="Últimas 24h" value={stats?.last_24h || 0} icon={Calendar} />
+          <StatCard title="Últimos 7 dias" value={stats?.last_7_days || 0} icon={TrendingUp} />
+          <StatCard title="Últimos 30 dias" value={stats?.last_30_days || 0} icon={Users} />
           <StatCard title="Total" value={stats?.total || 0} icon={Shield} />
         </div>
       </section>

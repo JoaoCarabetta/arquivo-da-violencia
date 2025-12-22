@@ -23,33 +23,40 @@ async def get_public_stats(session: AsyncSession = Depends(get_session)):
     # Total events
     total = await session.scalar(select(func.count(UniqueEvent.id)))
     
-    # Today - based on event_date (use date() function for timezone-safe comparison)
-    today_date = datetime.utcnow().date()
-    today_query = text("""
-        SELECT COUNT(*) 
-        FROM unique_event
-        WHERE date(event_date) = date(:today_date) 
-        AND event_date IS NOT NULL
-    """)
-    today_result = await session.execute(today_query, {"today_date": today_date.isoformat()})
-    today = today_result.scalar()
+    # Current datetime for rolling window calculations
+    now = datetime.utcnow()
     
-    # This week - based on event_date
-    today_datetime = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
-    week_start = today_datetime - timedelta(days=today_datetime.weekday())
-    this_week = await session.scalar(
+    # Last 24 hours - events from 24 hours ago to now (exclude future events)
+    last_24h_start = now - timedelta(hours=24)
+    last_24h = await session.scalar(
         select(func.count(UniqueEvent.id)).where(
-            UniqueEvent.event_date >= week_start
+            UniqueEvent.event_date >= last_24h_start
+        ).where(
+            UniqueEvent.event_date <= now
         ).where(
             UniqueEvent.event_date.isnot(None)
         )
     )
     
-    # This month - based on event_date
-    month_start = today_datetime.replace(day=1)
-    this_month = await session.scalar(
+    # Last 7 days - events from 7 days ago to now (exclude future events)
+    last_7_days_start = now - timedelta(days=7)
+    last_7_days = await session.scalar(
         select(func.count(UniqueEvent.id)).where(
-            UniqueEvent.event_date >= month_start
+            UniqueEvent.event_date >= last_7_days_start
+        ).where(
+            UniqueEvent.event_date <= now
+        ).where(
+            UniqueEvent.event_date.isnot(None)
+        )
+    )
+    
+    # Last 30 days - events from 30 days ago to now (exclude future events)
+    last_30_days_start = now - timedelta(days=30)
+    last_30_days = await session.scalar(
+        select(func.count(UniqueEvent.id)).where(
+            UniqueEvent.event_date >= last_30_days_start
+        ).where(
+            UniqueEvent.event_date <= now
         ).where(
             UniqueEvent.event_date.isnot(None)
         )
@@ -72,9 +79,9 @@ async def get_public_stats(session: AsyncSession = Depends(get_session)):
     
     return {
         "total": total or 0,
-        "today": today or 0,
-        "this_week": this_week or 0,
-        "this_month": this_month or 0,
+        "last_24h": last_24h or 0,
+        "last_7_days": last_7_days or 0,
+        "last_30_days": last_30_days or 0,
         "since": since_date.isoformat()
     }
 

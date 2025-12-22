@@ -33,7 +33,7 @@ function EventRow({ event, expanded, onToggle }: { event: PublicEvent; expanded:
           {expanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
         </TableCell>
         <TableCell className="w-[100px] px-2">
-          <div className="text-xs">{formatRelativeTime(event.created_at)}</div>
+          <div className="text-xs">{formatRelativeTime(event.event_date || event.created_at)}</div>
         </TableCell>
         <TableCell className="w-[120px] px-2">
           <div className="flex flex-col gap-1">

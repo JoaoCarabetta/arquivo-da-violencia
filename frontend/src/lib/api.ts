@@ -152,9 +152,9 @@ export interface PublicEvent {
 
 export interface PublicStats {
   total: number;
-  today: number;
-  this_week: number;
-  this_month: number;
+  last_24h: number;
+  last_7_days: number;
+  last_30_days: number;
   since: string;
 }
 
