@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, text
 import math
 import csv
-import json
+import json  # For serializing merged_data
 import io
 
 from app.database import get_session
@@ -282,13 +282,12 @@ async def get_public_events(
 @router.get("/events/export")
 async def export_events(
     session: AsyncSession = Depends(get_session),
-    format: str = Query("csv", regex="^(csv|json)$"),
     state: str | None = None,
     type: str | None = None,
 ):
-    """Export events as CSV or JSON."""
+    """Export all unique events as CSV with complete data."""
     
-    # Build query
+    # Build query - get ALL unique events
     query = select(UniqueEvent)
     
     if state:
@@ -302,52 +301,67 @@ async def export_events(
     result = await session.execute(query)
     events = result.scalars().all()
     
-    # Format data
+    # Format data with ALL fields from UniqueEvent
     data = []
     for event in events:
+        # Serialize merged_data as JSON string if present
+        merged_data_str = None
+        if event.merged_data:
+            merged_data_str = json.dumps(event.merged_data, ensure_ascii=False)
+        
         data.append({
             "id": event.id,
+            "homicide_type": event.homicide_type,
+            "method_of_death": event.method_of_death,
             "event_date": event.event_date.isoformat() if event.event_date else None,
+            "date_precision": event.date_precision,
             "time_of_day": event.time_of_day,
+            "country": event.country,
             "state": event.state,
             "city": event.city,
             "neighborhood": event.neighborhood,
-            "homicide_type": event.homicide_type,
-            "method_of_death": event.method_of_death,
+            "street": event.street,
+            "establishment": event.establishment,
+            "full_location_description": event.full_location_description,
+            "latitude": float(event.latitude) if event.latitude else None,
+            "longitude": float(event.longitude) if event.longitude else None,
+            "plus_code": event.plus_code,
+            "place_id": event.place_id,
+            "formatted_address": event.formatted_address,
+            "location_precision": event.location_precision,
+            "geocoding_source": event.geocoding_source,
+            "geocoding_confidence": event.geocoding_confidence,
             "victim_count": event.victim_count,
+            "identified_victim_count": event.identified_victim_count,
             "victims_summary": event.victims_summary,
+            "perpetrator_count": event.perpetrator_count,
+            "identified_perpetrator_count": event.identified_perpetrator_count,
             "security_force_involved": event.security_force_involved,
             "title": event.title,
             "chronological_description": event.chronological_description,
-            "latitude": float(event.latitude) if event.latitude else None,
-            "longitude": float(event.longitude) if event.longitude else None,
+            "additional_context": event.additional_context,
+            "merged_data": merged_data_str,
             "source_count": event.source_count,
-            "merged_data": event.merged_data,
+            "confirmed": event.confirmed,
+            "needs_enrichment": event.needs_enrichment,
+            "last_enriched_at": event.last_enriched_at.isoformat() if event.last_enriched_at else None,
+            "enrichment_model": event.enrichment_model,
             "created_at": event.created_at.isoformat(),
+            "updated_at": event.updated_at.isoformat(),
         })
     
-    if format == "csv":
-        # Create CSV
-        output = io.StringIO()
-        if data:
-            writer = csv.DictWriter(output, fieldnames=data[0].keys())
-            writer.writeheader()
-            writer.writerows(data)
-        
-        csv_content = output.getvalue()
-        
-        return Response(
-            content=csv_content,
-            media_type="text/csv",
-            headers={"Content-Disposition": "attachment; filename=eventos.csv"}
-        )
-    else:
-        # JSON
-        json_content = json.dumps(data, ensure_ascii=False, indent=2)
-        
-        return Response(
-            content=json_content,
-            media_type="application/json",
-            headers={"Content-Disposition": "attachment; filename=eventos.json"}
-        )
+    # Create CSV
+    output = io.StringIO()
+    if data:
+        writer = csv.DictWriter(output, fieldnames=data[0].keys())
+        writer.writeheader()
+        writer.writerows(data)
+    
+    csv_content = output.getvalue()
+    
+    return Response(
+        content=csv_content,
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=eventos.csv"}
+    )
 
