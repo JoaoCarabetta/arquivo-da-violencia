@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -36,30 +37,48 @@ function StatCard({
 }
 
 export function Home() {
-  const { data: stats, isLoading: statsLoading } = useQuery({
+  const { data: stats, isLoading: statsLoading, refetch: refetchStats } = useQuery({
     queryKey: ['public-stats'],
     queryFn: fetchPublicStats,
     refetchInterval: 30000, // Refresh every 30s
+    refetchOnWindowFocus: true,
   });
+
+  // Manually trigger refetch every 30 seconds
+  useEffect(() => {
+    const interval = setInterval(() => {
+      refetchStats();
+    }, 30000);
+
+    return () => clearInterval(interval);
+  }, [refetchStats]);
 
   const { data: typeStats } = useQuery({
     queryKey: ['stats-by-type'],
     queryFn: fetchStatsByType,
+    refetchInterval: 30000,
+    refetchOnWindowFocus: true,
   });
 
   const { data: stateStats } = useQuery({
     queryKey: ['stats-by-state'],
     queryFn: fetchStatsByState,
+    refetchInterval: 30000,
+    refetchOnWindowFocus: true,
   });
 
   const { data: dayStats } = useQuery({
     queryKey: ['stats-by-day'],
     queryFn: () => fetchStatsByDay(30),
+    refetchInterval: 30000,
+    refetchOnWindowFocus: true,
   });
 
   const { data: recentEvents } = useQuery({
     queryKey: ['recent-events'],
     queryFn: () => fetchPublicEvents(1, 5),
+    refetchInterval: 30000,
+    refetchOnWindowFocus: true,
   });
 
   if (statsLoading) {
@@ -75,45 +94,36 @@ export function Home() {
   const chartConfig = {
     count: {
       label: "Mortes",
-      color: "hsl(0, 84%, 60%)",
+      color: "hsl(0, 100%, 50%)",
     },
   } satisfies ChartConfig;
 
-  // Get last update date from most recent event
-  const lastUpdateDate = recentEvents?.items?.[0]?.created_at 
-    ? new Date(recentEvents.items[0].created_at).toLocaleDateString('pt-BR', {
-        day: '2-digit',
-        month: 'long',
-        year: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit',
-      })
-    : null;
-
   return (
     <div className="space-y-12 py-12">
-      {/* Hero Section */}
+      {/* Main Counter */}
       <section className="container mx-auto px-6 text-center">
-        <h1 className="text-5xl font-bold tracking-tight mb-4 text-foreground">
-          Monitoramento de Mortes Violentas no Brasil
-        </h1>
-        <p className="text-xl text-muted-foreground mb-8 max-w-3xl mx-auto">
-          Dados em tempo real coletados automaticamente por IA.
-          {lastUpdateDate && (
-            <span className="block mt-2 text-base">
-              Última atualização: {lastUpdateDate}
+        <div className="relative bg-gradient-to-br from-rose-50 to-rose-100 dark:from-rose-950/30 dark:to-rose-900/20 rounded-2xl p-12">
+          {/* LIVE indicator - top right corner */}
+          <div className="absolute top-4 right-4">
+            <span className="relative flex h-2.5 w-2.5">
+              <span className="absolute inline-flex h-full w-full rounded-full bg-rose-600 opacity-75 animate-ping" />
+              <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-rose-600" />
             </span>
-          )}
-        </p>
-        
-        {/* Main Counter */}
-        <div className="bg-gradient-to-br from-rose-50 to-rose-100 dark:from-rose-950/30 dark:to-rose-900/20 rounded-2xl p-12 mb-4">
-          <div className="text-7xl font-bold text-rose-600 mb-2">
-            {stats?.total.toLocaleString() || 0}
           </div>
-          <div className="text-xl text-muted-foreground">
-            mortes violentas registradas 
-          </div>
+
+          <h1 className="text-center leading-tight">
+            <span className="text-6xl md:text-7xl lg:text-8xl font-bold text-rose-600">
+              {stats?.today?.toLocaleString?.() ?? 0}
+            </span>
+            <span className="block mt-3 text-3xl md:text-4xl lg:text-5xl font-bold text-rose-700 dark:text-rose-500">
+              mortes violentas registradas hoje no Brasil
+            </span>
+          </h1>
+
+          {/* Short subtitle */}
+          <p className="mt-4 text-base md:text-lg text-muted-foreground max-w-2xl mx-auto">
+            Mortes violentas são evitáveis. Acesse os dados e ajude a evitá-las.
+          </p>
         </div>
       </section>
 
@@ -195,7 +205,7 @@ export function Home() {
                       cursor={false}
                       content={<ChartTooltipContent hideLabel />}
                     />
-                    <Bar dataKey="count" fill="var(--color-count)" radius={8}>
+                    <Bar dataKey="count" fill="#e11d48" radius={8}>
                       <LabelList
                         position="top"
                         offset={12}
@@ -240,7 +250,7 @@ export function Home() {
                       cursor={false}
                       content={<ChartTooltipContent hideLabel />}
                     />
-                    <Bar dataKey="count" fill="var(--color-count)" radius={8}>
+                    <Bar dataKey="count" fill="#e11d48" radius={8}>
                       <LabelList
                         position="top"
                         offset={12}

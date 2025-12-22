@@ -158,6 +158,9 @@ $RECYCLE.BIN/
 *.bak
 *.tmp
 
+node_modules/*
+frontend/node_modules/*
+
 # Compiled C++ files
 *.out
 

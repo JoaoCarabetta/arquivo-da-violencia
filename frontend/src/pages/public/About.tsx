@@ -1,5 +1,5 @@
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { AlertTriangle, CheckCircle, Code, Database, Search, FileText, MapPin, GitBranch } from 'lucide-react';
+import { AlertTriangle, CheckCircle, Code, Database, Search, FileText, MapPin, GitBranch, Github } from 'lucide-react';
 
 export function About() {
   return (
@@ -11,28 +11,75 @@ export function About() {
         </p>
       </div>
 
-      {/* O Problema */}
+      {/* Argumento */}
       <Card className="mb-8">
         <CardHeader>
           <CardTitle>O Problema</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4 text-sm leading-relaxed">
-          <p>
-            O Brasil registra aproximadamente <strong>50.000 mortes violentas por ano</strong>, 
-            tornando a violência letal um dos maiores problemas de saúde pública do país.
-          </p>
-          <p>
-            No entanto, os dados oficiais (DataSUS, Fórum Brasileiro de Segurança Pública) são 
-            divulgados apenas anualmente, com atrasos de meses ou até anos. Essa falta de dados 
-            em tempo real dificulta:
-          </p>
-          <ul className="list-disc list-inside space-y-1 ml-4">
-            <li>Resposta rápida de políticas públicas</li>
-            <li>Alocação eficiente de recursos de segurança</li>
-            <li>Cobertura jornalística informada</li>
-            <li>Pesquisa acadêmica atualizada</li>
-            <li>Conscientização pública sobre a dimensão do problema</li>
-          </ul>
+        <p>
+          Em 2024 o Brasil registrou 35.365 homicídios.
+          Só a grandeza do número já é absurda e deixa claro que segurança pública é um problema sério.
+          Mesmo assim, a taxa de resolução de homicídios é pífia.
+        </p>
+
+        <p>
+          Cada esfera do governo finge que resolve o problema separadamente.
+          Dentro da polícia, não há colaboração real entre a Civil e a Militar.
+          Nas cidades, a polícia estadual não colabora com a municipal.
+          E a educação e a assistência social, a grande promessa de prevenção, não conseguem evitar que jovens se tornem vítimas de violência.
+          Cada um por si, com sua própria agenda, “tentando” resolver o problema mais grave do país.
+          O crime contra a vida não parece grave o suficiente para justificar um esforço de colaboração de verdade.
+        </p>
+
+        <p>
+          Parece positivo termos os dados de homicídios de 2024.
+          Mas é vergonhoso que essa informação só tenha sido divulgada em junho de 2025.
+          Seis meses para compilar informações.
+          Em seis meses, mais 15 mil pessoas morreram violentamente e a sociedade continua no escuro.
+        </p>
+
+        <p>
+          E isso não acontece porque faltam tecnologias para coletar os dados.
+          Nem porque esses dados não estejam registrados em lugar nenhum.
+          A verdade é simples: todos os estados têm uma base com registros de boletins de ocorrência (BO).
+          Esses bancos são atualizados diariamente por escrivães.
+        </p>
+
+        <p>
+          Mas, aparentemente, o Brasil não consegue integrar 27 bases de BO para criar uma contagem de homicídios em tempo quase real.
+          A gente não fez isso com a Covid?
+          E me parece mais difícil identificar se alguém morreu de Covid do que de homicídio.
+        </p>
+
+        <p>
+          O apagão de dados tem um motivo incômodo: falta interesse real em resolver o problema.
+          É mais fácil acreditar em uniforme novo, operação aleatória e anúncio de ocasião.
+          Só que o único jeito de reduzir mortes violentas é cooperando, encarando a complexidade das causas e atuando em todas as frentes.
+        </p>
+
+        <p>
+          Para cooperar, precisamos saber o que está acontecendo.
+          E precisamos saber com detalhe, rapidez e eficiência.
+          Só assim dá pra medir se estamos sendo efetivos, ajustar políticas no meio do caminho e permitir que a sociedade cobre resultado.
+        </p>
+
+        <p>
+          O Arquivo da Violência é uma demonstração de que dá, sim, para ter informações sobre crimes de forma detalhada e em tempo quase real.
+          Essas histórias já recheiam jornais com pesar e desgosto.
+          Na falta de dados oficiais, o Arquivo da Violência vai usar informações espalhadas nas redes sociais para construir uma base de homicídios em tempo real.
+        </p>
+
+        <p>
+          A expectativa é que essa iniciativa sirva como ferramenta para sociedade civil, jornalistas, pesquisadores e formuladores de políticas públicas.
+          E que deixe os responsáveis pela segurança pública do país desconfortáveis.
+        </p>
+
+        <p>
+          A missão do Arquivo da Violência é ser substituído por uma ferramenta oficial, divulgada pelo governo federal, com dados de homicídios em tempo real.
+          E os criadores do projeto também se dispõem a desenvolver essa ferramenta em um mês, desde que haja acesso às bases dos estados.
+        </p>
+
         </CardContent>
       </Card>
 
@@ -280,6 +327,17 @@ export function About() {
           <CardTitle>Como Contribuir</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4 text-sm">
+          <div className="flex items-center gap-3 mb-4">
+            <a
+              href="https://github.com/JoaoCarabetta/arquivo-da-violencia"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-2 text-foreground hover:text-primary transition-colors"
+            >
+              <Github className="h-6 w-6" />
+              <span className="font-medium">GitHub</span>
+            </a>
+          </div>
           <p>
             Este é um projeto comunitário e sua contribuição é bem-vinda:
           </p>

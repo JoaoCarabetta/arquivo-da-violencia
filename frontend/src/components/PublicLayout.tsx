@@ -1,5 +1,6 @@
 import { Link, useLocation } from 'react-router-dom';
 import { cn } from '@/lib/utils';
+import { Github } from 'lucide-react';
 
 const navItems = [
   { path: '/', label: 'Início', exact: true },
@@ -71,20 +72,31 @@ export function PublicLayout({ children }: { children: React.ReactNode }) {
             <div className="text-sm text-muted-foreground">
               © 2025 Arquivo da Violência. Dados abertos para pesquisa e jornalismo.
             </div>
-            <div className="flex gap-4 text-sm">
-              <Link to="/sobre" className="text-muted-foreground hover:text-foreground">
-                Sobre
-              </Link>
-              <Link to="/dados" className="text-muted-foreground hover:text-foreground">
-                Dados
-              </Link>
+            <div className="flex items-center gap-4">
+              <div className="flex gap-4 text-sm">
+                <Link to="/sobre" className="text-muted-foreground hover:text-foreground">
+                  Sobre
+                </Link>
+                <Link to="/dados" className="text-muted-foreground hover:text-foreground">
+                  Dados
+                </Link>
+                <a
+                  href="https://github.com/JoaoCarabetta/arquivo-da-violencia"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-muted-foreground hover:text-foreground"
+                >
+                  GitHub
+                </a>
+              </div>
               <a
                 href="https://github.com/JoaoCarabetta/arquivo-da-violencia"
                 target="_blank"
                 rel="noopener noreferrer"
-                className="text-muted-foreground hover:text-foreground"
+                className="text-muted-foreground hover:text-foreground transition-colors"
+                aria-label="GitHub"
               >
-                GitHub
+                <Github className="h-5 w-5" />
               </a>
             </div>
           </div>
