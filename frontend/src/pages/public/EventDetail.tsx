@@ -1,10 +1,10 @@
-import { useParams, Link, useNavigate } from 'react-router-dom';
+import { useParams, Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
-import { fetchPublicEventById, type PublicEvent } from '@/lib/api';
+import { fetchPublicEventById } from '@/lib/api';
 import {
   ArrowLeft,
   Calendar,
@@ -20,7 +20,6 @@ import type { JSX } from 'react';
 
 export function EventDetail() {
   const { id } = useParams<{ id: string }>();
-  const navigate = useNavigate();
   const eventId = id ? parseInt(id, 10) : null;
 
   const { data: event, isLoading, error } = useQuery({
