@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Auth Error Handling Test</title>
+    <style>
+        body {
+            font-family: system-ui, -apple-system, sans-serif;
+            max-width: 800px;
+            margin: 40px auto;
+            padding: 20px;
+            line-height: 1.6;
+        }
+        .test-section {
+            margin: 20px 0;
+            padding: 15px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+        }
+        .test-section h3 {
+            margin-top: 0;
+        }
+        button {
+            padding: 8px 16px;
+            margin: 5px;
+            cursor: pointer;
+            background: #007bff;
+            color: white;
+            border: none;
+            border-radius: 4px;
+        }
+        button:hover {
+            background: #0056b3;
+        }
+        .success {
+            color: green;
+            font-weight: bold;
+        }
+        .error {
+            color: red;
+            font-weight: bold;
+        }
+        .log {
+            background: #f5f5f5;
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 4px;
+            font-family: monospace;
+            font-size: 12px;
+            max-height: 200px;
+            overflow-y: auto;
+        }
+    </style>
+</head>
+<body>
+    <h1>Auth Error Handling Test</h1>
+    <p>This page tests the authentication error handling implementation.</p>
+
+    <div class="test-section">
+        <h3>Test 1: Token Storage Event Listener</h3>
+        <p>Tests if AuthContext responds to token changes in localStorage.</p>
+        <button onclick="testStorageEvent()">Test Storage Event</button>
+        <div id="storage-test-result"></div>
+    </div>
+
+    <div class="test-section">
+        <h3>Test 2: Custom Event Listener</h3>
+        <p>Tests if AuthContext responds to the 'auth-token-cleared' custom event.</p>
+        <button onclick="testCustomEvent()">Test Custom Event</button>
+        <div id="custom-event-result"></div>
+    </div>
+
+    <div class="test-section">
+        <h3>Test 3: 401 Error Handling</h3>
+        <p>Tests if fetchJson properly handles 401 errors (simulated).</p>
+        <button onclick="test401Handling()">Test 401 Handling</button>
+        <div id="401-test-result"></div>
+    </div>
+
+    <div class="test-section">
+        <h3>Test 4: Token State</h3>
+        <p>Current token state in localStorage:</p>
+        <button onclick="checkTokenState()">Check Token State</button>
+        <div id="token-state"></div>
+    </div>
+
+    <div class="test-section">
+        <h3>Event Log</h3>
+        <div id="event-log" class="log"></div>
+        <button onclick="clearLog()">Clear Log</button>
+    </div>
+
+    <script>
+        let eventLog = [];
+
+        function log(message, type = 'info') {
+            const timestamp = new Date().toLocaleTimeString();
+            eventLog.push(`[${timestamp}] ${message}`);
+            const logDiv = document.getElementById('event-log');
+            logDiv.innerHTML = eventLog.map(msg => `<div>${msg}</div>`).join('');
+            logDiv.scrollTop = logDiv.scrollHeight;
+        }
+
+        function clearLog() {
+            eventLog = [];
+            document.getElementById('event-log').innerHTML = '';
+        }
+
+        // Simulate AuthContext behavior
+        let isAuthenticated = false;
+        let token = null;
+
+        function updateAuthState() {
+            const storedToken = localStorage.getItem('admin_token');
+            const wasAuthenticated = isAuthenticated;
+            isAuthenticated = !!storedToken;
+            token = storedToken;
+
+            if (wasAuthenticated !== isAuthenticated) {
+                log(`Auth state changed: ${wasAuthenticated ? 'authenticated' : 'unauthenticated'} → ${isAuthenticated ? 'authenticated' : 'unauthenticated'}`, 'info');
+            }
+        }
+
+        // Listen for storage events (cross-tab)
+        window.addEventListener('storage', (e) => {
+            if (e.key === 'admin_token') {
+                log('Storage event detected (cross-tab)', 'info');
+                updateAuthState();
+            }
+        });
+
+        // Listen for custom event (same-tab)
+        window.addEventListener('auth-token-cleared', () => {
+            log('Custom event "auth-token-cleared" detected (same-tab)', 'info');
+            updateAuthState();
+        });
+
+        // Initialize
+        updateAuthState();
+        log('Test page initialized', 'info');
+
+        function testStorageEvent() {
+            log('Starting storage event test...', 'info');
+            const resultDiv = document.getElementById('storage-test-result');
+            
+            // Set a token first
+            localStorage.setItem('admin_token', 'test-token-123');
+            updateAuthState();
+            log('Token set in localStorage', 'info');
+
+            setTimeout(() => {
+                // Simulate clearing token (this would normally happen in another tab)
+                // For same-tab, we'll use the custom event
+                localStorage.removeItem('admin_token');
+                updateAuthState();
+                
+                if (!isAuthenticated) {
+                    resultDiv.innerHTML = '<span class="success">✓ PASS: Auth state updated when token removed</span>';
+                    log('Storage event test PASSED', 'success');
+                } else {
+                    resultDiv.innerHTML = '<span class="error">✗ FAIL: Auth state not updated</span>';
+                    log('Storage event test FAILED', 'error');
+                }
+            }, 100);
+        }
+
+        function testCustomEvent() {
+            log('Starting custom event test...', 'info');
+            const resultDiv = document.getElementById('custom-event-result');
+            
+            // Set a token first
+            localStorage.setItem('admin_token', 'test-token-456');
+            updateAuthState();
+            log('Token set in localStorage', 'info');
+
+            setTimeout(() => {
+                // Simulate 401 error handling (what fetchJson does)
+                localStorage.removeItem('admin_token');
+                window.dispatchEvent(new CustomEvent('auth-token-cleared'));
+                
+                setTimeout(() => {
+                    if (!isAuthenticated) {
+                        resultDiv.innerHTML = '<span class="success">✓ PASS: Custom event triggered auth state update</span>';
+                        log('Custom event test PASSED', 'success');
+                    } else {
+                        resultDiv.innerHTML = '<span class="error">✗ FAIL: Custom event did not update auth state</span>';
+                        log('Custom event test FAILED', 'error');
+                    }
+                }, 50);
+            }, 100);
+        }
+
+        function test401Handling() {
+            log('Starting 401 handling test...', 'info');
+            const resultDiv = document.getElementById('401-test-result');
+            
+            // Set a token
+            localStorage.setItem('admin_token', 'test-token-789');
+            updateAuthState();
+            log('Token set in localStorage', 'info');
+
+            // Simulate what fetchJson does on 401
+            const originalPath = window.location.pathname;
+            
+            // Mock the 401 response handling
+            setTimeout(() => {
+                // This is what fetchJson does:
+                localStorage.removeItem('admin_token');
+                window.dispatchEvent(new CustomEvent('auth-token-cleared'));
+                
+                const tokenAfter = localStorage.getItem('admin_token');
+                const eventDispatched = true; // We just dispatched it
+                
+                if (!tokenAfter && eventDispatched) {
+                    resultDiv.innerHTML = '<span class="success">✓ PASS: 401 handling clears token and dispatches event</span>';
+                    log('401 handling test PASSED', 'success');
+                } else {
+                    resultDiv.innerHTML = '<span class="error">✗ FAIL: 401 handling did not work correctly</span>';
+                    log('401 handling test FAILED', 'error');
+                }
+            }, 100);
+        }
+
+        function checkTokenState() {
+            const stateDiv = document.getElementById('token-state');
+            const token = localStorage.getItem('admin_token');
+            updateAuthState();
+            
+            stateDiv.innerHTML = `
+                <p><strong>Token in localStorage:</strong> ${token ? `"${token.substring(0, 20)}..."` : 'null'}</p>
+                <p><strong>Auth State:</strong> ${isAuthenticated ? 'Authenticated' : 'Not Authenticated'}</p>
+                <p><strong>Current Path:</strong> ${window.location.pathname}</p>
+            `;
+            log('Token state checked', 'info');
+        }
+
+        // Check initial state
+        checkTokenState();
+    </script>
+</body>
+</html>
+

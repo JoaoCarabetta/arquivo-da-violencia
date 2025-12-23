@@ -24,8 +24,42 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (storedToken) {
       setToken(storedToken);
       setIsAuthenticated(true);
+    } else {
+      setIsAuthenticated(false);
+      setToken(null);
     }
     setLoading(false);
+
+    // Listen for storage changes (e.g., when token is cleared due to 401 in another tab)
+    const handleStorageChange = (e: StorageEvent) => {
+      if (e.key === 'admin_token') {
+        const currentToken = localStorage.getItem('admin_token');
+        if (!currentToken) {
+          setIsAuthenticated(false);
+          setToken(null);
+        } else {
+          // Token was updated in another tab
+          setToken(currentToken);
+          setIsAuthenticated(true);
+        }
+      }
+    };
+
+    // Listen for custom event when token is cleared in same tab (e.g., 401 error)
+    const handleTokenCleared = () => {
+      const currentToken = localStorage.getItem('admin_token');
+      if (!currentToken) {
+        setIsAuthenticated(false);
+        setToken(null);
+      }
+    };
+
+    window.addEventListener('storage', handleStorageChange);
+    window.addEventListener('auth-token-cleared', handleTokenCleared);
+    return () => {
+      window.removeEventListener('storage', handleStorageChange);
+      window.removeEventListener('auth-token-cleared', handleTokenCleared);
+    };
   }, []);
 
   const login = async (username: string, password: string): Promise<boolean> => {

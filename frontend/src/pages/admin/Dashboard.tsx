@@ -53,11 +53,22 @@ export function Dashboard() {
   }
 
   if (error) {
+    const errorMessage = (error as Error).message;
+    const isAuthError = errorMessage.includes('Authentication failed') || errorMessage.includes('401');
+    
     return (
       <div className="flex flex-col items-center justify-center h-64 text-muted-foreground">
         <AlertCircle className="h-8 w-8 mb-2" />
-        <p>Failed to load stats. Is the backend running?</p>
-        <p className="text-sm mt-1">{(error as Error).message}</p>
+        <p>{isAuthError ? 'Authentication failed. Please log in again.' : 'Failed to load stats. Is the backend running?'}</p>
+        <p className="text-sm mt-1">{errorMessage}</p>
+        {isAuthError && (
+          <a 
+            href="/admin/login" 
+            className="mt-4 text-sm text-primary hover:underline"
+          >
+            Go to login →
+          </a>
+        )}
       </div>
     );
   }

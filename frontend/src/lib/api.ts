@@ -231,6 +231,19 @@ async function fetchJson<T>(url: string, options: RequestInit = {}): Promise<T> 
     headers,
   });
   
+  // Handle 401 Unauthorized - token is invalid or expired
+  if (response.status === 401) {
+    // Clear invalid token
+    localStorage.removeItem('admin_token');
+    // Trigger custom event to notify AuthContext (for same-tab communication)
+    window.dispatchEvent(new CustomEvent('auth-token-cleared'));
+    // Redirect to login if we're in an admin route
+    if (window.location.pathname.startsWith('/admin') && !window.location.pathname.includes('/login')) {
+      window.location.href = '/admin/login';
+    }
+    throw new Error('Authentication failed. Please log in again.');
+  }
+  
   if (!response.ok) {
     throw new Error(`API error: ${response.status} ${response.statusText}`);
   }

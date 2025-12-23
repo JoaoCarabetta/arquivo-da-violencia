@@ -192,6 +192,29 @@ ports:
   - "8080:5000"
 ```
 
+### Admin dashboard shows 401 errors
+
+If you're getting 401 (Unauthorized) errors in the admin dashboard:
+
+1. **Check JWT_SECRET_KEY is set**: The `JWT_SECRET_KEY` environment variable must be set in your `.env` file. If it's not set or changes between restarts, all existing authentication tokens become invalid.
+
+   ```bash
+   # Generate a secure secret key
+   openssl rand -hex 32
+   
+   # Add it to your .env file
+   JWT_SECRET_KEY=your-generated-secret-key-here
+   ```
+
+2. **Restart services** after setting the key:
+   ```bash
+   docker-compose restart api
+   ```
+
+3. **Log out and log back in**: Clear your browser's localStorage or log out and log back in to get a new token.
+
+**Important**: The `JWT_SECRET_KEY` must remain constant across restarts. If it changes, all users will need to log in again.
+
 ## Production Recommendations
 
 1. **Use a reverse proxy** (nginx, Traefik, etc.) in front of the application
