@@ -12,6 +12,8 @@ import io
 
 from app.database import get_session
 from app.models.unique_event import UniqueEvent
+from app.models.raw_event import RawEvent
+from app.models.source_google_news import SourceGoogleNews
 
 router = APIRouter(prefix="/public", tags=["public"])
 
@@ -25,18 +27,6 @@ async def get_public_stats(session: AsyncSession = Depends(get_session)):
     
     # Current datetime for rolling window calculations
     now = datetime.utcnow()
-    
-    # Last 24 hours - events from 24 hours ago to now (exclude future events)
-    last_24h_start = now - timedelta(hours=24)
-    last_24h = await session.scalar(
-        select(func.count(UniqueEvent.id)).where(
-            UniqueEvent.event_date >= last_24h_start
-        ).where(
-            UniqueEvent.event_date <= now
-        ).where(
-            UniqueEvent.event_date.isnot(None)
-        )
-    )
     
     # Last 7 days - events from 7 days ago to now (exclude future events)
     last_7_days_start = now - timedelta(days=7)
@@ -79,7 +69,6 @@ async def get_public_stats(session: AsyncSession = Depends(get_session)):
     
     return {
         "total": total or 0,
-        "last_24h": last_24h or 0,
         "last_7_days": last_7_days or 0,
         "last_30_days": last_30_days or 0,
         "since": since_date.isoformat()
@@ -371,4 +360,69 @@ async def export_events(
         media_type="text/csv",
         headers={"Content-Disposition": "attachment; filename=eventos.csv"}
     )
+
+
+@router.get("/events/{event_id}")
+async def get_public_event_by_id(
+    event_id: int,
+    session: AsyncSession = Depends(get_session),
+):
+    """Get a single public event by ID with all related sources."""
+    
+    # Fetch the unique event
+    event = await session.get(UniqueEvent, event_id)
+    if not event:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail="Event not found")
+    
+    # Fetch all raw events linked to this unique event
+    raw_events_query = select(RawEvent).where(RawEvent.unique_event_id == event_id)
+    raw_events_result = await session.execute(raw_events_query)
+    raw_events = raw_events_result.scalars().all()
+    
+    # Get all source IDs from raw events
+    source_ids = [re.source_google_news_id for re in raw_events if re.source_google_news_id]
+    
+    # Fetch all sources
+    sources = []
+    if source_ids:
+        sources_query = select(SourceGoogleNews).where(SourceGoogleNews.id.in_(source_ids))
+        sources_result = await session.execute(sources_query)
+        sources_list = sources_result.scalars().all()
+        
+        # Format sources for response
+        for source in sources_list:
+            sources.append({
+                "id": source.id,
+                "headline": source.headline,
+                "publisher_name": source.publisher_name,
+                "url": source.resolved_url or source.google_news_url,
+                "published_at": source.published_at.isoformat() if source.published_at else None,
+            })
+    
+    # Format event for public consumption
+    event_data = {
+        "id": event.id,
+        "event_date": event.event_date.isoformat() if event.event_date else None,
+        "time_of_day": event.time_of_day,
+        "state": event.state,
+        "city": event.city,
+        "neighborhood": event.neighborhood,
+        "homicide_type": event.homicide_type,
+        "method_of_death": event.method_of_death,
+        "victim_count": event.victim_count,
+        "victims_summary": event.victims_summary,
+        "security_force_involved": event.security_force_involved,
+        "title": event.title,
+        "chronological_description": event.chronological_description,
+        "latitude": float(event.latitude) if event.latitude else None,
+        "longitude": float(event.longitude) if event.longitude else None,
+        "formatted_address": event.formatted_address,
+        "source_count": event.source_count,
+        "merged_data": event.merged_data,
+        "created_at": event.created_at.isoformat(),
+        "sources": sources,
+    }
+    
+    return event_data
 

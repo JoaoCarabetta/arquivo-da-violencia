@@ -32,7 +32,7 @@ export function Data() {
               </Button>
             </a>
             <a 
-              href="https://colab.research.google.com/github/JoaoCarabetta/arquivo-da-violencia/blob/main/notebooks/load_data.ipynb" 
+              href="https://colab.research.google.com/github/JoaoCarabetta/arquivo-da-violencia/blob/master/notebooks/load_data.ipynb" 
               target="_blank" 
               rel="noopener noreferrer"
             >

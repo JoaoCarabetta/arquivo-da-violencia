@@ -51,7 +51,6 @@ async def test_stats_total_no_events(client: AsyncClient):
     assert response.status_code == 200
     data = response.json()
     assert data["total"] == 0
-    assert data["last_24h"] == 0
     assert data["last_7_days"] == 0
     assert data["last_30_days"] == 0
 
@@ -96,127 +95,6 @@ async def test_stats_total_multiple_events(app, async_session):
         assert response.status_code == 200
         data = response.json()
         assert data["total"] == 3
-
-
-@pytest.mark.asyncio
-async def test_stats_last_24h_no_events_last_24h(app, async_session):
-    """Test last_24h statistic with no events in last 24 hours."""
-    from app.database import get_session
-    
-    # Create event from 25 hours ago (outside 24h window)
-    event_25h_ago = datetime.utcnow() - timedelta(hours=25)
-    event = UniqueEvent(
-        title="Event 25 Hours Ago",
-        event_date=event_25h_ago,
-        state="RJ",
-        city="Rio de Janeiro"
-    )
-    
-    async_session.add(event)
-    await async_session.commit()
-    
-    async def override_get_session():
-        yield async_session
-    
-    app.dependency_overrides[get_session] = override_get_session
-    
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        response = await client.get("/api/public/stats")
-        assert response.status_code == 200
-        data = response.json()
-        assert data["last_24h"] == 0
-
-
-@pytest.mark.asyncio
-async def test_stats_last_24h_with_events_last_24h(app, async_session):
-    """Test last_24h statistic counts only events from last 24 hours."""
-    from app.database import get_session
-    
-    # Create events for different time periods
-    now = datetime.utcnow()
-    event_12h_ago = now - timedelta(hours=12)
-    event_6h_ago = now - timedelta(hours=6)
-    event_25h_ago = now - timedelta(hours=25)  # Outside 24h window
-    event_future = now + timedelta(hours=1)  # Future event
-    
-    event_12h = UniqueEvent(
-        title="Event 12 Hours Ago",
-        event_date=event_12h_ago,
-        state="RJ",
-        city="Rio de Janeiro"
-    )
-    event_6h = UniqueEvent(
-        title="Event 6 Hours Ago",
-        event_date=event_6h_ago,
-        state="SP",
-        city="São Paulo"
-    )
-    event_25h = UniqueEvent(
-        title="Event 25 Hours Ago",
-        event_date=event_25h_ago,
-        state="MG",
-        city="Belo Horizonte"
-    )
-    event_future_event = UniqueEvent(
-        title="Event Future",
-        event_date=event_future,
-        state="RS",
-        city="Porto Alegre"
-    )
-    
-    async_session.add(event_12h)
-    async_session.add(event_6h)
-    async_session.add(event_25h)
-    async_session.add(event_future_event)
-    await async_session.commit()
-    
-    async def override_get_session():
-        yield async_session
-    
-    app.dependency_overrides[get_session] = override_get_session
-    
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        response = await client.get("/api/public/stats")
-        assert response.status_code == 200
-        data = response.json()
-        assert data["last_24h"] == 2  # Only events from last 24 hours
-
-
-@pytest.mark.asyncio
-async def test_stats_last_24h_excludes_null_event_date(app, async_session):
-    """Test last_24h statistic excludes events with null event_date."""
-    from app.database import get_session
-    
-    now = datetime.utcnow()
-    event_12h_ago = now - timedelta(hours=12)
-    
-    event_recent = UniqueEvent(
-        title="Event 12 Hours Ago",
-        event_date=event_12h_ago,
-        state="RJ",
-        city="Rio de Janeiro"
-    )
-    event_null = UniqueEvent(
-        title="Event Null Date",
-        event_date=None,
-        state="SP",
-        city="São Paulo"
-    )
-    
-    async_session.add(event_recent)
-    async_session.add(event_null)
-    await async_session.commit()
-    
-    async def override_get_session():
-        yield async_session
-    
-    app.dependency_overrides[get_session] = override_get_session
-    
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        response = await client.get("/api/public/stats")
-        assert response.status_code == 200
-        data = response.json()
-        assert data["last_24h"] == 1  # Only the event with a date in last 24h
 
 
 @pytest.mark.asyncio
@@ -694,7 +572,7 @@ async def test_stats_with_multiple_fake_events(app, async_session):
     
     # Create fake events for different time periods
     events = [
-        # Very recent event (last 24h)
+        # Very recent events (within last 7 days)
         create_fake_event(
             title="Homicídio há 10 minutos",
             event_date=event_10_min_ago,
@@ -703,7 +581,6 @@ async def test_stats_with_multiple_fake_events(app, async_session):
             homicide_type="Homicídio",
             victim_count=1,
         ),
-        # Last 24h events
         create_fake_event(
             title="Homicídio há 12 horas",
             event_date=event_12h_ago,
@@ -720,7 +597,7 @@ async def test_stats_with_multiple_fake_events(app, async_session):
             homicide_type="Tentativa de Homicídio",
             victim_count=1,
         ),
-        # Last 7 days events (but outside 24h)
+        # Last 7 days events
         create_fake_event(
             title="Homicídio há 1 dia",
             event_date=event_1_day_ago,
@@ -789,7 +666,7 @@ async def test_stats_with_multiple_fake_events(app, async_session):
             homicide_type="Homicídio",
             victim_count=1,
         ),
-        # Event with security force involved (within 24h)
+        # Event with security force involved (within last 7 days)
         create_fake_event(
             title="Homicídio com policial envolvido",
             event_date=now - timedelta(hours=2),
@@ -799,7 +676,7 @@ async def test_stats_with_multiple_fake_events(app, async_session):
             victim_count=1,
             security_force_involved=True,
         ),
-        # Event with multiple victims (within 24h)
+        # Event with multiple victims (within last 7 days)
         create_fake_event(
             title="Massacre recente",
             event_date=now - timedelta(hours=4),
@@ -828,15 +705,10 @@ async def test_stats_with_multiple_fake_events(app, async_session):
             data = response.json()
             
             # Verify basic statistics
-            assert data["total"] == 13  # All 13 events should be counted (added 10 min ago event)
-            
-            # Last 24h should include events from last 24 hours
-            # We have: 1 event (10 min ago) + 2 events (12h ago, 6h ago) + 1 security force (2h ago) + 1 massacre (4h ago) = 5
-            assert data["last_24h"] >= 5
-            assert data["last_24h"] <= 5  # Exactly 5 events in last 24h
+            assert data["total"] == 13  # All 13 events should be counted
             
             # Last 7 days should include events from last 7 days
-            # We have: 5 from last 24h + 1 from 1 day ago + 1 from 3 days ago = 7
+            # We have: 1 event (10 min ago) + 1 event (12h ago) + 1 event (6h ago) + 1 from 1 day ago + 1 from 3 days ago + 1 security force (2h ago) + 1 massacre (4h ago) = 7
             assert data["last_7_days"] >= 7
             assert data["last_7_days"] <= 7  # Exactly 7 events in last 7 days
             
@@ -846,13 +718,11 @@ async def test_stats_with_multiple_fake_events(app, async_session):
             assert data["last_30_days"] <= 9  # Exactly 9 events in last 30 days
             
             # Verify future events are excluded from time-based stats
-            assert data["last_24h"] < data["total"]  # Future events excluded
             assert data["last_7_days"] < data["total"]  # Future events excluded
             assert data["last_30_days"] < data["total"]  # Future events excluded
             
             # Verify null date event is excluded from time-based stats
             # (it's included in total but not in time-based stats)
-            assert data["last_24h"] < data["total"]  # Null date event excluded
             assert data["last_7_days"] < data["total"]  # Null date event excluded
             assert data["last_30_days"] < data["total"]  # Null date event excluded
             

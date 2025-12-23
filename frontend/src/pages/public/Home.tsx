@@ -9,7 +9,7 @@ import {
   fetchStatsByDay,
   fetchPublicEvents,
 } from '@/lib/api';
-import { Loader2, TrendingUp, Calendar, Users, Shield, MapPin, Clock } from 'lucide-react';
+import { Loader2, TrendingUp, Users, Shield, MapPin, Clock } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { Bar, BarChart, XAxis, CartesianGrid, LabelList } from 'recharts';
 import { ChartContainer, ChartTooltip, ChartTooltipContent, type ChartConfig } from '@/components/ui/chart';
@@ -113,10 +113,10 @@ export function Home() {
 
           <h1 className="text-center leading-tight">
             <span className="text-6xl md:text-7xl lg:text-8xl font-bold text-rose-600">
-              {stats?.last_24h?.toLocaleString?.() ?? 0}
+              {stats?.last_7_days?.toLocaleString?.() ?? 0}
             </span>
             <span className="block mt-3 text-3xl md:text-4xl lg:text-5xl font-bold text-rose-700 dark:text-rose-500">
-              mortes violentas registradas nas últimas 24 horas no Brasil
+              mortes violentas registradas nos últimos 7 dias no Brasil
             </span>
           </h1>
 
@@ -129,8 +129,7 @@ export function Home() {
 
       {/* Stats Cards */}
       <section className="container mx-auto px-6">
-        <div className="grid gap-4 md:grid-cols-4">
-          <StatCard title="Últimas 24h" value={stats?.last_24h || 0} icon={Calendar} />
+        <div className="grid gap-4 md:grid-cols-3">
           <StatCard title="Últimos 7 dias" value={stats?.last_7_days || 0} icon={TrendingUp} />
           <StatCard title="Últimos 30 dias" value={stats?.last_30_days || 0} icon={Users} />
           <StatCard title="Total" value={stats?.total || 0} icon={Shield} />

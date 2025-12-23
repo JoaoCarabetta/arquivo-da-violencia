@@ -129,6 +129,14 @@ export interface UniqueEvent {
   updated_at: string | null;
 }
 
+export interface EventSource {
+  id: number;
+  headline: string | null;
+  publisher_name: string | null;
+  url: string | null;
+  published_at: string | null;
+}
+
 export interface PublicEvent {
   id: number;
   title: string | null;
@@ -145,14 +153,15 @@ export interface PublicEvent {
   chronological_description: string | null;
   latitude: number | null;
   longitude: number | null;
+  formatted_address: string | null;
   source_count: number;
   merged_data: Record<string, any> | null;
   created_at: string;
+  sources?: EventSource[];
 }
 
 export interface PublicStats {
   total: number;
-  last_24h: number;
   last_7_days: number;
   last_30_days: number;
   since: string;
@@ -328,6 +337,10 @@ export async function fetchPublicEvents(
   if (filters?.dateTo) params.set('date_to', filters.dateTo);
   
   return fetchJson(`${API_BASE}/public/events?${params.toString()}`);
+}
+
+export async function fetchPublicEventById(id: number): Promise<PublicEvent> {
+  return fetchJson<PublicEvent>(`${API_BASE}/public/events/${id}`);
 }
 
 // Export URLs

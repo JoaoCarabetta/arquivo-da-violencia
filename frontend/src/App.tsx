@@ -8,6 +8,7 @@ import { AdminLayout } from '@/components/AdminLayout';
 // Public pages
 import { Home } from '@/pages/public/Home';
 import { Events } from '@/pages/public/Events';
+import { EventDetail } from '@/pages/public/EventDetail';
 import { Data } from '@/pages/public/Data';
 import { About } from '@/pages/public/About';
 
@@ -38,6 +39,7 @@ function App() {
             {/* Public routes */}
             <Route path="/" element={<PublicLayout><Home /></PublicLayout>} />
             <Route path="/eventos" element={<PublicLayout><Events /></PublicLayout>} />
+            <Route path="/eventos/:id" element={<PublicLayout><EventDetail /></PublicLayout>} />
             <Route path="/dados" element={<PublicLayout><Data /></PublicLayout>} />
             <Route path="/sobre" element={<PublicLayout><About /></PublicLayout>} />
             

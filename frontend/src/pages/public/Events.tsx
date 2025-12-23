@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import type { JSX } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import { useNavigate } from 'react-router-dom';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -26,6 +27,13 @@ function formatRelativeTime(dateStr: string) {
 }
 
 function EventRow({ event, expanded, onToggle }: { event: PublicEvent; expanded: boolean; onToggle: () => void }) {
+  const navigate = useNavigate();
+
+  const handleTitleClick = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    navigate(`/eventos/${event.id}`);
+  };
+
   return (
     <>
       <TableRow className="cursor-pointer hover:bg-muted/50" onClick={onToggle}>
@@ -48,7 +56,12 @@ function EventRow({ event, expanded, onToggle }: { event: PublicEvent; expanded:
           </div>
         </TableCell>
         <TableCell className="min-w-[200px] px-2 !whitespace-normal">
-          <div className="font-medium text-sm break-words">{event.title || 'Sem título'}</div>
+          <div 
+            className="font-medium text-sm break-words hover:text-primary hover:underline cursor-pointer"
+            onClick={handleTitleClick}
+          >
+            {event.title || 'Sem título'}
+          </div>
           {!expanded && event.chronological_description && (
             <div className="text-xs text-muted-foreground line-clamp-2 mt-1">
               {event.chronological_description}
