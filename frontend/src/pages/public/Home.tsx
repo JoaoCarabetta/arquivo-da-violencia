@@ -1,5 +1,6 @@
 import { useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import { Head } from '@unhead/react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import {
@@ -13,6 +14,7 @@ import { Loader2, TrendingUp, Users, Shield, MapPin, Clock } from 'lucide-react'
 import { Link } from 'react-router-dom';
 import { Bar, BarChart, XAxis, CartesianGrid, LabelList } from 'recharts';
 import { ChartContainer, ChartTooltip, ChartTooltipContent, type ChartConfig } from '@/components/ui/chart';
+import { generateSEOTags, generateOrganizationSchema, generateWebSiteSchema } from '@/lib/seo';
 
 function StatCard({
   title,
@@ -98,7 +100,32 @@ export function Home() {
     },
   } satisfies ChartConfig;
 
+  const seoTags = generateSEOTags({
+    title: 'Monitoramento em tempo real de mortes violentas no Brasil',
+    description: 'Dados abertos sobre mortes violentas no Brasil em tempo real. Acesse estatísticas, linha do tempo de eventos e baixe dados para pesquisa, jornalismo e sociedade civil.',
+    path: '/',
+  });
+
+  const organizationSchema = generateOrganizationSchema();
+  const websiteSchema = generateWebSiteSchema();
+
   return (
+    <>
+      <Head>
+        <title>{seoTags.title}</title>
+        {seoTags.meta?.map((meta, index) => (
+          <meta key={index} {...meta} />
+        ))}
+        {seoTags.link?.map((link, index) => (
+          <link key={index} {...link} />
+        ))}
+        <script type="application/ld+json">
+          {JSON.stringify(organizationSchema)}
+        </script>
+        <script type="application/ld+json">
+          {JSON.stringify(websiteSchema)}
+        </script>
+      </Head>
     <div className="space-y-12 py-12">
       {/* Main Counter */}
       <section className="container mx-auto px-6 text-center">
@@ -354,6 +381,7 @@ export function Home() {
         </Card>
       </section>
     </div>
+    </>
   );
 }
 

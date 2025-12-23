@@ -1,9 +1,11 @@
-import { BrowserRouter, Routes, Route } from 'react-router-dom';
+import { useEffect } from 'react';
+import { BrowserRouter, Routes, Route, useLocation } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { AuthProvider } from '@/contexts/AuthContext';
 import { ProtectedRoute } from '@/components/ProtectedRoute';
 import { PublicLayout } from '@/components/PublicLayout';
 import { AdminLayout } from '@/components/AdminLayout';
+import { initGA, trackPageView } from '@/lib/analytics';
 
 // Public pages
 import { Home } from '@/pages/public/Home';
@@ -30,11 +32,27 @@ const queryClient = new QueryClient({
   },
 });
 
+// Component to track route changes
+function RouteTracker() {
+  const location = useLocation();
+
+  useEffect(() => {
+    // Initialize GA on first load
+    initGA();
+    
+    // Track page view on route change
+    trackPageView(location.pathname + location.search, document.title);
+  }, [location]);
+
+  return null;
+}
+
 function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <AuthProvider>
         <BrowserRouter>
+          <RouteTracker />
           <Routes>
             {/* Public routes */}
             <Route path="/" element={<PublicLayout><Home /></PublicLayout>} />

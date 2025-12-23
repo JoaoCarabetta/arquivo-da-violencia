@@ -1,0 +1,10 @@
+User-agent: *
+Allow: /
+
+# Disallow admin routes
+Disallow: /admin/
+
+# Sitemap location
+Sitemap: https://arquivodaviolencia.com.br/sitemap.xml
+
+

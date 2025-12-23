@@ -2,6 +2,7 @@ import { useState } from 'react';
 import type { JSX } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
+import { Head } from '@unhead/react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -9,6 +10,7 @@ import { Input } from '@/components/ui/input';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { fetchPublicEvents, type PublicEvent } from '@/lib/api';
 import { Loader2, ChevronLeft, ChevronRight, MapPin, Users, Shield, Search, ExternalLink, ChevronDown, ChevronUp } from 'lucide-react';
+import { generateSEOTags } from '@/lib/seo';
 
 function formatRelativeTime(dateStr: string) {
   const date = new Date(dateStr);
@@ -308,7 +310,23 @@ export function Events() {
     placeholderData: (prev) => prev,
   });
 
+  const seoTags = generateSEOTags({
+    title: 'Linha do Tempo de Eventos',
+    description: 'Registro cronológico de mortes violentas no Brasil. Explore eventos por estado, tipo de morte e data. Filtre e busque por localização ou descrição.',
+    path: '/eventos',
+  });
+
   return (
+    <>
+      <Head>
+        <title>{seoTags.title}</title>
+        {seoTags.meta?.map((meta, index) => (
+          <meta key={index} {...meta} />
+        ))}
+        {seoTags.link?.map((link, index) => (
+          <link key={index} {...link} />
+        ))}
+      </Head>
     <div className="container mx-auto px-6 py-12 max-w-5xl">
       <div className="mb-8">
         <h1 className="text-4xl font-bold tracking-tight mb-2">Linha do Tempo</h1>
@@ -451,6 +469,7 @@ export function Events() {
         </>
       )}
     </div>
+    </>
   );
 }
 

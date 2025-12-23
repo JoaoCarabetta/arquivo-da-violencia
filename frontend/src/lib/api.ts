@@ -157,6 +157,7 @@ export interface PublicEvent {
   source_count: number;
   merged_data: Record<string, any> | null;
   created_at: string;
+  updated_at?: string | null;
   sources?: EventSource[];
 }
 
