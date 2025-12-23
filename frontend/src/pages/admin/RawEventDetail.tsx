@@ -211,17 +211,17 @@ export function RawEventDetail() {
       )}
 
       {/* Split View */}
-      <div className="flex-1 overflow-hidden">
-        <Group orientation="horizontal">
+      <div className="flex-1 overflow-hidden min-h-0">
+        <Group orientation="horizontal" className="h-full">
           {/* Left Panel - Source Content */}
-          <Panel defaultSize={40} minSize={25}>
-            <div className="h-full flex flex-col bg-muted/30">
-              <div className="px-4 py-3 border-b bg-background">
+          <Panel defaultSize={40} minSize={25} className="min-h-0">
+            <div className="h-full flex flex-col bg-muted/30 min-h-0">
+              <div className="px-4 py-3 border-b bg-background shrink-0">
                 <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
                   Raw Article Content
                 </h2>
               </div>
-              <div className="flex-1 overflow-auto p-4">
+              <div className="flex-1 overflow-auto p-4 min-h-0">
                 {sourceLoading ? (
                   <div className="flex items-center justify-center h-32">
                     <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
@@ -284,14 +284,14 @@ export function RawEventDetail() {
           <Separator className="w-2 bg-border hover:bg-primary/20 transition-colors" />
 
           {/* Right Panel - JSON Editor */}
-          <Panel defaultSize={60} minSize={25}>
-            <div className="h-full flex flex-col bg-background">
-              <div className="px-4 py-3 border-b">
+          <Panel defaultSize={60} minSize={25} className="min-h-0">
+            <div className="h-full flex flex-col bg-background min-h-0">
+              <div className="px-4 py-3 border-b shrink-0">
                 <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
                   Extracted JSON Data
                 </h2>
               </div>
-              <div className="flex-1 overflow-hidden">
+              <div className="flex-1 overflow-hidden min-h-0">
                 <Editor
                   height="100%"
                   defaultLanguage="json"
