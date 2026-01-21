@@ -22,7 +22,12 @@ class Settings(BaseSettings):
     
     # API
     api_prefix: str = "/api"
-    cors_origins: list[str] = ["http://localhost:5173", "http://localhost:3000"]
+    cors_origins: list[str] = [
+        "http://localhost:5173",
+        "http://localhost:3000",
+        "https://arquivodaviolencia.com.br",
+        "https://www.arquivodaviolencia.com.br",
+    ]
 
     # Database
     database_url: str = "sqlite+aiosqlite:///./instance/violence.db"

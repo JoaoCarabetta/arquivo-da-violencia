@@ -55,7 +55,7 @@ services:
       - DATABASE_URL=sqlite+aiosqlite:///./instance/violence.db
       - GEMINI_API_KEY=${GEMINI_API_KEY:-}
       - DEBUG=${DEBUG:-false}
-      - CORS_ORIGINS=["http://localhost:5173","http://localhost:3000","http://localhost:80"]
+      - CORS_ORIGINS=["http://localhost:5173","http://localhost:3000","http://localhost:80","https://arquivodaviolencia.com.br","https://www.arquivodaviolencia.com.br"]
       - JWT_SECRET_KEY=${JWT_SECRET_KEY:-change-me-in-production}
       - ADMIN_USERNAME=${ADMIN_USERNAME:-admin}
       - ADMIN_PASSWORD=${ADMIN_PASSWORD:-admin123}
