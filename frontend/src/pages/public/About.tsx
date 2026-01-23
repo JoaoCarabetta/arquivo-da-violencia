@@ -1,4 +1,3 @@
-import { Head } from '@unhead/react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { AlertTriangle, CheckCircle, Code, Database, Search, FileText, MapPin, GitBranch, Github } from 'lucide-react';
 import { generateSEOTags } from '@/lib/seo';
@@ -11,16 +10,6 @@ export function About() {
   });
 
   return (
-    <>
-      <Head>
-        <title>{seoTags.title}</title>
-        {seoTags.meta?.map((meta, index) => (
-          <meta key={index} {...meta} />
-        ))}
-        {seoTags.link?.map((link, index) => (
-          <link key={index} {...link} />
-        ))}
-      </Head>
     <div className="container mx-auto px-6 py-12 max-w-4xl">
       <div className="mb-8">
         <h1 className="text-4xl font-bold tracking-tight mb-2">Sobre o Projeto</h1>
@@ -379,7 +368,6 @@ export function About() {
         </CardContent>
       </Card>
     </div>
-    </>
   );
 }
 

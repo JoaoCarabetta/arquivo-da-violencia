@@ -2,7 +2,6 @@ import { useState } from 'react';
 import type { JSX } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
-import { Head } from '@unhead/react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -317,16 +316,6 @@ export function Events() {
   });
 
   return (
-    <>
-      <Head>
-        <title>{seoTags.title}</title>
-        {seoTags.meta?.map((meta, index) => (
-          <meta key={index} {...meta} />
-        ))}
-        {seoTags.link?.map((link, index) => (
-          <link key={index} {...link} />
-        ))}
-      </Head>
     <div className="container mx-auto px-6 py-12 max-w-5xl">
       <div className="mb-8">
         <h1 className="text-4xl font-bold tracking-tight mb-2">Linha do Tempo</h1>
@@ -469,7 +458,6 @@ export function Events() {
         </>
       )}
     </div>
-    </>
   );
 }
 

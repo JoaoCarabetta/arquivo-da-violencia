@@ -1,6 +1,5 @@
 import { useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Head } from '@unhead/react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import {
@@ -110,22 +109,6 @@ export function Home() {
   const websiteSchema = generateWebSiteSchema();
 
   return (
-    <>
-      <Head>
-        <title>{seoTags.title}</title>
-        {seoTags.meta?.map((meta, index) => (
-          <meta key={index} {...meta} />
-        ))}
-        {seoTags.link?.map((link, index) => (
-          <link key={index} {...link} />
-        ))}
-        <script type="application/ld+json">
-          {JSON.stringify(organizationSchema)}
-        </script>
-        <script type="application/ld+json">
-          {JSON.stringify(websiteSchema)}
-        </script>
-      </Head>
     <div className="space-y-12 py-12">
       {/* Main Counter */}
       <section className="container mx-auto px-6 text-center">
@@ -381,7 +364,6 @@ export function Home() {
         </Card>
       </section>
     </div>
-    </>
   );
 }
 

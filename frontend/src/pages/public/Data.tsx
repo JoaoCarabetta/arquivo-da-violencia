@@ -1,4 +1,3 @@
-import { Head } from '@unhead/react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Download, ExternalLink } from 'lucide-react';
@@ -12,16 +11,6 @@ export function Data() {
   });
 
   return (
-    <>
-      <Head>
-        <title>{seoTags.title}</title>
-        {seoTags.meta?.map((meta, index) => (
-          <meta key={index} {...meta} />
-        ))}
-        {seoTags.link?.map((link, index) => (
-          <link key={index} {...link} />
-        ))}
-      </Head>
     <div className="container mx-auto px-6 py-12 max-w-5xl">
       <div className="mb-8">
         <h1 className="text-4xl font-bold tracking-tight mb-2">Acesso aos Dados</h1>
@@ -265,7 +254,6 @@ export function Data() {
         </CardContent>
       </Card>
     </div>
-    </>
   );
 }
 

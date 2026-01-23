@@ -1,6 +1,5 @@
 import { useParams, Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { Head } from '@unhead/react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -48,16 +47,6 @@ export function EventDetail() {
     });
 
     return (
-      <>
-        <Head>
-          <title>{defaultSeoTags.title}</title>
-          {defaultSeoTags.meta?.map((meta, index) => (
-            <meta key={index} {...meta} />
-          ))}
-          {defaultSeoTags.link?.map((link, index) => (
-            <link key={index} {...link} />
-          ))}
-        </Head>
       <div className="container mx-auto px-6 py-12 max-w-5xl">
         <Card>
           <CardContent className="pt-6">
@@ -75,7 +64,6 @@ export function EventDetail() {
           </CardContent>
         </Card>
       </div>
-      </>
     );
   }
 
@@ -110,22 +98,6 @@ export function EventDetail() {
   ]);
 
   return (
-    <>
-      <Head>
-        <title>{seoTags.title}</title>
-        {seoTags.meta?.map((meta, index) => (
-          <meta key={index} {...meta} />
-        ))}
-        {seoTags.link?.map((link, index) => (
-          <link key={index} {...link} />
-        ))}
-        <script type="application/ld+json">
-          {JSON.stringify(articleSchema)}
-        </script>
-        <script type="application/ld+json">
-          {JSON.stringify(breadcrumbSchema)}
-        </script>
-      </Head>
     <div className="container mx-auto px-6 py-12 max-w-5xl">
       {/* Header Section */}
       <div className="mb-6">
@@ -447,7 +419,6 @@ export function EventDetail() {
         </Card>
       </div>
     </div>
-    </>
   );
 }
 
