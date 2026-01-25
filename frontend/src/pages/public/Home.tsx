@@ -132,7 +132,7 @@ export function Home() {
 
           {/* Short subtitle */}
           <p className="mt-4 text-base md:text-lg text-muted-foreground max-w-2xl mx-auto">
-            Mortes violentas são evitáveis. Acesse os dados e ajude a evitá-las.
+            Informação que transforma. Acesse, entenda e ajude a construir um Brasil mais seguro.
           </p>
         </div>
       </section>
