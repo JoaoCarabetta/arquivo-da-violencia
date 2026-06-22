@@ -203,7 +203,15 @@ async def classify_source(source_id: int) -> bool:
             
         except Exception as e:
             logger.error(f"Error classifying source {source_id}: {e}")
-            # Don't change status on error - leave as ready-for-classification for retry
+            await session.execute(
+                text("""
+                    UPDATE source_google_news
+                    SET status = 'ready_for_classification', updated_at = CURRENT_TIMESTAMP
+                    WHERE id = :id AND status = 'classifying'
+                """),
+                {"id": source_id},
+            )
+            await session.commit()
             return False
 
 
