@@ -37,6 +37,8 @@ services:
       - REDIS_URL=redis://redis:6379
       - DATABASE_URL=sqlite+aiosqlite:///./instance/violence.db
       - GEMINI_API_KEY=${STAGING_GEMINI_API_KEY:-${GEMINI_API_KEY:-}}
+      - EXTRACTION_MODEL=${STAGING_EXTRACTION_MODEL:-${EXTRACTION_MODEL:-gemini-2.5-flash}}
+      - SELECTION_MODEL=${STAGING_SELECTION_MODEL:-${SELECTION_MODEL:-gemini-2.5-flash-lite}}
       - DEBUG=true
       - CORS_ORIGINS=["http://localhost:5173","http://localhost:8080","https://staging.arquivodaviolencia.com.br"]
       - JWT_SECRET_KEY=${STAGING_JWT_SECRET_KEY:-staging-secret-key}
@@ -57,6 +59,8 @@ services:
       - REDIS_URL=redis://redis:6379
       - DATABASE_URL=sqlite+aiosqlite:///./instance/violence.db
       - GEMINI_API_KEY=${STAGING_GEMINI_API_KEY:-${GEMINI_API_KEY:-}}
+      - EXTRACTION_MODEL=${STAGING_EXTRACTION_MODEL:-${EXTRACTION_MODEL:-gemini-2.5-flash}}
+      - SELECTION_MODEL=${STAGING_SELECTION_MODEL:-${SELECTION_MODEL:-gemini-2.5-flash-lite}}
       - ENABLE_CRON=${STAGING_ENABLE_CRON:-false}
       - JWT_SECRET_KEY=${STAGING_JWT_SECRET_KEY:-staging-secret-key}
       - ADMIN_USERNAME=${STAGING_ADMIN_USERNAME:-admin}

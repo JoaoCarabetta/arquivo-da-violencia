@@ -20,6 +20,7 @@ class SourceStatus(str, Enum):
     """
     
     ready_for_classification = "ready_for_classification"
+    classifying = "classifying"
     discarded = "discarded"
     ready_for_download = "ready_for_download"
     failed_in_download = "failed_in_download"
