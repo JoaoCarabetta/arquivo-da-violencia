@@ -558,12 +558,12 @@ async def ingest_cities_full_pipeline(
     # Step 6: Batch enrichment (enriches UniqueEvents that need it)
     enrich_result = await batch_enrich_task(ctx, limit=50)
     
-    duration = time.time() - start_time
-    
-    # Send pipeline summary notification
     # Step 7: Batch geocoding (populates coordinates for new UniqueEvents)
     geocode_result = await batch_geocode_task(ctx, limit=200)
     
+    duration = time.time() - start_time
+    
+    # Send pipeline summary notification
     await notify_pipeline_summary(
         total_sources=ingest_result.get("total_sources_created", 0),
         sources_classified=classify_result.get("violent_death", 0),
@@ -583,10 +583,10 @@ async def ingest_cities_full_pipeline(
         "extract": extract_result,
         "dedup": dedup_result,
         "enrich": enrich_result,
+        "geocode": geocode_result,
     }
 
 
-        "geocode": geocode_result,
 # List of all task functions for the worker
 TASK_FUNCTIONS = [
     ingest_task,
@@ -599,8 +599,8 @@ TASK_FUNCTIONS = [
     enrich_task,
     batch_dedup_task,
     batch_enrich_task,
+    batch_geocode_task,
     run_full_pipeline,
     ingest_cities_task,
     ingest_cities_full_pipeline,
-    batch_geocode_task,
 ]
