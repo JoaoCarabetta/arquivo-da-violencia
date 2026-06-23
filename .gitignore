@@ -169,3 +169,6 @@ frontend/node_modules/*
 *.cursor/*
 
 scripts/*
+
+# Generated failure test-set fixture (contains sampled prod article content)
+backend/tests/fixtures/failure_test_set.json

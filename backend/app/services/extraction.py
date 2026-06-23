@@ -12,6 +12,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 from app.config import get_settings
 from app.database import async_session_maker
 from app.models import RawEvent, SourceGoogleNews, SourceStatus
+from app.services import diagnostics
 from app.services.extraction_schemas import ViolentDeathEvent
 
 
@@ -122,6 +123,7 @@ def extract_event_from_content(
             {"role": "user", "content": user_message},
         ],
         max_retries=3,
+        generation_config={"max_output_tokens": settings.extraction_max_output_tokens},
     )
     
     return event
@@ -172,7 +174,11 @@ async def extract_source(source_id: int) -> RawEvent | None:
         RawEvent if successful, None otherwise
     """
     import asyncio
+    import time
     from sqlalchemy import text
+
+    settings = get_settings()
+    model_name = settings.extraction_model
 
     # Step 1: read the source content/metadata in a short-lived session, then
     # release the connection before the (slow, blocking) LLM extraction call.
@@ -196,6 +202,42 @@ async def extract_source(source_id: int) -> RawEvent | None:
     if not content:
         logger.warning(f"Source {source_id} has no content")
         return None
+
+    attempt_number = await diagnostics.count_attempts(source_id, diagnostics.STAGE_EXTRACTION) + 1
+    original_length = len(content)
+
+    # Truncate over-long content to avoid token/context-window failures. Most
+    # articles are far below this; long pages are usually padded with unrelated
+    # boilerplate that hurts extraction anyway.
+    if original_length > settings.extraction_max_chars:
+        logger.info(
+            f"Truncating source {source_id} content from {original_length} to "
+            f"{settings.extraction_max_chars} chars"
+        )
+        content = content[: settings.extraction_max_chars]
+
+    async def _mark_failed(reason: str, detail: str | None, duration_ms: int):
+        async with async_session_maker() as session:
+            await session.execute(
+                text("""
+                    UPDATE source_google_news 
+                    SET status = 'failed_in_extraction', updated_at = CURRENT_TIMESTAMP
+                    WHERE id = :id
+                """),
+                {"id": source_id}
+            )
+            await session.commit()
+        await diagnostics.record_attempt(
+            stage=diagnostics.STAGE_EXTRACTION,
+            outcome=diagnostics.OUTCOME_FAILURE,
+            source_google_news_id=source_id,
+            failure_reason=reason,
+            failure_detail=detail,
+            model=model_name,
+            content_length=original_length,
+            duration_ms=duration_ms,
+            attempt_number=attempt_number,
+        )
 
     headline_preview = (headline or "")[:50]
     logger.info(f"Extracting event from source {source_id}: {headline_preview}...")
@@ -222,20 +264,14 @@ async def extract_source(source_id: int) -> RawEvent | None:
 
     # Step 2: run the blocking LLM extraction off the event loop and WITHOUT
     # holding a DB connection.
+    started = time.monotonic()
     try:
         event = await asyncio.to_thread(extract_event_from_content, content, metadata)
     except Exception as e:
-        logger.error(f"Extraction failed for source {source_id}: {e}")
-        async with async_session_maker() as session:
-            await session.execute(
-                text("""
-                    UPDATE source_google_news 
-                    SET status = 'failed_in_extraction', updated_at = CURRENT_TIMESTAMP
-                    WHERE id = :id
-                """),
-                {"id": source_id}
-            )
-            await session.commit()
+        duration_ms = int((time.monotonic() - started) * 1000)
+        reason = diagnostics.classify_extraction_exception(e)
+        logger.error(f"Extraction failed for source {source_id} ({reason}): {e}")
+        await _mark_failed(reason, str(e), duration_ms)
         return None
 
     event_data = event.model_dump()
@@ -286,6 +322,17 @@ async def extract_source(source_id: int) -> RawEvent | None:
 
         await session.commit()
         await session.refresh(raw_event)
+
+    await diagnostics.record_attempt(
+        stage=diagnostics.STAGE_EXTRACTION,
+        outcome=diagnostics.OUTCOME_SUCCESS,
+        source_google_news_id=source_id,
+        raw_event_id=raw_event.id,
+        model=model_name,
+        content_length=original_length,
+        duration_ms=int((time.monotonic() - started) * 1000),
+        attempt_number=attempt_number,
+    )
 
     logger.info(f"Created RawEvent {raw_event.id} for source {source_id}")
     return raw_event
