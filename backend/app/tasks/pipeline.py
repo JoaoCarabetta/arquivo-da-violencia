@@ -502,6 +502,11 @@ async def ingest_cities_full_pipeline(
     # Notify job started
     await notify_job_started("cities_full_pipeline", {"when": when})
     
+    # Step 0: Recover any sources stranded in a transient processing state by a
+    # previous run (e.g. due to a crash or DB contention), so they get reprocessed.
+    from app.services.maintenance import recover_stuck_sources
+    await recover_stuck_sources(older_than_minutes=15)
+    
     # Step 1: Ingest cities
     ingest_result = await ingest_cities_task(ctx, cities=cities, when=when)
     

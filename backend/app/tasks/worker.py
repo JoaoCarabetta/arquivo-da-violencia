@@ -64,6 +64,15 @@ async def startup(ctx: dict) -> None:
         except Exception as e:  # pragma: no cover - best effort, non-fatal
             logger.warning(f"Failed to publish worker info to Redis: {e}")
 
+    # Requeue any sources left stranded in a transient processing state by a
+    # previous worker that crashed or errored mid-batch.
+    try:
+        from app.services.maintenance import recover_stuck_sources
+
+        await recover_stuck_sources(older_than_minutes=5)
+    except Exception as e:  # pragma: no cover - best effort, non-fatal
+        logger.warning(f"Failed to recover stuck sources on startup: {e}")
+
 
 async def shutdown(ctx: dict) -> None:
     """Worker shutdown handler."""
