@@ -17,6 +17,10 @@ export interface Job {
 
 export interface PipelineStatus {
   redis: string;
+  worker_alive?: boolean;
+  worker_health?: string | null;
+  worker_started_at?: string | null;
+  cron_enabled?: boolean;
   queued_jobs: number;
   jobs: Job[];
   error?: string;

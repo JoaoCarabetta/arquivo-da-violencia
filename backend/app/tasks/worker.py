@@ -1,12 +1,32 @@
 """ARQ worker configuration."""
 
 import os
+import json
+from datetime import datetime, timezone
+
 from arq import cron
 from arq.connections import RedisSettings
+from arq.constants import default_queue_name, health_check_key_suffix
 
 from app.config import get_settings
 
 settings = get_settings()
+
+# Redis key under which the worker records its health heartbeat.
+# Must match arq's default (queue_name + suffix) since WorkerSettings does not
+# override queue_name / health_check_key. The API reads this key to tell whether
+# the worker process is actually alive (separate from Redis connectivity).
+HEALTH_CHECK_KEY = default_queue_name + health_check_key_suffix
+
+# Redis key the worker publishes its own config to on startup, so the API
+# (which runs in a different container and may not share ENABLE_CRON) can report
+# whether cron is actually enabled on the running worker.
+WORKER_INFO_KEY = "arquivo:worker:info"
+
+
+def is_cron_enabled() -> bool:
+    """Whether scheduled (cron) jobs are enabled for this worker."""
+    return os.environ.get("ENABLE_CRON", "false").lower() == "true"
 
 
 def get_redis_settings() -> RedisSettings:
@@ -23,8 +43,26 @@ def get_redis_settings() -> RedisSettings:
 async def startup(ctx: dict) -> None:
     """Worker startup handler."""
     from loguru import logger
+    cron_enabled = is_cron_enabled()
     logger.info("ARQ Worker starting up...")
-    logger.info(f"Cron enabled: {os.environ.get('ENABLE_CRON', 'false')}")
+    logger.info(f"Cron enabled: {cron_enabled}")
+
+    # Publish worker config to Redis so the API can report accurate status even
+    # though it runs in a separate container without ENABLE_CRON set.
+    redis = ctx.get("redis")
+    if redis is not None:
+        try:
+            await redis.set(
+                WORKER_INFO_KEY,
+                json.dumps(
+                    {
+                        "cron_enabled": cron_enabled,
+                        "started_at": datetime.now(timezone.utc).isoformat(),
+                    }
+                ),
+            )
+        except Exception as e:  # pragma: no cover - best effort, non-fatal
+            logger.warning(f"Failed to publish worker info to Redis: {e}")
 
 
 async def shutdown(ctx: dict) -> None:
@@ -42,7 +80,7 @@ def get_cron_jobs():
     from app.tasks.pipeline import ingest_cities_full_pipeline
     
     # Only enable cron if explicitly requested
-    if os.environ.get("ENABLE_CRON", "false").lower() != "true":
+    if not is_cron_enabled():
         return []
     
     return [
@@ -78,6 +116,9 @@ class WorkerSettings:
     max_jobs = 10
     job_timeout = 600  # 10 minutes default timeout (city ingestion can be slow)
     keep_result = 3600  # Keep results for 1 hour
+    # Refresh the health-check key every 30s (default is 3600s) so the API can
+    # detect a dead/crashed worker within ~30s instead of up to an hour.
+    health_check_interval = 30
     
     # Retry settings
     max_tries = 3

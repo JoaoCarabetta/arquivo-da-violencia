@@ -343,6 +343,61 @@ async def notify_pipeline_summary(
 
 
 # =============================================================================
+# WORKER HEALTH NOTIFICATIONS
+# =============================================================================
+
+
+async def notify_worker_down(seconds_silent: int | None = None) -> None:
+    """
+    Notify that the ARQ worker has stopped sending heartbeats.
+
+    While the worker is down nothing gets downloaded or classified, even though
+    Redis stays reachable, so this is sent loudly (not silenced).
+
+    Args:
+        seconds_silent: Approximate time since the last heartbeat was seen.
+    """
+    notifier = get_notifier()
+
+    timestamp = datetime.now().strftime("%H:%M:%S")
+
+    message = "🔴 <b>Worker Down</b>\n\n"
+    message += "The pipeline worker stopped sending heartbeats.\n"
+    message += "No jobs will be downloaded or classified until it recovers.\n"
+    if seconds_silent:
+        minutes = max(1, seconds_silent // 60)
+        message += f"\n⏱️ <b>Silent for:</b> ~{minutes} min\n"
+    message += f"🕐 <b>Time:</b> {timestamp}\n"
+    message += (
+        "\n<b>Check:</b> <code>docker compose -p prod ps</code> / "
+        "<code>docker compose -p prod logs --tail=200 worker</code>"
+    )
+
+    await notifier.send_message(message, disable_notification=False)
+
+
+async def notify_worker_recovered(seconds_down: int | None = None) -> None:
+    """
+    Notify that the ARQ worker is sending heartbeats again.
+
+    Args:
+        seconds_down: Approximate duration of the outage, if known.
+    """
+    notifier = get_notifier()
+
+    timestamp = datetime.now().strftime("%H:%M:%S")
+
+    message = "🟢 <b>Worker Recovered</b>\n\n"
+    message += "The pipeline worker is sending heartbeats again.\n"
+    if seconds_down:
+        minutes = max(1, seconds_down // 60)
+        message += f"\n⏱️ <b>Down for:</b> ~{minutes} min\n"
+    message += f"🕐 <b>Time:</b> {timestamp}"
+
+    await notifier.send_message(message, disable_notification=False)
+
+
+# =============================================================================
 # TEST / HEALTH CHECK
 # =============================================================================
 
