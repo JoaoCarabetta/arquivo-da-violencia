@@ -46,6 +46,26 @@ class Settings(BaseSettings):
     # Pipeline settings
     pipeline_max_workers: int = 10
     pipeline_batch_size: int = 50
+
+    # Download settings
+    download_timeout_seconds: float = 20.0
+    # Browser-like User-Agent so anti-bot sites don't reject the fetch outright.
+    download_user_agent: str = (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+        "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+    )
+
+    # Extraction settings
+    # Truncate article content before sending to the LLM to avoid context-window
+    # / token-limit failures on very long pages.
+    extraction_max_chars: int = 32000
+    # Cap on the LLM's OUTPUT tokens. The extraction schema is large, so the
+    # default provider cap can truncate the response (finish_reason="length"),
+    # surfacing as IncompleteOutputException. Raise it to give the model room.
+    extraction_max_output_tokens: int = 16384
+
+    # Retry of transient pipeline failures
+    pipeline_max_attempts: int = 3
     
     # Telegram notifications
     telegram_bot_token: str | None = None

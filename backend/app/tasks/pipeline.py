@@ -537,8 +537,11 @@ async def ingest_cities_full_pipeline(
     
     # Step 0: Recover any sources stranded in a transient processing state by a
     # previous run (e.g. due to a crash or DB contention), so they get reprocessed.
-    from app.services.maintenance import recover_stuck_sources
+    # Also requeue past failures whose cause was transient (timeouts, 5xx, rate
+    # limits) and that still have retry budget left.
+    from app.services.maintenance import recover_stuck_sources, requeue_retryable_failures
     await recover_stuck_sources(older_than_minutes=15)
+    await requeue_retryable_failures()
     
     # Step 1: Ingest cities
     ingest_result = await ingest_cities_task(ctx, cities=cities, when=when)

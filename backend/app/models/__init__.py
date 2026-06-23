@@ -25,6 +25,11 @@ from app.models.city_stats import (
     CityStatsBase,
     CityStatsRead,
 )
+from app.models.pipeline_attempt import (
+    PipelineAttempt,
+    PipelineAttemptBase,
+    PipelineAttemptRead,
+)
 
 __all__ = [
     # Source Google News
@@ -48,4 +53,8 @@ __all__ = [
     "CityStats",
     "CityStatsBase",
     "CityStatsRead",
+    # Pipeline Attempt
+    "PipelineAttempt",
+    "PipelineAttemptBase",
+    "PipelineAttemptRead",
 ]
