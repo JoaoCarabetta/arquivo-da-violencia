@@ -135,24 +135,27 @@ async def classify_source(source_id: int) -> bool:
     Returns:
         True if classified as violent death, False otherwise
     """
+    import asyncio
+    from sqlalchemy import text
+
+    # Step 1: read the headline in a short-lived session, then release the
+    # connection. We must NOT hold a DB connection while the (slow, blocking)
+    # LLM call runs, otherwise concurrent workers exhaust the connection pool.
     async with async_session_maker() as session:
-        # Use raw SQL to get source (avoids enum conversion issues)
-        from sqlalchemy import text
         result = await session.execute(
             text("SELECT id, headline FROM source_google_news WHERE id = :id"),
             {"id": source_id}
         )
         row = result.fetchone()
-        
+
         if not row:
             logger.warning(f"Source {source_id} not found")
             return False
-        
+
         source_id, headline = row
-        
+
         if not headline:
             logger.warning(f"Source {source_id} has no headline")
-            # Update using raw SQL to avoid enum issues
             await session.execute(
                 text("""
                     UPDATE source_google_news 
@@ -166,43 +169,15 @@ async def classify_source(source_id: int) -> bool:
             )
             await session.commit()
             return False
-        
-        try:
-            logger.info(f"Classifying source {source_id}: {headline[:60]}...")
-            
-            classification = classify_headline(headline)
-            
-            # Update using raw SQL to avoid enum issues
-            new_status = "ready_for_download" if classification.is_violent_death else "discarded"
-            await session.execute(
-                text("""
-                    UPDATE source_google_news 
-                    SET status = :status,
-                        is_violent_death = :is_violent_death,
-                        classification_confidence = :confidence,
-                        classification_reasoning = :reasoning,
-                        updated_at = CURRENT_TIMESTAMP
-                    WHERE id = :id
-                """),
-                {
-                    "id": source_id,
-                    "status": new_status,
-                    "is_violent_death": 1 if classification.is_violent_death else 0,
-                    "confidence": classification.confidence,
-                    "reasoning": classification.reasoning,
-                }
-            )
-            await session.commit()
-            
-            if classification.is_violent_death:
-                logger.info(f"Source {source_id}: VIOLENT DEATH ({classification.confidence})")
-            else:
-                logger.info(f"Source {source_id}: DISCARDED ({classification.confidence})")
-            
-            return classification.is_violent_death
-            
-        except Exception as e:
-            logger.error(f"Error classifying source {source_id}: {e}")
+
+    # Step 2: run the blocking LLM classification off the event loop and
+    # WITHOUT holding a DB connection.
+    try:
+        logger.info(f"Classifying source {source_id}: {headline[:60]}...")
+        classification = await asyncio.to_thread(classify_headline, headline)
+    except Exception as e:
+        logger.error(f"Error classifying source {source_id}: {e}")
+        async with async_session_maker() as session:
             await session.execute(
                 text("""
                     UPDATE source_google_news
@@ -212,7 +187,37 @@ async def classify_source(source_id: int) -> bool:
                 {"id": source_id},
             )
             await session.commit()
-            return False
+        return False
+
+    # Step 3: persist the result in a fresh short-lived session.
+    new_status = "ready_for_download" if classification.is_violent_death else "discarded"
+    async with async_session_maker() as session:
+        await session.execute(
+            text("""
+                UPDATE source_google_news 
+                SET status = :status,
+                    is_violent_death = :is_violent_death,
+                    classification_confidence = :confidence,
+                    classification_reasoning = :reasoning,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE id = :id
+            """),
+            {
+                "id": source_id,
+                "status": new_status,
+                "is_violent_death": 1 if classification.is_violent_death else 0,
+                "confidence": classification.confidence,
+                "reasoning": classification.reasoning,
+            }
+        )
+        await session.commit()
+
+    if classification.is_violent_death:
+        logger.info(f"Source {source_id}: VIOLENT DEATH ({classification.confidence})")
+    else:
+        logger.info(f"Source {source_id}: DISCARDED ({classification.confidence})")
+
+    return classification.is_violent_death
 
 
 async def classify_pending_sources(limit: int = 50, concurrency: int = 10) -> dict:

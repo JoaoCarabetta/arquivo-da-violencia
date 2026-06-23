@@ -57,73 +57,27 @@ async def download_source_content(source_id: int) -> bool:
     Returns:
         True if successful, False otherwise
     """
+    import asyncio
     from sqlalchemy import text
-    
+
+    # Step 1: read the target URL in a short-lived session, then release the
+    # connection so we don't hold it during the (slow) network fetch.
     async with async_session_maker() as session:
-        # Get the source URL using raw SQL to avoid enum issues
         result = await session.execute(
             text("SELECT resolved_url, google_news_url FROM source_google_news WHERE id = :id"),
             {"id": source_id}
         )
         row = result.fetchone()
-        
+
         if not row:
             logger.warning(f"Source {source_id} not found")
             return False
-        
+
         # Use resolved URL if available, otherwise the Google News URL
         target_url = row[0] or row[1]
-        
-        logger.info(f"Downloading content from: {target_url[:80]}...")
-        
-        try:
-            # Download the page
-            downloaded = trafilatura.fetch_url(target_url)
-            
-            if not downloaded:
-                logger.warning(f"Failed to download: {target_url}")
-                await session.execute(
-                    text("""
-                        UPDATE source_google_news 
-                        SET status = 'failed_in_download', updated_at = CURRENT_TIMESTAMP
-                        WHERE id = :id
-                    """),
-                    {"id": source_id}
-                )
-                await session.commit()
-                return False
-            
-            # Extract content
-            content, metadata = extract_content_and_metadata(downloaded)
-            
-            if content:
-                await session.execute(
-                    text("""
-                        UPDATE source_google_news 
-                        SET content = :content, status = 'ready_for_extraction', updated_at = CURRENT_TIMESTAMP
-                        WHERE id = :id
-                    """),
-                    {"id": source_id, "content": content}
-                )
-                await session.commit()
-                
-                logger.info(f"Downloaded {len(content)} chars for source {source_id}")
-                return True
-            else:
-                logger.warning(f"No content extracted from: {target_url}")
-                await session.execute(
-                    text("""
-                        UPDATE source_google_news 
-                        SET status = 'failed_in_download', updated_at = CURRENT_TIMESTAMP
-                        WHERE id = :id
-                    """),
-                    {"id": source_id}
-                )
-                await session.commit()
-                return False
-                
-        except Exception as e:
-            logger.error(f"Error downloading source {source_id}: {e}")
+
+    async def _mark_failed():
+        async with async_session_maker() as session:
             await session.execute(
                 text("""
                     UPDATE source_google_news 
@@ -133,7 +87,43 @@ async def download_source_content(source_id: int) -> bool:
                 {"id": source_id}
             )
             await session.commit()
+
+    logger.info(f"Downloading content from: {target_url[:80]}...")
+
+    # Step 2: fetch + extract off the event loop, WITHOUT holding a DB connection.
+    try:
+        downloaded = await asyncio.to_thread(trafilatura.fetch_url, target_url)
+
+        if not downloaded:
+            logger.warning(f"Failed to download: {target_url}")
+            await _mark_failed()
             return False
+
+        content, metadata = await asyncio.to_thread(extract_content_and_metadata, downloaded)
+    except Exception as e:
+        logger.error(f"Error downloading source {source_id}: {e}")
+        await _mark_failed()
+        return False
+
+    if not content:
+        logger.warning(f"No content extracted from: {target_url}")
+        await _mark_failed()
+        return False
+
+    # Step 3: persist the content in a fresh short-lived session.
+    async with async_session_maker() as session:
+        await session.execute(
+            text("""
+                UPDATE source_google_news 
+                SET content = :content, status = 'ready_for_extraction', updated_at = CURRENT_TIMESTAMP
+                WHERE id = :id
+            """),
+            {"id": source_id, "content": content}
+        )
+        await session.commit()
+
+    logger.info(f"Downloaded {len(content)} chars for source {source_id}")
+    return True
 
 
 async def download_classified_sources(limit: int = 50, concurrency: int = 10) -> dict:

@@ -5,7 +5,14 @@ from arq import create_pool
 from arq.jobs import Job
 from loguru import logger
 
-from app.tasks.worker import get_redis_settings
+import json
+
+from app.tasks.worker import (
+    get_redis_settings,
+    HEALTH_CHECK_KEY,
+    WORKER_INFO_KEY,
+    is_cron_enabled,
+)
 from app.services.telegram import send_test_message, get_notifier
 
 router = APIRouter(prefix="/pipeline", tags=["pipeline"])
@@ -341,14 +348,51 @@ async def run_batch_enrichment(
 
 @router.get("/status")
 async def get_pipeline_status():
-    """Get queue status and worker health."""
+    """Get queue status and worker health.
+
+    Redis connectivity alone does NOT mean the pipeline is working: the worker
+    process (which also runs the cron that enqueues jobs) can be down while Redis
+    stays reachable. We additionally read the worker's heartbeat key and report
+    whether cron is enabled so the UI can distinguish "healthy" from "stalled".
+    """
     try:
         pool = await get_arq_pool()
         queued_jobs = await pool.queued_jobs()
+
+        # Worker heartbeat: arq refreshes this key on an interval; if it's
+        # missing the worker process is not running (or crashed).
+        raw_health = await pool.get(HEALTH_CHECK_KEY)
+        # Worker-published config (cron is scheduled by the worker, not the API).
+        raw_info = await pool.get(WORKER_INFO_KEY)
         await pool.close()
+
+        worker_alive = raw_health is not None
+        worker_health = None
+        if raw_health is not None:
+            worker_health = (
+                raw_health.decode() if isinstance(raw_health, bytes) else str(raw_health)
+            )
+
+        # Prefer the worker's self-reported cron status; fall back to this
+        # process's env only if the worker has not published yet.
+        cron_enabled = is_cron_enabled()
+        worker_started_at = None
+        if raw_info is not None:
+            try:
+                info = json.loads(
+                    raw_info.decode() if isinstance(raw_info, bytes) else raw_info
+                )
+                cron_enabled = bool(info.get("cron_enabled", cron_enabled))
+                worker_started_at = info.get("started_at")
+            except (ValueError, AttributeError):
+                pass
 
         return {
             "redis": "connected",
+            "worker_alive": worker_alive,
+            "worker_health": worker_health,
+            "worker_started_at": worker_started_at,
+            "cron_enabled": cron_enabled,
             "queued_jobs": len(queued_jobs),
             "jobs": [
                 {
@@ -364,6 +408,10 @@ async def get_pipeline_status():
     except Exception as e:
         return {
             "redis": "disconnected",
+            "worker_alive": False,
+            "worker_health": None,
+            "worker_started_at": None,
+            "cron_enabled": is_cron_enabled(),
             "error": str(e),
             "queued_jobs": 0,
         }
