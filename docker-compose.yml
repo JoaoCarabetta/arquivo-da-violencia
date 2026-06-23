@@ -56,6 +56,7 @@ services:
       - GEMINI_API_KEY=${GEMINI_API_KEY:-}
       - EXTRACTION_MODEL=${EXTRACTION_MODEL:-gemini-2.5-flash}
       - SELECTION_MODEL=${SELECTION_MODEL:-gemini-2.5-flash-lite}
+      - GOOGLE_MAPS_API_KEY=${GOOGLE_MAPS_API_KEY:-}
       - DEBUG=${DEBUG:-false}
       - CORS_ORIGINS=["http://localhost:5173","http://localhost:3000","http://localhost:80","https://arquivodaviolencia.com.br","https://www.arquivodaviolencia.com.br"]
       - JWT_SECRET_KEY=${JWT_SECRET_KEY:-change-me-in-production}
@@ -90,6 +91,7 @@ services:
       - GEMINI_API_KEY=${GEMINI_API_KEY:-}
       - EXTRACTION_MODEL=${EXTRACTION_MODEL:-gemini-2.5-flash}
       - SELECTION_MODEL=${SELECTION_MODEL:-gemini-2.5-flash-lite}
+      - GOOGLE_MAPS_API_KEY=${GOOGLE_MAPS_API_KEY:-}
       - ENABLE_CRON=${ENABLE_CRON:-false}
       - JWT_SECRET_KEY=${JWT_SECRET_KEY:-change-me-in-production}
       - ADMIN_USERNAME=${ADMIN_USERNAME:-admin}

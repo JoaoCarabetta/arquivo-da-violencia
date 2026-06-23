@@ -39,6 +39,9 @@ class Settings(BaseSettings):
     gemini_api_key: str | None = None
     extraction_model: str = "gemini-2.5-flash"
     selection_model: str = "gemini-2.5-flash-lite"  # Lightweight model for classification
+
+    # Google Maps Geocoding (optional - geocoding no-ops when unset)
+    google_maps_api_key: str | None = None
     
     # Pipeline settings
     pipeline_max_workers: int = 10

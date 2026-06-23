@@ -341,6 +341,34 @@ async def run_batch_enrichment(
     }
 
 
+@router.post("/batch-geocode")
+async def run_batch_geocoding(
+    limit: int = Query(50, description="Maximum UniqueEvents to geocode"),
+):
+    """
+    Batch geocoding: Populate coordinates for UniqueEvents not yet geocoded.
+
+    Processes UniqueEvents where geocoding_source IS NULL and city is present:
+    - Builds an address query from the structured location fields
+    - Calls the Google Maps Geocoding API
+    - Writes latitude/longitude/plus_code/place_id/formatted_address/
+      location_precision/geocoding_confidence/geocoding_source
+
+    No-ops gracefully when GOOGLE_MAPS_API_KEY is unset. Use a large limit to
+    backfill the existing backlog.
+    """
+    pool = await get_arq_pool()
+    job = await pool.enqueue_job("batch_geocode_task", limit)
+    await pool.close()
+
+    return {
+        "status": "queued",
+        "job_id": job.job_id,
+        "task": "batch_geocode_task",
+        "message": f"Batch geocoding queued (limit: {limit})",
+    }
+
+
 # =============================================================================
 # Job Status & Queue Monitoring
 # =============================================================================

@@ -399,8 +399,41 @@ async def batch_enrich_task(ctx: dict, limit: int = 50) -> dict:
     
     logger.info(f"[BATCH_ENRICH] Complete: {result}")
     
+    # Chain to geocoding so newly enriched events get coordinates.
+    if ctx.get("redis"):
+        await ctx["redis"].enqueue_job("batch_geocode_task", limit=limit + 10)
+        logger.info("[BATCH_ENRICH] Enqueued batch geocode task")
+    
     return {
         "task": "batch_enrich",
+        **result,
+    }
+
+
+@notify_on_failure("batch_geocode")
+async def batch_geocode_task(ctx: dict, limit: int = 50) -> dict:
+    """
+    Periodic: Geocode UniqueEvents that have not been geocoded yet.
+    
+    Processes UniqueEvents where geocoding_source IS NULL and city is present:
+    - Builds an address query from the structured location fields
+    - Calls the Google Maps Geocoding API
+    - Writes latitude/longitude/plus_code/place_id/formatted_address/
+      location_precision/geocoding_confidence/geocoding_source
+    
+    No-ops gracefully when GOOGLE_MAPS_API_KEY is unset.
+    Should run after batch_enrich_task.
+    """
+    logger.info(f"[BATCH_GEOCODE] Starting for up to {limit} UniqueEvents")
+    
+    from app.services.geocoding import geocode_pending
+    
+    result = await geocode_pending(limit=limit)
+    
+    logger.info(f"[BATCH_GEOCODE] Complete: {result}")
+    
+    return {
+        "task": "batch_geocode",
         **result,
     }
 
@@ -494,7 +527,7 @@ async def ingest_cities_full_pipeline(
     Run city ingestion followed by classify, download, extraction, and deduplication.
     
     This is the complete hourly pipeline for city-based ingestion.
-    Pipeline: ingest -> classify -> download -> extract -> batch_dedup -> batch_enrich
+    Pipeline: ingest -> classify -> download -> extract -> batch_dedup -> batch_enrich -> batch_geocode
     """
     logger.info("[CITIES_PIPELINE] Starting full city pipeline")
     start_time = time.time()
@@ -528,6 +561,9 @@ async def ingest_cities_full_pipeline(
     duration = time.time() - start_time
     
     # Send pipeline summary notification
+    # Step 7: Batch geocoding (populates coordinates for new UniqueEvents)
+    geocode_result = await batch_geocode_task(ctx, limit=200)
+    
     await notify_pipeline_summary(
         total_sources=ingest_result.get("total_sources_created", 0),
         sources_classified=classify_result.get("violent_death", 0),
@@ -550,6 +586,7 @@ async def ingest_cities_full_pipeline(
     }
 
 
+        "geocode": geocode_result,
 # List of all task functions for the worker
 TASK_FUNCTIONS = [
     ingest_task,
@@ -565,4 +602,5 @@ TASK_FUNCTIONS = [
     run_full_pipeline,
     ingest_cities_task,
     ingest_cities_full_pipeline,
+    batch_geocode_task,
 ]
