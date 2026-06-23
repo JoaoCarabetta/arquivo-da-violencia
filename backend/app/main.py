@@ -1,5 +1,6 @@
 """FastAPI application factory and main entry point."""
 
+import asyncio
 from contextlib import asynccontextmanager
 from collections.abc import AsyncIterator
 
@@ -9,6 +10,7 @@ from loguru import logger
 
 from app.config import get_settings
 from app.database import init_db
+from app.services.worker_monitor import monitor_worker_health
 
 settings = get_settings()
 
@@ -25,11 +27,20 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # Initialize database (creates tables if not using alembic)
     # await init_db()
     logger.info(f"Database ready: {settings.database_path}")
-    
+
+    # Background monitor that alerts (via Telegram) if the ARQ worker goes silent.
+    monitor_stop = asyncio.Event()
+    monitor_task = asyncio.create_task(monitor_worker_health(monitor_stop))
+
     yield
     
     # Shutdown
     logger.info("Shutting down application")
+    monitor_stop.set()
+    try:
+        await asyncio.wait_for(monitor_task, timeout=5)
+    except (asyncio.TimeoutError, asyncio.CancelledError):
+        monitor_task.cancel()
 
 
 def create_app() -> FastAPI:

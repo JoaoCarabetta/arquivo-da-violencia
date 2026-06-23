@@ -59,6 +59,15 @@ def get_engine() -> AsyncEngine:
             db_url,
             echo=settings.debug,
             future=True,
+            # The ARQ worker can run several batch jobs at once (max_jobs=10),
+            # each fanning out up to ~15 concurrent source-level coroutines. The
+            # default pool (5 + 10 overflow) is far too small for that and leads
+            # to "QueuePool limit ... connection timed out" errors. Size the pool
+            # generously; WAL mode + busy_timeout handle write serialization.
+            pool_size=30,
+            max_overflow=70,
+            pool_timeout=60,
+            pool_recycle=1800,
             connect_args={
                 "check_same_thread": False,
                 "timeout": 60,

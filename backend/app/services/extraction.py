@@ -171,10 +171,12 @@ async def extract_source(source_id: int) -> RawEvent | None:
     Returns:
         RawEvent if successful, None otherwise
     """
+    import asyncio
     from sqlalchemy import text
-    
+
+    # Step 1: read the source content/metadata in a short-lived session, then
+    # release the connection before the (slow, blocking) LLM extraction call.
     async with async_session_maker() as session:
-        # Get the source content and metadata using raw SQL
         result = await session.execute(
             text("""
                 SELECT id, headline, content, published_at, publisher_name, resolved_url 
@@ -184,97 +186,47 @@ async def extract_source(source_id: int) -> RawEvent | None:
             {"id": source_id}
         )
         row = result.fetchone()
-        
+
         if not row:
             logger.warning(f"Source {source_id} not found")
             return None
-        
+
         source_id_db, headline, content, published_at, publisher_name, resolved_url = row
-        
-        if not content:
-            logger.warning(f"Source {source_id} has no content")
-            return None
-        
-        headline_preview = (headline or "")[:50]
-        logger.info(f"Extracting event from source {source_id}: {headline_preview}...")
-        
-        # Build metadata context for the LLM
-        metadata = {
-            "headline": headline,
-            "publisher": publisher_name,
-            "url": resolved_url,
-        }
-        
-        # Format published_at for the LLM
-        if published_at:
-            try:
-                from datetime import datetime as dt
-                if isinstance(published_at, str):
-                    pub_date = dt.fromisoformat(published_at.replace('Z', '+00:00'))
-                else:
-                    pub_date = published_at
-                metadata["published_at"] = pub_date.strftime("%d/%m/%Y às %H:%M")
-            except Exception as e:
-                logger.debug(f"Could not format published_at: {e}")
-                metadata["published_at"] = str(published_at)
-        
+
+    if not content:
+        logger.warning(f"Source {source_id} has no content")
+        return None
+
+    headline_preview = (headline or "")[:50]
+    logger.info(f"Extracting event from source {source_id}: {headline_preview}...")
+
+    # Build metadata context for the LLM
+    metadata = {
+        "headline": headline,
+        "publisher": publisher_name,
+        "url": resolved_url,
+    }
+
+    # Format published_at for the LLM
+    if published_at:
         try:
-            # Extract structured event data with metadata context
-            event = extract_event_from_content(content, metadata=metadata)
-            event_data = event.model_dump()
-            
-            # Parse date string to datetime if present
-            event_date = None
-            if event.date_time.date:
-                try:
-                    from datetime import datetime as dt
-                    event_date = dt.strptime(event.date_time.date, "%Y-%m-%d")
-                except ValueError:
-                    logger.warning(f"Could not parse date: {event.date_time.date}")
-            
-            # Create RawEvent with denormalized fields
-            raw_event = RawEvent(
-                source_google_news_id=source_id,
-                # Denormalized queryable fields
-                event_date=event_date,
-                date_precision=event.date_time.date_precision,
-                time_of_day=event.date_time.time_of_day,
-                city=event.location_info.city,
-                state=event.location_info.state,
-                neighborhood=event.location_info.neighborhood,
-                victim_count=event.victims.number_of_victims,
-                identified_victim_count=event.victims.number_of_identifiable_victims,
-                perpetrator_count=event.perpetrators.number_of_perpetrators if event.perpetrators else None,
-                homicide_type=event.homicide_dynamic.homicide_type,
-                method_of_death=event.homicide_dynamic.method,
-                title=event.homicide_dynamic.title,
-                chronological_description=event.homicide_dynamic.chronological_description,
-                # Full structured data as JSON
-                extraction_data=event_data,
-                extraction_model=get_settings().extraction_model,
-                extraction_success=True,
-            )
-            
-            session.add(raw_event)
-            
-            # Update source status using raw SQL
-            await session.execute(
-                text("""
-                    UPDATE source_google_news 
-                    SET status = 'extracted', updated_at = CURRENT_TIMESTAMP
-                    WHERE id = :id
-                """),
-                {"id": source_id}
-            )
-            
-            await session.commit()
-            await session.refresh(raw_event)
-            
-            logger.info(f"Created RawEvent {raw_event.id} for source {source_id}")
-            return raw_event
-            
+            from datetime import datetime as dt
+            if isinstance(published_at, str):
+                pub_date = dt.fromisoformat(published_at.replace('Z', '+00:00'))
+            else:
+                pub_date = published_at
+            metadata["published_at"] = pub_date.strftime("%d/%m/%Y às %H:%M")
         except Exception as e:
-            logger.error(f"Extraction failed for source {source_id}: {e}")
+            logger.debug(f"Could not format published_at: {e}")
+            metadata["published_at"] = str(published_at)
+
+    # Step 2: run the blocking LLM extraction off the event loop and WITHOUT
+    # holding a DB connection.
+    try:
+        event = await asyncio.to_thread(extract_event_from_content, content, metadata)
+    except Exception as e:
+        logger.error(f"Extraction failed for source {source_id}: {e}")
+        async with async_session_maker() as session:
             await session.execute(
                 text("""
                     UPDATE source_google_news 
@@ -284,7 +236,59 @@ async def extract_source(source_id: int) -> RawEvent | None:
                 {"id": source_id}
             )
             await session.commit()
-            return None
+        return None
+
+    event_data = event.model_dump()
+
+    # Parse date string to datetime if present
+    event_date = None
+    if event.date_time.date:
+        try:
+            from datetime import datetime as dt
+            event_date = dt.strptime(event.date_time.date, "%Y-%m-%d")
+        except ValueError:
+            logger.warning(f"Could not parse date: {event.date_time.date}")
+
+    # Step 3: persist the RawEvent in a fresh short-lived session.
+    async with async_session_maker() as session:
+        raw_event = RawEvent(
+            source_google_news_id=source_id,
+            # Denormalized queryable fields
+            event_date=event_date,
+            date_precision=event.date_time.date_precision,
+            time_of_day=event.date_time.time_of_day,
+            city=event.location_info.city,
+            state=event.location_info.state,
+            neighborhood=event.location_info.neighborhood,
+            victim_count=event.victims.number_of_victims,
+            identified_victim_count=event.victims.number_of_identifiable_victims,
+            perpetrator_count=event.perpetrators.number_of_perpetrators if event.perpetrators else None,
+            homicide_type=event.homicide_dynamic.homicide_type,
+            method_of_death=event.homicide_dynamic.method,
+            title=event.homicide_dynamic.title,
+            chronological_description=event.homicide_dynamic.chronological_description,
+            # Full structured data as JSON
+            extraction_data=event_data,
+            extraction_model=get_settings().extraction_model,
+            extraction_success=True,
+        )
+
+        session.add(raw_event)
+
+        await session.execute(
+            text("""
+                UPDATE source_google_news 
+                SET status = 'extracted', updated_at = CURRENT_TIMESTAMP
+                WHERE id = :id
+            """),
+            {"id": source_id}
+        )
+
+        await session.commit()
+        await session.refresh(raw_event)
+
+    logger.info(f"Created RawEvent {raw_event.id} for source {source_id}")
+    return raw_event
 
 
 async def extract_ready_sources(limit: int = 10, concurrency: int = 15) -> dict:
