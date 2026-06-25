@@ -1,86 +1,108 @@
+@import url('https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600;700&family=Geist+Mono:wght@400;500;600&family=Newsreader:ital,opsz,wght@0,6..72,300;0,6..72,400;0,6..72,500;0,6..72,600;1,6..72,400&display=swap');
 @import "tailwindcss";
 @import "tw-animate-css";
 
+/* Rio AI Labs design system tokens */
+@import "./styles/ds/colors.css";
+@import "./styles/ds/typography.css";
+@import "./styles/ds/spacing.css";
+@import "./styles/ds/base.css";
+
 @custom-variant dark (&:is(.dark *));
 
+/* ============================================================
+   shadcn semantic tokens remapped onto the Rio palette.
+   Every existing shadcn component + the admin layout inherit
+   the new look through these aliases (no per-component edits).
+   ============================================================ */
 :root {
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.145 0 0);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.145 0 0);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.205 0 0);
-  --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.97 0 0);
-  --secondary-foreground: oklch(0.205 0 0);
-  --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
-  --accent: oklch(0.97 0 0);
-  --accent-foreground: oklch(0.205 0 0);
-  --destructive: oklch(0.577 0.245 27.325);
-  --destructive-foreground: 0 0% 98%;
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);
+  --background: var(--color-bg);
+  --foreground: var(--color-text);
+  --card: var(--color-surface);
+  --card-foreground: var(--color-text);
+  --popover: var(--color-surface);
+  --popover-foreground: var(--color-text);
+  --primary: var(--blue-500);
+  --primary-foreground: #ffffff;
+  --secondary: var(--stone-100);
+  --secondary-foreground: var(--stone-800);
+  --muted: var(--stone-100);
+  --muted-foreground: var(--color-text-muted);
+  --accent: var(--stone-100);
+  --accent-foreground: var(--stone-800);
+  --destructive: var(--red-600);
+  --destructive-foreground: #ffffff;
+  --border: var(--color-border);
+  --input: var(--color-border);
+  --ring: var(--blue-500);
   --radius: 0.625rem;
-  --chart-1: oklch(0.646 0.222 41.116);
-  --chart-2: oklch(0.6 0.118 184.704);
-  --chart-3: oklch(0.398 0.07 227.392);
-  --chart-4: oklch(0.828 0.189 84.429);
-  --chart-5: oklch(0.769 0.188 70.08);
-  --sidebar: oklch(0.985 0 0);
-  --sidebar-foreground: oklch(0.145 0 0);
-  --sidebar-primary: oklch(0.205 0 0);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.97 0 0);
-  --sidebar-accent-foreground: oklch(0.205 0 0);
-  --sidebar-border: oklch(0.922 0 0);
-  --sidebar-ring: oklch(0.708 0 0);
+  --chart-1: var(--blue-500);
+  --chart-2: var(--red-500);
+  --chart-3: var(--gold-500);
+  --chart-4: var(--green-500);
+  --chart-5: var(--stone-500);
+  --sidebar: var(--color-surface);
+  --sidebar-foreground: var(--color-text);
+  --sidebar-primary: var(--blue-500);
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: var(--stone-100);
+  --sidebar-accent-foreground: var(--stone-800);
+  --sidebar-border: var(--color-border);
+  --sidebar-ring: var(--blue-500);
 }
 
 .dark {
-  --background: oklch(0.145 0 0);
-  --foreground: oklch(0.985 0 0);
-  --card: oklch(0.205 0 0);
-  --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.205 0 0);
-  --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.922 0 0);
-  --primary-foreground: oklch(0.205 0 0);
-  --secondary: oklch(0.269 0 0);
-  --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.269 0 0);
-  --muted-foreground: oklch(0.708 0 0);
-  --accent: oklch(0.269 0 0);
-  --accent-foreground: oklch(0.985 0 0);
-  --destructive: oklch(0.704 0.191 22.216);
-  --destructive-foreground: 0 0% 98%;
-  --border: oklch(1 0 0 / 10%);
-  --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.556 0 0);
-  --chart-1: oklch(0.488 0.243 264.376);
-  --chart-2: oklch(0.696 0.17 162.48);
-  --chart-3: oklch(0.769 0.188 70.08);
-  --chart-4: oklch(0.627 0.265 303.9);
-  --chart-5: oklch(0.645 0.246 16.439);
-  --sidebar: oklch(0.205 0 0);
-  --sidebar-foreground: oklch(0.985 0 0);
-  --sidebar-primary: oklch(0.488 0.243 264.376);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.269 0 0);
-  --sidebar-accent-foreground: oklch(0.985 0 0);
-  --sidebar-border: oklch(1 0 0 / 10%);
-  --sidebar-ring: oklch(0.556 0 0);
+  --background: var(--ink-950);
+  --foreground: var(--stone-100);
+  --card: var(--ink-900);
+  --card-foreground: var(--stone-100);
+  --popover: var(--ink-900);
+  --popover-foreground: var(--stone-100);
+  --primary: var(--blue-400);
+  --primary-foreground: var(--ink-950);
+  --secondary: var(--stone-800);
+  --secondary-foreground: var(--stone-100);
+  --muted: var(--stone-800);
+  --muted-foreground: var(--stone-400);
+  --accent: var(--stone-800);
+  --accent-foreground: var(--stone-100);
+  --destructive: var(--red-500);
+  --destructive-foreground: #ffffff;
+  --border: color-mix(in oklab, #ffffff 12%, transparent);
+  --input: color-mix(in oklab, #ffffff 15%, transparent);
+  --ring: var(--blue-400);
+  --chart-1: var(--blue-400);
+  --chart-2: var(--red-500);
+  --chart-3: var(--gold-500);
+  --chart-4: var(--green-500);
+  --chart-5: var(--stone-400);
+  --sidebar: var(--ink-900);
+  --sidebar-foreground: var(--stone-100);
+  --sidebar-primary: var(--blue-400);
+  --sidebar-primary-foreground: var(--ink-950);
+  --sidebar-accent: var(--stone-800);
+  --sidebar-accent-foreground: var(--stone-100);
+  --sidebar-border: color-mix(in oklab, #ffffff 12%, transparent);
+  --sidebar-ring: var(--blue-400);
 }
 
-* {
-  @apply border-[hsl(var(--border))];
+html,
+body,
+#root {
+  height: 100%;
 }
 
 body {
-  @apply bg-[hsl(var(--background))] text-[hsl(var(--foreground))];
-  font-family: system-ui, -apple-system, sans-serif;
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* deck.gl + MapLibre fill their positioned parent */
+.maplibregl-map {
+  font-family: inherit;
 }
 
 @theme inline {

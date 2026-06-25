@@ -188,6 +188,75 @@ export interface DayStat {
   count: number;
 }
 
+export interface GeocodeResult {
+  latitude: number;
+  longitude: number;
+  label: string;
+  source: string;
+  query: string;
+}
+
+export interface NearbyEvent {
+  id: number;
+  distance_km: number;
+  event_date: string | null;
+  state: string | null;
+  city: string | null;
+  neighborhood: string | null;
+  homicide_type: string | null;
+  method_of_death: string | null;
+  victim_count: number | null;
+  victims_summary: string | null;
+  security_force_involved: boolean | null;
+  title: string | null;
+  latitude: number;
+  longitude: number;
+  location_precision: string | null;
+  source_count: number;
+}
+
+export interface BreakdownItem {
+  label: string;
+  count: number;
+  percent: number;
+}
+
+export interface MapPoint {
+  id: number;
+  lat: number;
+  lng: number;
+  t: string | null;
+  m: string | null;
+  d: string | null;
+  v: number | null;
+  s: boolean | null;
+  c: string | null;
+  n: string | null;
+  st: string | null;
+  p: string | null;
+}
+
+export interface MapPointsResponse {
+  count: number;
+  points: MapPoint[];
+}
+
+export interface NearbyResponse {
+  center: { lat: number; lng: number };
+  radius_km: number;
+  days: number | null;
+  summary: {
+    total: number;
+    total_victims: number;
+    previous_period_total: number | null;
+    trend_pct: number | null;
+    security_force_involved: number;
+    by_type: BreakdownItem[];
+    by_method: BreakdownItem[];
+  };
+  events: NearbyEvent[];
+}
+
 export interface PaginatedResponse<T> {
   items: T[];
   total: number;
@@ -359,6 +428,49 @@ export async function fetchPublicEvents(
 
 export async function fetchPublicEventById(id: number): Promise<PublicEvent> {
   return fetchJson<PublicEvent>(`${API_BASE}/public/events/${id}`);
+}
+
+// Location / proximity
+export async function geocode(input: { q?: string; cep?: string }): Promise<GeocodeResult> {
+  const params = new URLSearchParams();
+  if (input.cep) params.set('cep', input.cep);
+  if (input.q) params.set('q', input.q);
+  return fetchJson<GeocodeResult>(`${API_BASE}/public/geocode?${params.toString()}`);
+}
+
+export async function fetchNearby(params: {
+  lat: number;
+  lng: number;
+  radiusKm?: number;
+  days?: number;
+  limit?: number;
+}): Promise<NearbyResponse> {
+  const qs = new URLSearchParams();
+  qs.set('lat', params.lat.toString());
+  qs.set('lng', params.lng.toString());
+  if (params.radiusKm != null) qs.set('radius_km', params.radiusKm.toString());
+  if (params.days != null) qs.set('days', params.days.toString());
+  if (params.limit != null) qs.set('limit', params.limit.toString());
+  return fetchJson<NearbyResponse>(`${API_BASE}/public/nearby?${qs.toString()}`);
+}
+
+export async function fetchMapPoints(filters?: {
+  days?: number;
+  type?: string;
+  minLng?: number;
+  minLat?: number;
+  maxLng?: number;
+  maxLat?: number;
+}): Promise<MapPointsResponse> {
+  const qs = new URLSearchParams();
+  if (filters?.days != null) qs.set('days', filters.days.toString());
+  if (filters?.type) qs.set('type', filters.type);
+  if (filters?.minLng != null) qs.set('min_lng', filters.minLng.toString());
+  if (filters?.minLat != null) qs.set('min_lat', filters.minLat.toString());
+  if (filters?.maxLng != null) qs.set('max_lng', filters.maxLng.toString());
+  if (filters?.maxLat != null) qs.set('max_lat', filters.maxLat.toString());
+  const suffix = qs.toString() ? `?${qs.toString()}` : '';
+  return fetchJson<MapPointsResponse>(`${API_BASE}/public/map-points${suffix}`);
 }
 
 // Export URLs

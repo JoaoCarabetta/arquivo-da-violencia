@@ -54,13 +54,25 @@ def get_password_hash(password: str) -> str:
     return pwd_context.hash(password)
 
 
+def _get_admin_credentials() -> dict[str, str]:
+    """Load admin username/password pairs from environment."""
+    creds: dict[str, str] = {}
+    if ADMIN_USERNAME and ADMIN_PASSWORD:
+        creds[ADMIN_USERNAME] = ADMIN_PASSWORD
+    extra = os.getenv("ADMIN_USERS", "")
+    for pair in extra.split(","):
+        pair = pair.strip()
+        if not pair or ":" not in pair:
+            continue
+        user, pwd = pair.split(":", 1)
+        creds[user.strip()] = pwd.strip()
+    return creds
+
+
 def authenticate_user(username: str, password: str) -> bool:
     """Authenticate a user with username and password."""
-    # Simple check against environment variables
-    # In production, this should check against a database
-    if username == ADMIN_USERNAME and password == ADMIN_PASSWORD:
-        return True
-    return False
+    creds = _get_admin_credentials()
+    return creds.get(username) == password
 
 
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:

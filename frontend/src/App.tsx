@@ -1,18 +1,17 @@
-import { useEffect } from 'react';
+import { lazy, Suspense, useEffect, type ComponentProps } from 'react';
 import { BrowserRouter, Routes, Route, useLocation } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { AuthProvider } from '@/contexts/AuthContext';
+import { I18nProvider } from '@/contexts/I18nContext';
 import { ProtectedRoute } from '@/components/ProtectedRoute';
-import { PublicLayout } from '@/components/PublicLayout';
 import { AdminLayout } from '@/components/AdminLayout';
 import { initGA, trackPageView } from '@/lib/analytics';
+import { Loader2 } from 'lucide-react';
 
-// Public pages
-import { Home } from '@/pages/public/Home';
-import { Events } from '@/pages/public/Events';
-import { EventDetail } from '@/pages/public/EventDetail';
-import { Data } from '@/pages/public/Data';
-import { About } from '@/pages/public/About';
+// Map portal — code-split so deck.gl / maplibre (~2.5 MB) load only on public routes
+const MapExplorer = lazy(() =>
+  import('@/pages/public/MapExplorer').then((m) => ({ default: m.MapExplorer }))
+);
 
 // Admin pages
 import { Login } from '@/pages/admin/Login';
@@ -32,15 +31,30 @@ const queryClient = new QueryClient({
   },
 });
 
-// Component to track route changes
+function PortalFallback() {
+  return (
+    <div
+      className="fixed inset-0 flex items-center justify-center"
+      style={{ background: 'var(--stone-100)', color: 'var(--color-text-muted)' }}
+    >
+      <Loader2 className="h-8 w-8 animate-spin" style={{ color: 'var(--blue-500)' }} />
+    </div>
+  );
+}
+
+function MapExplorerRoute(props: ComponentProps<typeof MapExplorer>) {
+  return (
+    <Suspense fallback={<PortalFallback />}>
+      <MapExplorer {...props} />
+    </Suspense>
+  );
+}
+
 function RouteTracker() {
   const location = useLocation();
 
   useEffect(() => {
-    // Initialize GA on first load
     initGA();
-    
-    // Track page view on route change
     trackPageView(location.pathname + location.search, document.title);
   }, [location]);
 
@@ -50,30 +64,29 @@ function RouteTracker() {
 function App() {
   return (
     <QueryClientProvider client={queryClient}>
-      <AuthProvider>
-        <BrowserRouter>
-          <RouteTracker />
-          <Routes>
-            {/* Public routes */}
-            <Route path="/" element={<PublicLayout><Home /></PublicLayout>} />
-            <Route path="/eventos" element={<PublicLayout><Events /></PublicLayout>} />
-            <Route path="/eventos/:id" element={<PublicLayout><EventDetail /></PublicLayout>} />
-            <Route path="/dados" element={<PublicLayout><Data /></PublicLayout>} />
-            <Route path="/sobre" element={<PublicLayout><About /></PublicLayout>} />
-            
-            {/* Admin login */}
-            <Route path="/admin/login" element={<Login />} />
-            
-            {/* Protected admin routes */}
-            <Route path="/admin" element={<ProtectedRoute><AdminLayout><Dashboard /></AdminLayout></ProtectedRoute>} />
-            <Route path="/admin/sources" element={<ProtectedRoute><AdminLayout><Sources /></AdminLayout></ProtectedRoute>} />
-            <Route path="/admin/raw-events" element={<ProtectedRoute><AdminLayout><RawEvents /></AdminLayout></ProtectedRoute>} />
-            <Route path="/admin/raw-events/:id" element={<ProtectedRoute><AdminLayout><RawEventDetail /></AdminLayout></ProtectedRoute>} />
-            <Route path="/admin/unique-events" element={<ProtectedRoute><AdminLayout><UniqueEvents /></AdminLayout></ProtectedRoute>} />
-            <Route path="/admin/jobs" element={<ProtectedRoute><AdminLayout><Jobs /></AdminLayout></ProtectedRoute>} />
-          </Routes>
-        </BrowserRouter>
-      </AuthProvider>
+      <I18nProvider>
+        <AuthProvider>
+          <BrowserRouter>
+            <RouteTracker />
+            <Routes>
+              <Route path="/" element={<MapExplorerRoute initialMode="stats" />} />
+              <Route path="/eventos" element={<MapExplorerRoute initialMode="feed" />} />
+              <Route path="/eventos/:id" element={<MapExplorerRoute initialMode="feed" />} />
+              <Route path="/dados" element={<MapExplorerRoute initialMode="data" />} />
+              <Route path="/sobre" element={<MapExplorerRoute initialMode="stats" initialAbout />} />
+
+              <Route path="/admin/login" element={<Login />} />
+
+              <Route path="/admin" element={<ProtectedRoute><AdminLayout><Dashboard /></AdminLayout></ProtectedRoute>} />
+              <Route path="/admin/sources" element={<ProtectedRoute><AdminLayout><Sources /></AdminLayout></ProtectedRoute>} />
+              <Route path="/admin/raw-events" element={<ProtectedRoute><AdminLayout><RawEvents /></AdminLayout></ProtectedRoute>} />
+              <Route path="/admin/raw-events/:id" element={<ProtectedRoute><AdminLayout><RawEventDetail /></AdminLayout></ProtectedRoute>} />
+              <Route path="/admin/unique-events" element={<ProtectedRoute><AdminLayout><UniqueEvents /></AdminLayout></ProtectedRoute>} />
+              <Route path="/admin/jobs" element={<ProtectedRoute><AdminLayout><Jobs /></AdminLayout></ProtectedRoute>} />
+            </Routes>
+          </BrowserRouter>
+        </AuthProvider>
+      </I18nProvider>
     </QueryClientProvider>
   );
 }
