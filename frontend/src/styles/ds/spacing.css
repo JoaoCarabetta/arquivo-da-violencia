@@ -1,0 +1,64 @@
+/* ============================================================
+   Rio AI Labs — Spacing, radii, shadows, motion
+   ------------------------------------------------------------
+   4px base grid. Soft, low-contrast shadows (Apple-clean).
+   Generous but not pill-everything radii.
+   ============================================================ */
+
+:root {
+  /* ---- Spacing (4px grid) ------------------------------- */
+  --space-0:  0;
+  --space-1:  4px;
+  --space-2:  8px;
+  --space-3:  12px;
+  --space-4:  16px;
+  --space-5:  20px;
+  --space-6:  24px;
+  --space-8:  32px;
+  --space-10: 40px;
+  --space-12: 48px;
+  --space-16: 64px;
+  --space-20: 80px;
+  --space-24: 96px;
+  --space-32: 128px;
+
+  /* ---- Radii -------------------------------------------- */
+  --radius-xs:   4px;
+  --radius-sm:   6px;
+  --radius-md:   10px;
+  --radius-lg:   14px;
+  --radius-xl:   20px;
+  --radius-2xl:  28px;
+  --radius-full: 999px;
+
+  /* ---- Borders ------------------------------------------ */
+  --border-thin:   1px;
+  --border-medium: 1.5px;
+
+  /* ---- Shadows (cool, soft, layered) -------------------- */
+  --shadow-xs: 0 1px 2px rgba(20, 23, 28, 0.06);
+  --shadow-sm: 0 1px 2px rgba(20, 23, 28, 0.06), 0 2px 6px rgba(20, 23, 28, 0.05);
+  --shadow-md: 0 2px 4px rgba(20, 23, 28, 0.05), 0 6px 16px rgba(20, 23, 28, 0.08);
+  --shadow-lg: 0 6px 12px rgba(20, 23, 28, 0.06), 0 18px 40px rgba(20, 23, 28, 0.10);
+  --shadow-xl: 0 12px 24px rgba(20, 23, 28, 0.08), 0 32px 64px rgba(20, 23, 28, 0.14);
+
+  /* Accent glow for primary CTAs / focus emphasis */
+  --shadow-accent: 0 4px 14px color-mix(in oklab, var(--blue-500) 30%, transparent);
+
+  /* Ring used for focus-visible */
+  --ring-focus: 0 0 0 3px var(--color-focus-ring);
+
+  /* ---- Motion ------------------------------------------- */
+  --ease-standard: cubic-bezier(0.2, 0.0, 0.2, 1);
+  --ease-out:      cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-in-out:   cubic-bezier(0.65, 0, 0.35, 1);
+  --duration-fast:   120ms;
+  --duration-normal: 200ms;
+  --duration-slow:   360ms;
+
+  /* ---- Layout ------------------------------------------- */
+  --container-sm:  640px;
+  --container-md:  840px;
+  --container-lg:  1080px;
+  --container-xl:  1280px;
+}

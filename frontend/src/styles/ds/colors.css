@@ -1,0 +1,102 @@
+/* ============================================================
+   Rio AI Labs — Color tokens
+   ------------------------------------------------------------
+   Two families only: a warm neutral "Stone" scale and the
+   signature "Rio Blue" accent. Semantics (success / warning /
+   danger) are kept muted. No orange anywhere — by design.
+   Values are authored in hex with an oklch note for reference.
+   ============================================================ */
+
+:root {
+  /* ---- Neutral · Stone (warm gray) ---------------------- */
+  --stone-50:  #FAFAF8;
+  --stone-100: #F4F4F0;
+  --stone-200: #E9E8E2;
+  --stone-300: #D8D6CE;
+  --stone-400: #B5B3A9;
+  --stone-500: #8B8A80;
+  --stone-600: #65645B;
+  --stone-700: #4A4942;
+  --stone-800: #2E2E29;
+  --stone-900: #1C1C18;
+  --stone-950: #121210;
+
+  /* ---- Accent · Rio Blue (calm deep azure) -------------- */
+  --blue-50:  #EEF4FD;
+  --blue-100: #DAE7FA;
+  --blue-200: #B8CFF4;
+  --blue-300: #8AB0EC;
+  --blue-400: #5588E0;
+  --blue-500: #2F66CF;   /* primary brand accent */
+  --blue-600: #2153B4;
+  --blue-700: #1B4490;
+  --blue-800: #173A75;
+  --blue-900: #15315C;
+  --blue-950: #0E1E3A;
+
+  /* ---- Deep ink / dark surface -------------------------- */
+  --ink-900: #14171C;    /* near-black blue-charcoal */
+  --ink-950: #0C0E12;
+
+  /* ---- Semantic · Success (calm green) ------------------ */
+  --green-50:  #ECF6F0;
+  --green-500: #2E8B66;
+  --green-600: #237155;
+  --green-700: #1B5A43;
+
+  /* ---- Semantic · Warning (gold, never orange) ---------- */
+  --gold-50:  #FBF4E3;
+  --gold-500: #C29220;
+  --gold-600: #9E7616;
+  --gold-700: #7C5C11;
+
+  /* ---- Semantic · Danger (muted red) -------------------- */
+  --red-50:  #FBEEEC;
+  --red-500: #C8473F;
+  --red-600: #A93730;
+  --red-700: #872B26;
+
+  /* ========================================================
+     Semantic aliases — reference these in product code
+     ======================================================== */
+
+  /* Surfaces & backgrounds */
+  --color-bg:             var(--stone-50);
+  --color-surface:        #FFFFFF;
+  --color-surface-sunken: var(--stone-100);
+  --color-surface-raised: #FFFFFF;
+  --color-overlay:        color-mix(in oklab, var(--ink-950) 55%, transparent);
+  --color-ink-bg:         var(--ink-900);
+
+  /* Text */
+  --color-text:        var(--stone-900);
+  --color-text-muted:  var(--stone-600);
+  --color-text-subtle: var(--stone-500);
+  --color-text-onAccent: #FFFFFF;
+  --color-text-onInk:  var(--stone-100);
+  --color-text-onInk-muted: color-mix(in oklab, var(--stone-100) 62%, transparent);
+
+  /* Borders & lines */
+  --color-border:        var(--stone-200);
+  --color-border-strong: var(--stone-300);
+  --color-border-onInk:  color-mix(in oklab, #FFFFFF 12%, transparent);
+
+  /* Accent */
+  --color-accent:        var(--blue-500);
+  --color-accent-hover:  var(--blue-600);
+  --color-accent-press:  var(--blue-700);
+  --color-accent-soft:   var(--blue-50);
+  --color-accent-softText: var(--blue-700);
+  --color-link:          var(--blue-600);
+
+  /* Focus */
+  --color-focus-ring: color-mix(in oklab, var(--blue-500) 45%, transparent);
+
+  /* Semantic surfaces/text */
+  --color-success:     var(--green-600);
+  --color-success-bg:  var(--green-50);
+  --color-warning:     var(--gold-600);
+  --color-warning-bg:  var(--gold-50);
+  --color-danger:      var(--red-600);
+  --color-danger-bg:   var(--red-50);
+}

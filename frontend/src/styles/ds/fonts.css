@@ -1,0 +1,12 @@
+/* ============================================================
+   Rio AI Labs — Webfonts
+   ------------------------------------------------------------
+   Primary sans:  Geist        (UI, body, headings)
+   Display serif: Newsreader    (editorial headlines, quotes)
+   Mono:          Geist Mono    (code, eyebrows, technical labels)
+
+   Fonts are loaded from the Google Fonts CDN for reliable
+   rendering.
+   ============================================================ */
+
+@import url('https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600;700&family=Geist+Mono:wght@400;500;600&family=Newsreader:ital,opsz,wght@0,6..72,300;0,6..72,400;0,6..72,500;0,6..72,600;1,6..72,400&display=swap');

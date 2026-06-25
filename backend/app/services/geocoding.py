@@ -20,6 +20,7 @@ Design notes:
 """
 
 import asyncio
+import re
 from decimal import Decimal
 
 import httpx
@@ -241,6 +242,143 @@ async def geocode_address(
         return None
 
     return parse_geocode_result(results[0], input_granularity)
+
+
+NOMINATIM_URL = "https://nominatim.openstreetmap.org/search"
+NOMINATIM_USER_AGENT = "arquivo-da-violencia/1.0 (+https://arquivodaviolencia.com.br)"
+
+
+VIACEP_URL = "https://viacep.com.br/ws/{cep}/json/"
+
+
+def normalize_cep(value: str) -> str | None:
+    """
+    Return a canonical "XXXXX-XXX" CEP if `value` is a Brazilian postal code
+    (8 digits, with or without a dash/spaces), otherwise None.
+    """
+    if not value:
+        return None
+    digits = re.sub(r"\D", "", value)
+    if len(digits) == 8:
+        return f"{digits[:5]}-{digits[5:]}"
+    return None
+
+
+async def cep_to_address(cep: str, client: httpx.AsyncClient | None = None) -> str | None:
+    """
+    Resolve a CEP to a human address string via ViaCEP (free, no key).
+
+    Raw CEPs geocode poorly on OpenStreetMap, but the street/neighborhood/city
+    that ViaCEP returns geocodes reliably. Returns None if the CEP is unknown.
+    """
+    digits = re.sub(r"\D", "", cep)
+    if len(digits) != 8:
+        return None
+
+    owns_client = client is None
+    if owns_client:
+        client = httpx.AsyncClient(timeout=10.0)
+    try:
+        response = await client.get(VIACEP_URL.format(cep=digits))
+        response.raise_for_status()
+        data = response.json()
+    except (httpx.HTTPError, ValueError) as e:
+        logger.error(f"[Geocode] ViaCEP request failed for '{cep}': {e}")
+        return None
+    finally:
+        if owns_client:
+            await client.aclose()
+
+    if not isinstance(data, dict) or data.get("erro"):
+        return None
+
+    parts = [
+        data.get("logradouro"),
+        data.get("bairro"),
+        data.get("localidade"),
+        data.get("uf"),
+        "Brasil",
+    ]
+    address = ", ".join(p for p in parts if p)
+    return address or None
+
+
+async def geocode_user_query(
+    query: str,
+    client: httpx.AsyncClient | None = None,
+) -> dict | None:
+    """
+    Geocode a free-form user query (CEP, city, neighborhood) into coordinates.
+
+    Used by the public "nearby" search so a visitor can type where they are.
+    Prefers Google Maps (when a key is configured) and falls back to the free
+    Nominatim/OpenStreetMap service so the feature works without a key.
+
+    Returns {latitude, longitude, label, source} or None.
+    """
+    query = (query or "").strip()
+    if not query:
+        return None
+    # Accept CEPs with or without a dash (e.g. "22221150" or "22221-150").
+    # Resolve them through ViaCEP first since raw CEPs geocode poorly on OSM.
+    cep = normalize_cep(query)
+    if cep:
+        address = await cep_to_address(cep, client=client)
+        query = address or f"{cep}, Brasil"
+    elif "brasil" not in query.lower() and "brazil" not in query.lower():
+        query = f"{query}, Brasil"
+
+    settings = get_settings()
+    if settings.google_maps_api_key:
+        fields = await geocode_address(query, PRECISION_CITY, client=client)
+        if fields and fields.get("latitude") is not None:
+            return {
+                "latitude": float(fields["latitude"]),
+                "longitude": float(fields["longitude"]),
+                "label": fields.get("formatted_address") or query,
+                "source": GEOCODING_SOURCE,
+            }
+
+    # Free fallback: Nominatim (no API key required).
+    params = {
+        "q": query,
+        "format": "json",
+        "limit": 1,
+        "countrycodes": "br",
+        "accept-language": "pt-BR",
+    }
+    owns_client = client is None
+    if owns_client:
+        client = httpx.AsyncClient(timeout=15.0)
+    try:
+        response = await client.get(
+            NOMINATIM_URL,
+            params=params,
+            headers={"User-Agent": NOMINATIM_USER_AGENT},
+        )
+        response.raise_for_status()
+        results = response.json()
+    except (httpx.HTTPError, ValueError) as e:
+        logger.error(f"[Geocode] Nominatim request failed for '{query}': {e}")
+        return None
+    finally:
+        if owns_client:
+            await client.aclose()
+
+    if not results:
+        logger.info(f"[Geocode] Nominatim: no results for '{query}'")
+        return None
+
+    top = results[0]
+    try:
+        return {
+            "latitude": float(top["lat"]),
+            "longitude": float(top["lon"]),
+            "label": top.get("display_name") or query,
+            "source": "nominatim",
+        }
+    except (KeyError, ValueError, TypeError):
+        return None
 
 
 async def geocode_unique_event(
