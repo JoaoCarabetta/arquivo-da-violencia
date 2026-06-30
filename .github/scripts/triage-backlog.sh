@@ -31,7 +31,7 @@ categorize_issue() {
   local type="enhancement"
   local areas=()
 
-  if [[ "$lower" == *bug* ]] || [[ "$lower" == *fix* ]] || [[ "$lower" == *broken* ]] || [[ "$lower" == *not showing* ]]; then
+  if [[ "$lower" == *bug* ]] || [[ "$lower" == *fix* ]] || [[ "$lower" == *broken* ]] || [[ "$lower" == *"not showing"* ]]; then
     type="bug"
   elif [[ "$lower" == *doc* ]]; then
     type="documentation"
