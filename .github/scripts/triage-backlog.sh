@@ -58,6 +58,20 @@ categorize_issue() {
   printf '%s\n' "${areas[@]}"
 }
 
+apply_labels() {
+  local number="$1"
+  local issue_type="$2"
+  shift 2
+  local -a areas=("$@")
+
+  local labels=("$issue_type" "status/todo")
+  labels+=("${areas[@]}")
+
+  gh issue edit "$number" --repo "$REPO" \
+    --remove-label "status/backlog,area/pipeline,area/frontend,area/backend,area/geocoding,area/infra,bug,documentation,enhancement" \
+    --add-label "$(IFS=,; echo "${labels[*]}")"
+}
+
 move_to_todo() {
   local number="$1"
   local title="$2"
@@ -66,13 +80,7 @@ move_to_todo() {
   local issue_type="${categorization[0]}"
   local -a areas=("${categorization[@]:1}")
 
-  local labels=("$issue_type" "status/todo")
-  labels+=("${areas[@]}")
-
-  # Remove backlog status if present; set todo + category labels.
-  gh issue edit "$number" --repo "$REPO" \
-    --remove-label "status/backlog" \
-    --add-label "$(IFS=,; echo "${labels[*]}")"
+  apply_labels "$number" "$issue_type" "${areas[@]}"
 
   local area_list
   area_list="$(printf '`%s` ' "${areas[@]}")"
@@ -92,12 +100,27 @@ EOF
   echo "Triaged #$number: type=$issue_type areas=${areas[*]}"
 }
 
+refresh_todo_labels() {
+  local number="$1"
+  local title="$2"
+
+  mapfile -t categorization < <(categorize_issue "$title")
+  local issue_type="${categorization[0]}"
+  local -a areas=("${categorization[@]:1}")
+
+  apply_labels "$number" "$issue_type" "${areas[@]}"
+  echo "Refreshed #$number labels: type=$issue_type areas=${areas[*]}"
+}
+
 echo "=== Triage backlog for $REPO ==="
 
-# Open issues without status/todo or status/in-progress or status/done are backlog candidates.
 while IFS=$'\t' read -r number title labels; do
-  if [[ "$labels" == *"status/todo"* ]] || [[ "$labels" == *"status/in-progress"* ]] || [[ "$labels" == *"status/done"* ]]; then
-    echo "Skipping #$number (already past backlog)"
+  if [[ "$labels" == *"status/in-progress"* ]] || [[ "$labels" == *"status/done"* ]]; then
+    echo "Skipping #$number (in progress or done)"
+    continue
+  fi
+  if [[ "$labels" == *"status/todo"* ]]; then
+    refresh_todo_labels "$number" "$title"
     continue
   fi
   move_to_todo "$number" "$title"
