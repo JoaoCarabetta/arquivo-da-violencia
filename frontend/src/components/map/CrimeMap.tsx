@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useCallback } from 'react';
+import { useEffect, useMemo, useRef, useCallback, useState } from 'react';
 import DeckGL from '@deck.gl/react';
 import { Map } from 'react-map-gl/maplibre';
 import { GridLayer } from '@deck.gl/aggregation-layers';
@@ -35,8 +35,7 @@ export interface ViewportSnapshot {
 interface CrimeMapProps {
   points: MapPoint[];
   viewState: MapViewState;
-  onViewStateChange: (vs: MapViewState) => void;
-  /** Debounced (~100ms) — drives panel stats, not map rendering. */
+  /** Called when the viewport stops moving (debounced). Drives panel stats. */
   onViewportSettled?: (snapshot: ViewportSnapshot) => void;
   onPointClick: (id: number) => void;
   onCellClick?: (coordinate: [number, number]) => void;
@@ -44,7 +43,7 @@ interface CrimeMapProps {
   searchedLocation?: { lat: number; lng: number } | null;
 }
 
-const DEFAULT_MAP_STYLE = 'https://tiles.openfreemap.org/styles/liberty';
+const DEFAULT_MAP_STYLE = 'https://basemaps.cartocdn.com/gl/positron-gl-style/style.json';
 const MAP_STYLE = import.meta.env.VITE_MAP_STYLE || DEFAULT_MAP_STYLE;
 
 const COLOR_RANGE: [number, number, number][] = [
@@ -55,8 +54,11 @@ const COLOR_RANGE: [number, number, number][] = [
   [135, 43, 38],
 ];
 
-const BOUNDS_DEBOUNCE_MS = 100;
+/** Debounce panel stats updates — avoids recomputing RightPanel on every zoom frame. */
+const BOUNDS_DEBOUNCE_MS = 200;
 const SCATTER_ZOOM_THRESHOLD = 12;
+/** Skip viewport culling below this count (cheaper to pass all points). */
+const CULL_MIN_POINTS = 1500;
 
 function cellSizeForZoom(zoom: number): number {
   if (zoom < 5) return 40000;
@@ -88,10 +90,28 @@ function boundsFromView(
   }
 }
 
+function expandBounds(bounds: MapBounds, padding: number): MapBounds {
+  const [[minLng, minLat], [maxLng, maxLat]] = bounds;
+  const padLng = (maxLng - minLng) * padding;
+  const padLat = (maxLat - minLat) * padding;
+  return [
+    [minLng - padLng, minLat - padLat],
+    [maxLng + padLng, maxLat + padLat],
+  ];
+}
+
+function cullPointsToBounds(points: MapPoint[], bounds: MapBounds | null): MapPoint[] {
+  if (!bounds || points.length < CULL_MIN_POINTS) return points;
+  return pointsInBounds(points, expandBounds(bounds, 0.25));
+}
+
+function viewStateKey(vs: MapViewState): string {
+  return `${vs.longitude},${vs.latitude},${vs.zoom},${vs.transitionDuration ?? 0}`;
+}
+
 export function CrimeMap({
   points,
-  viewState,
-  onViewStateChange,
+  viewState: viewStateProp,
   onViewportSettled,
   onPointClick,
   onCellClick,
@@ -104,33 +124,34 @@ export function CrimeMap({
   const onViewportSettledRef = useRef(onViewportSettled);
   const onPointClickRef = useRef(onPointClick);
   const onCellClickRef = useRef(onCellClick);
+  const externalViewKeyRef = useRef(viewStateKey(viewStateProp));
+
+  // Local view state keeps zoom/pan off the React root — MapExplorer no longer
+  // re-renders RightPanel on every animation frame.
+  const [localViewState, setLocalViewState] = useState<MapViewState>(viewStateProp);
+  const [renderBounds, setRenderBounds] = useState<MapBounds | null>(null);
 
   onViewportSettledRef.current = onViewportSettled;
   onPointClickRef.current = onPointClick;
   onCellClickRef.current = onCellClick;
 
-  const showScatter = viewState.zoom >= SCATTER_ZOOM_THRESHOLD;
-  const gridZoom = Math.floor(viewState.zoom);
+  // Sync programmatic moves (flyTo, cell click, event select) from parent.
+  useEffect(() => {
+    const key = viewStateKey(viewStateProp);
+    if (key !== externalViewKeyRef.current) {
+      externalViewKeyRef.current = key;
+      setLocalViewState(viewStateProp);
+    }
+  }, [viewStateProp]);
 
-  const scheduleViewportSettled = useCallback((vs: MapViewState) => {
+  const showScatter = localViewState.zoom >= SCATTER_ZOOM_THRESHOLD;
+  const gridZoom = Math.floor(localViewState.zoom);
+
+  const emitViewportSettled = useCallback((vs: MapViewState) => {
     if (!onViewportSettledRef.current) return;
     const bounds = boundsFromView(vs, sizeRef.current);
     if (!bounds) return;
-
-    if (settleTimerRef.current) clearTimeout(settleTimerRef.current);
-    settleTimerRef.current = setTimeout(() => {
-      onViewportSettledRef.current?.({
-        bounds,
-        zoom: vs.zoom,
-        longitude: vs.longitude,
-      });
-    }, BOUNDS_DEBOUNCE_MS);
-  }, []);
-
-  const emitViewportSettledImmediate = useCallback((vs: MapViewState) => {
-    if (!onViewportSettledRef.current) return;
-    const bounds = boundsFromView(vs, sizeRef.current);
-    if (!bounds) return;
+    setRenderBounds(bounds);
     onViewportSettledRef.current({
       bounds,
       zoom: vs.zoom,
@@ -138,12 +159,20 @@ export function CrimeMap({
     });
   }, []);
 
+  const scheduleViewportSettled = useCallback(
+    (vs: MapViewState) => {
+      if (settleTimerRef.current) clearTimeout(settleTimerRef.current);
+      settleTimerRef.current = setTimeout(() => emitViewportSettled(vs), BOUNDS_DEBOUNCE_MS);
+    },
+    [emitViewportSettled]
+  );
+
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
     const update = () => {
       sizeRef.current = { width: el.clientWidth, height: el.clientHeight };
-      emitViewportSettledImmediate(viewState);
+      emitViewportSettled(localViewState);
     };
     update();
     const ro = new ResizeObserver(update);
@@ -153,14 +182,18 @@ export function CrimeMap({
       if (settleTimerRef.current) clearTimeout(settleTimerRef.current);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [emitViewportSettledImmediate]);
+  }, [emitViewportSettled]);
+
+  // Layer data updates on viewport settle (not every zoom frame).
+  const gridData = useMemo(
+    () => (showScatter ? [] : cullPointsToBounds(points, renderBounds)),
+    [points, showScatter, renderBounds, gridZoom]
+  );
 
   const scatterData = useMemo(() => {
     if (!showScatter) return [];
-    const bounds = boundsFromView(viewState, sizeRef.current);
-    if (!bounds) return [];
-    return capPoints(pointsInBounds(points, bounds));
-  }, [points, showScatter, viewState.longitude, viewState.latitude, viewState.zoom]);
+    return capPoints(cullPointsToBounds(points, renderBounds));
+  }, [points, showScatter, renderBounds, gridZoom]);
 
   const layers = useMemo(() => {
     const result: Layer[] = [];
@@ -196,13 +229,14 @@ export function CrimeMap({
       result.push(
         new GridLayer<MapPoint>({
           id: 'events-grid',
-          data: points,
+          data: gridData,
           getPosition: (d) => [d.lng, d.lat],
           cellSize: cellSizeForZoom(gridZoom),
           colorRange: COLOR_RANGE,
           extruded: false,
           pickable: true,
           opacity: 0.78,
+          gpuAggregation: true,
           onClick: (info: PickingInfo) => {
             if (info.coordinate) onCellClickRef.current?.(info.coordinate as [number, number]);
             return true;
@@ -230,17 +264,17 @@ export function CrimeMap({
     }
 
     return result;
-  }, [points, scatterData, showScatter, gridZoom, searchedLocation, selectedId]);
+  }, [gridData, scatterData, showScatter, gridZoom, searchedLocation, selectedId]);
 
   return (
     <div ref={containerRef} className="absolute inset-0">
       <DeckGL
-        viewState={viewState as unknown as DeckViewState}
+        viewState={localViewState as unknown as DeckViewState}
         controller={true}
         layers={layers}
         onViewStateChange={(params) => {
           const vs = params.viewState as unknown as MapViewState;
-          onViewStateChange(vs);
+          setLocalViewState(vs);
           scheduleViewportSettled(vs);
         }}
         getTooltip={({ object }: PickingInfo) => {

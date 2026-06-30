@@ -188,7 +188,6 @@ export function MapExplorer({ initialMode = 'stats', initialAbout = false }: Map
         <CrimeMap
           points={filteredPoints}
           viewState={viewState}
-          onViewStateChange={setViewState}
           onViewportSettled={handleViewportSettled}
           onPointClick={onSelect}
           onCellClick={onCellClick}
