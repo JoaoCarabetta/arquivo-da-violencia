@@ -166,6 +166,10 @@ frontend/node_modules/*
 *.out
 
 *.db
+
+# Redis dump (runtime artifact, e.g. when running redis-server from the repo root)
+*.rdb
+
 *.cursor/*
 
 scripts/*
