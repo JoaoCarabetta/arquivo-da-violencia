@@ -46,7 +46,7 @@ categorize_issue() {
   if [[ "$lower" == *ui* ]] || [[ "$lower" == *sidebar* ]] || [[ "$lower" == *table* ]] || [[ "$lower" == *portal* ]] || [[ "$lower" == *frontend* ]]; then
     areas+=("area/frontend")
   fi
-  if [[ "$lower" == *docker* ]] || [[ "$lower" == *deploy* ]] || [[ "$lower" == *ci* ]] || [[ "$lower" == *infra* ]]; then
+  if [[ "$lower" == *docker* ]] || [[ "$lower" == *deploy* ]] || [[ "$lower" == *"ci/cd"* ]] || [[ "$lower" == *infra* ]]; then
     areas+=("area/infra")
   fi
 
