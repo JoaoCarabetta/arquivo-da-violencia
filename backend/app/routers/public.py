@@ -224,6 +224,7 @@ async def geocode_location(
         "label": result["label"],
         "source": result["source"],
         "query": query,
+        "zoom": result.get("zoom"),
     }
 
 

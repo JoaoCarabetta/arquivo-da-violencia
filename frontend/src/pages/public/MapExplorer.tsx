@@ -73,10 +73,10 @@ export function MapExplorer({ initialMode = 'stats', initialAbout = false }: Map
   const availablePeriods = useMemo(() => distinctValues(allPoints, 'p'), [allPoints]);
 
   const filteredPoints = useMemo(() => applyFilters(allPoints, filters), [allPoints, filters]);
-  const pointsInView = useMemo(
-    () => pointsInBounds(filteredPoints, panelBounds),
-    [filteredPoints, panelBounds]
-  );
+  const pointsInView = useMemo(() => {
+    if (!panelBounds) return filteredPoints;
+    return pointsInBounds(filteredPoints, panelBounds);
+  }, [filteredPoints, panelBounds]);
 
   const canReset = panelZoom > 4.2 || Math.abs(panelLng - BRAZIL_VIEW.longitude) > 6;
   const filtersActive = hasActiveFilters(filters);

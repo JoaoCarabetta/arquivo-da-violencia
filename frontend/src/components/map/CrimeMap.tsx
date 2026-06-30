@@ -44,7 +44,8 @@ interface CrimeMapProps {
   searchedLocation?: { lat: number; lng: number } | null;
 }
 
-const MAP_STYLE = 'https://basemaps.cartocdn.com/gl/positron-gl-style/style.json';
+const DEFAULT_MAP_STYLE = 'https://tiles.openfreemap.org/styles/liberty';
+const MAP_STYLE = import.meta.env.VITE_MAP_STYLE || DEFAULT_MAP_STYLE;
 
 const COLOR_RANGE: [number, number, number][] = [
   [247, 198, 192],

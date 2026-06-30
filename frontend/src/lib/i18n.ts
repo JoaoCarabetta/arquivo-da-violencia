@@ -13,6 +13,7 @@ export interface Strings {
   tagline: string;
   searchPlaceholder: string;
   noResults: string;
+  geocodeFailed: string;
   navMap: string;
   navFeed: string;
   navData: string;
@@ -70,9 +71,10 @@ export interface Strings {
 }
 
 const PT: Strings = {
-  tagline: 'Arquivo público de mortes violentas no Brasil',
-  searchPlaceholder: 'Buscar cidade, bairro ou estado',
+  tagline: 'Arquivo público de mortes violentas reportadas no Brasil',
+  searchPlaceholder: 'Buscar cidade, bairro, estado ou CEP',
   noResults: 'Nenhum local encontrado',
+  geocodeFailed: 'Não foi possível localizar esse endereço',
   navMap: 'Mapa',
   navFeed: 'Linha do tempo',
   navData: 'Dados',
@@ -123,20 +125,21 @@ const PT: Strings = {
   loadingEvent: 'Carregando evento',
   eventNotFound: 'Evento não encontrado.',
   aboutEyebrow: 'Sobre o projeto',
-  aboutTitle: 'Um registro do que os números escondem',
+  aboutTitle: 'Um registro do que os dados oficiais nem sempre reportam',
   aboutP1:
-    'O Arquivo da Violência reúne, em um só lugar, mortes violentas ocorridas no Brasil. Cada evento é extraído automaticamente de reportagens da imprensa, geolocalizado e estruturado em campos comparáveis.',
+    'O Arquivo da Violência reúne, em um só lugar e em tempo real, as mortes violentas noticiadas no Brasil. Cada evento é extraído automaticamente de reportagens da imprensa, geolocalizado e informações sobre a morte são estruturadas em campos comparáveis. Incluímos informações que nem sempre estão disponíveis em dados oficiais, como a geolocalização estimada e o método violento utilizado.',
   aboutP2:
-    'O objetivo é tornar visível a escala e a distribuição da violência — por bairro, cidade e período — e oferecer os dados abertos para jornalistas, pesquisadores e a sociedade.',
+    'Nosso objetivo é tornar visíveis a escala e a distribuição da violência — por bairro, cidade, CEP e período. Oferecemos os dados abertos para jornalistas, pesquisadores e a sociedade, para qualificar o debate e a tomada de decisão sobre segurança pública no país.',
   disclaimerLabel: 'Aviso',
   disclaimer:
-    'Os dados são extraídos automaticamente de reportagens jornalísticas e podem conter imprecisões. Use-os como referência, não como registro oficial.',
+    'Nossos dados sobre mortes violentas são obtidos a partir de reportagens jornalísticas e as informações são extraídas automaticamente do texto das notícias. Trabalhamos para que essas informações sejam as mais precisas possível. Embora adotemos procedimentos para garantir sua qualidade, alguns casos podem não ser reportados pela imprensa, não constando em nossas bases, e as informações refletem possíveis imprecisões presentes nas notícias. Por isso, o Arquivo da Violência deve ser utilizado como uma fonte de referência e não substitui os registros oficiais.',
 };
 
 const EN: Strings = {
-  tagline: 'A public archive of violent deaths in Brazil',
-  searchPlaceholder: 'Search city, neighborhood or state',
+  tagline: 'A public archive of violent deaths reported in Brazil',
+  searchPlaceholder: 'Search city, neighborhood, state or ZIP',
   noResults: 'No place found',
+  geocodeFailed: 'Could not locate that address',
   navMap: 'Map',
   navFeed: 'Timeline',
   navData: 'Data',
@@ -187,14 +190,14 @@ const EN: Strings = {
   loadingEvent: 'Loading event',
   eventNotFound: 'Event not found.',
   aboutEyebrow: 'About the project',
-  aboutTitle: 'A record of what the numbers hide',
+  aboutTitle: 'A record of what official data does not always report',
   aboutP1:
-    'Arquivo da Violência gathers, in one place, violent deaths that occurred in Brazil. Each event is automatically extracted from news reporting, geolocated and structured into comparable fields.',
+    'Arquivo da Violência gathers, in one place and in near real time, violent deaths reported in the news across Brazil. Each event is automatically extracted from press reports, geolocated and structured into comparable fields. We include information not always available in official data, such as estimated geolocation and the violent method used.',
   aboutP2:
-    'The goal is to make the scale and distribution of violence visible — by neighborhood, city and period — and to offer the data openly to journalists, researchers and society.',
+    'Our goal is to make the scale and distribution of violence visible — by neighborhood, city, postal code and period — and to offer open data to journalists, researchers and society, to inform debate and public-security decision-making.',
   disclaimerLabel: 'Notice',
   disclaimer:
-    'Data is automatically extracted from news reporting and may contain inaccuracies. Use it as a reference, not as an official record.',
+    'Our data on violent deaths comes from news reports and information is automatically extracted from article text. We work to keep this information as accurate as possible. Although we follow procedures to ensure quality, some cases may not be reported by the press and therefore do not appear in our database, and the information may reflect inaccuracies present in the news. For this reason, Arquivo da Violência should be used as a reference source and does not replace official records.',
 };
 
 export function strings(lang: Lang): Strings {

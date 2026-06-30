@@ -194,6 +194,7 @@ export interface GeocodeResult {
   label: string;
   source: string;
   query: string;
+  zoom?: number;
 }
 
 export interface NearbyEvent {
