@@ -64,12 +64,21 @@ apply_labels() {
   shift 2
   local -a areas=("$@")
 
-  local labels=("$issue_type" "status/todo")
-  labels+=("${areas[@]}")
-
   gh issue edit "$number" --repo "$REPO" \
-    --remove-label "status/backlog,area/pipeline,area/frontend,area/backend,area/geocoding,area/infra,bug,documentation,enhancement" \
-    --add-label "$(IFS=,; echo "${labels[*]}")"
+    --remove-label "status/backlog" \
+    --remove-label "area/pipeline" \
+    --remove-label "area/frontend" \
+    --remove-label "area/backend" \
+    --remove-label "area/geocoding" \
+    --remove-label "area/infra" \
+    --remove-label "bug" \
+    --remove-label "documentation" \
+    --remove-label "enhancement"
+
+  gh issue edit "$number" --repo "$REPO" --add-label "$issue_type" --add-label "status/todo"
+  for area in "${areas[@]}"; do
+    gh issue edit "$number" --repo "$REPO" --add-label "$area"
+  done
 }
 
 move_to_todo() {
