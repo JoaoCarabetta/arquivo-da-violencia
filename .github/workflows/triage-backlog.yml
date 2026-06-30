@@ -1,0 +1,29 @@
+# =============================================================================
+# Backlog Triage Workflow
+# =============================================================================
+# Hourly triage of open GitHub issues: categorize with labels and move to Todo.
+# Complements the Cursor automation; runs with issues:write via GITHUB_TOKEN.
+# =============================================================================
+
+name: Triage Backlog
+
+on:
+  schedule:
+    - cron: '0 * * * *'
+  workflow_dispatch:
+
+permissions:
+  issues: write
+
+jobs:
+  triage:
+    name: Categorize and move backlog → Todo
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Triage open backlog issues
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: bash .github/scripts/triage-backlog.sh
