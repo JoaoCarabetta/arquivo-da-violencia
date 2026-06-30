@@ -1,15 +1,16 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { FlyToInterpolator } from '@deck.gl/core';
 import { Loader2 } from 'lucide-react';
-import { fetchMapPoints } from '@/lib/api';
+import { fetchMapPoints, fetchPublicStats } from '@/lib/api';
 import { useI18n } from '@/contexts/I18nContext';
 import { CrimeMap, type MapViewState, type MapBounds, type ViewportSnapshot } from '@/components/map/CrimeMap';
 import { LeftRail } from '@/components/portal/LeftRail';
 import { SearchCard, type LocatedPlace } from '@/components/portal/SearchCard';
 import { RightPanel } from '@/components/portal/RightPanel';
 import { AboutModal } from '@/components/portal/AboutModal';
+import { MethodologyPanel } from '@/components/portal/MethodologyPanel';
 import { DensityLegend } from '@/components/portal/DensityLegend';
 import {
   EMPTY_FILTERS,
@@ -43,10 +44,16 @@ const PATH_FOR: Record<PortalMode, string> = {
 interface MapExplorerProps {
   initialMode?: PortalMode;
   initialAbout?: boolean;
+  initialMethodology?: boolean;
 }
 
-export function MapExplorer({ initialMode = 'stats', initialAbout = false }: MapExplorerProps) {
+export function MapExplorer({
+  initialMode = 'stats',
+  initialAbout = false,
+  initialMethodology = false,
+}: MapExplorerProps) {
   const navigate = useNavigate();
+  const location = useLocation();
   const { id } = useParams();
   const { t } = useI18n();
 
@@ -60,11 +67,20 @@ export function MapExplorer({ initialMode = 'stats', initialAbout = false }: Map
   const [filters, setFilters] = useState<PortalFilters>(EMPTY_FILTERS);
   const [searchedLocation, setSearchedLocation] = useState<{ lat: number; lng: number } | null>(null);
   const [aboutOpen, setAboutOpen] = useState(initialAbout);
+  const [methodologyOpen, setMethodologyOpen] = useState(initialMethodology);
 
   const { data, isLoading } = useQuery({
     queryKey: ['map-points', MAP_DAYS],
     queryFn: () => fetchMapPoints({ days: MAP_DAYS }),
   });
+
+  const { data: publicStats } = useQuery({
+    queryKey: ['public-stats'],
+    queryFn: fetchPublicStats,
+    staleTime: 60_000,
+  });
+
+  const sinceDate = publicStats?.since ?? null;
 
   const allPoints = useMemo(() => data?.points ?? [], [data]);
 
@@ -170,19 +186,40 @@ export function MapExplorer({ initialMode = 'stats', initialAbout = false }: Map
     });
   }, []);
 
-  const openAbout = useCallback(() => setAboutOpen(true), []);
-  const closeAbout = useCallback(() => setAboutOpen(false), []);
+  const openAbout = useCallback(() => {
+    setAboutOpen(true);
+    if (location.pathname === '/metodologia') navigate('/');
+  }, [location.pathname, navigate]);
+
+  const closeAbout = useCallback(() => {
+    setAboutOpen(false);
+    if (location.pathname === '/sobre') navigate('/');
+  }, [location.pathname, navigate]);
+
+  const openMethodology = useCallback(() => {
+    setMethodologyOpen(true);
+    if (location.pathname === '/sobre') setAboutOpen(false);
+  }, [location.pathname]);
+
+  const closeMethodology = useCallback(() => {
+    setMethodologyOpen(false);
+    if (location.pathname === '/metodologia') navigate('/');
+  }, [location.pathname, navigate]);
 
   useEffect(() => {
     setAboutOpen(initialAbout);
   }, [initialAbout]);
+
+  useEffect(() => {
+    setMethodologyOpen(initialMethodology);
+  }, [initialMethodology]);
 
   return (
     <div
       className="fixed inset-0 flex overflow-hidden"
       style={{ background: 'var(--stone-100)', color: 'var(--color-text)' }}
     >
-      <LeftRail mode={mode} onMode={onMode} onAbout={openAbout} />
+      <LeftRail mode={mode} onMode={onMode} onAbout={openAbout} onMethodology={openMethodology} />
 
       <div className="relative min-w-0 flex-1">
         <CrimeMap
@@ -207,12 +244,13 @@ export function MapExplorer({ initialMode = 'stats', initialAbout = false }: Map
           </div>
         )}
 
-        <SearchCard points={allPoints} onLocate={onLocate} />
+        <SearchCard points={allPoints} since={sinceDate} onLocate={onLocate} />
         <DensityLegend />
       </div>
 
       <RightPanel
         mode={mode}
+        sinceDate={sinceDate}
         pointsInView={pointsInView}
         filteredCount={filteredPoints.length}
         filters={filters}
@@ -229,7 +267,13 @@ export function MapExplorer({ initialMode = 'stats', initialAbout = false }: Map
         onResetView={onResetView}
       />
 
-      <AboutModal open={aboutOpen} onClose={closeAbout} />
+      <AboutModal
+        open={aboutOpen}
+        onClose={closeAbout}
+        since={sinceDate}
+        onOpenMethodology={openMethodology}
+      />
+      <MethodologyPanel open={methodologyOpen} onClose={closeMethodology} since={sinceDate} />
     </div>
   );
 }

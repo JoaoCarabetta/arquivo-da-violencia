@@ -4,6 +4,7 @@ import { useI18n } from '@/contexts/I18nContext';
 import { geocode, type MapPoint } from '@/lib/api';
 import { ufName } from '@/lib/i18n';
 import { fmtNumber } from '@/lib/i18n';
+import { TemporalScopeNote } from '@/components/portal/TemporalScopeNote';
 
 export interface LocatedPlace {
   lat: number;
@@ -14,6 +15,7 @@ export interface LocatedPlace {
 
 interface SearchCardProps {
   points: MapPoint[];
+  since: string | null;
   onLocate: (place: LocatedPlace) => void;
 }
 
@@ -78,7 +80,7 @@ function isBrazilQuery(text: string): boolean {
   return /^(brasil|brazil)$/i.test(text.trim());
 }
 
-export const SearchCard = memo(function SearchCard({ points, onLocate }: SearchCardProps) {
+export const SearchCard = memo(function SearchCard({ points, since, onLocate }: SearchCardProps) {
   const { t, lang } = useI18n();
   const [query, setQuery] = useState('');
   const [geocoding, setGeocoding] = useState(false);
@@ -179,6 +181,9 @@ export const SearchCard = memo(function SearchCard({ points, onLocate }: SearchC
           </div>
           <div className="mt-px" style={{ fontSize: 11.5, color: 'var(--color-text-muted)' }}>
             {t.tagline}
+          </div>
+          <div className="mt-1">
+            <TemporalScopeNote since={since} variant="inline" />
           </div>
         </div>
 

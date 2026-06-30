@@ -15,6 +15,7 @@ import {
   ufName,
   dictionaryRows,
 } from '@/lib/i18n';
+import { TemporalScopeNote } from './TemporalScopeNote';
 import {
   computeStats,
   buildTrendMonths,
@@ -26,6 +27,7 @@ type FilterGroup = 'types' | 'methods' | 'periods';
 
 interface RightPanelProps {
   mode: PortalMode;
+  sinceDate: string | null;
   pointsInView: MapPoint[];
   filteredCount: number;
   filters: PortalFilters;
@@ -118,6 +120,9 @@ function PanelContent(props: RightPanelProps) {
               {t.reset}
             </button>
           )}
+        </div>
+        <div className="mt-2">
+          <TemporalScopeNote since={props.sinceDate} />
         </div>
       </div>
 

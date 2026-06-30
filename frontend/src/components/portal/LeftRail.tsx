@@ -1,5 +1,5 @@
 import { memo } from 'react';
-import { LayoutGrid, List, Download, Info, Globe, MapPin } from 'lucide-react';
+import { LayoutGrid, List, Download, Info, Globe, MapPin, BookOpen } from 'lucide-react';
 import { useI18n } from '@/contexts/I18nContext';
 import type { PortalMode } from './types';
 
@@ -7,6 +7,7 @@ interface LeftRailProps {
   mode: PortalMode;
   onMode: (mode: PortalMode) => void;
   onAbout: () => void;
+  onMethodology: () => void;
 }
 
 interface RailButtonProps {
@@ -48,7 +49,7 @@ function RailButton({ active, title, onClick, children }: RailButtonProps) {
   );
 }
 
-export const LeftRail = memo(function LeftRail({ mode, onMode, onAbout }: LeftRailProps) {
+export const LeftRail = memo(function LeftRail({ mode, onMode, onAbout, onMethodology }: LeftRailProps) {
   const { t, lang, toggleLang } = useI18n();
 
   return (
@@ -83,6 +84,9 @@ export const LeftRail = memo(function LeftRail({ mode, onMode, onAbout }: LeftRa
         </RailButton>
         <RailButton active={mode === 'data'} title={t.navData} onClick={() => onMode('data')}>
           <Download className="h-[21px] w-[21px]" strokeWidth={1.9} />
+        </RailButton>
+        <RailButton active={false} title={t.navMethodology} onClick={onMethodology}>
+          <BookOpen className="h-[21px] w-[21px]" strokeWidth={1.9} />
         </RailButton>
         <RailButton active={false} title={t.navAbout} onClick={onAbout}>
           <Info className="h-[21px] w-[21px]" strokeWidth={1.9} />

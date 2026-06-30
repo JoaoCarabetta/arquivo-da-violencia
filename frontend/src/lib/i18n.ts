@@ -18,6 +18,9 @@ export interface Strings {
   navFeed: string;
   navData: string;
   navAbout: string;
+  navMethodology: string;
+  temporalScope: string;
+  aboutMethodologyLink: string;
   langSwitch: string;
   events: string;
   victims: string;
@@ -79,6 +82,9 @@ const PT: Strings = {
   navFeed: 'Linha do tempo',
   navData: 'Dados',
   navAbout: 'Sobre',
+  navMethodology: 'Metodologia',
+  temporalScope: 'No recorte atual desde {date}',
+  aboutMethodologyLink: 'Leia a metodologia completa',
   langSwitch: 'English',
   events: 'eventos registrados',
   victims: 'vítimas fatais',
@@ -132,7 +138,7 @@ const PT: Strings = {
     'Nosso objetivo é tornar visíveis a escala e a distribuição da violência — por bairro, cidade, CEP e período. Oferecemos os dados abertos para jornalistas, pesquisadores e a sociedade, para qualificar o debate e a tomada de decisão sobre segurança pública no país.',
   disclaimerLabel: 'Aviso',
   disclaimer:
-    'Nossos dados sobre mortes violentas são obtidos a partir de reportagens jornalísticas e as informações são extraídas automaticamente do texto das notícias. Trabalhamos para que essas informações sejam as mais precisas possível. Embora adotemos procedimentos para garantir sua qualidade, alguns casos podem não ser reportados pela imprensa, não constando em nossas bases, e as informações refletem possíveis imprecisões presentes nas notícias. Por isso, o Arquivo da Violência deve ser utilizado como uma fonte de referência e não substitui os registros oficiais.',
+    'Nossos dados sobre mortes violentas são obtidos a partir de reportagens jornalísticas. Use-os como referência, não como registro oficial. Consulte a metodologia completa para detalhes sobre coleta, processamento e limitações.',
 };
 
 const EN: Strings = {
@@ -144,6 +150,9 @@ const EN: Strings = {
   navFeed: 'Timeline',
   navData: 'Data',
   navAbout: 'About',
+  navMethodology: 'Methodology',
+  temporalScope: 'In the current view since {date}',
+  aboutMethodologyLink: 'Read the full methodology',
   langSwitch: 'Português',
   events: 'recorded events',
   victims: 'fatal victims',
@@ -197,7 +206,7 @@ const EN: Strings = {
     'Our goal is to make the scale and distribution of violence visible — by neighborhood, city, postal code and period — and to offer open data to journalists, researchers and society, to inform debate and public-security decision-making.',
   disclaimerLabel: 'Notice',
   disclaimer:
-    'Our data on violent deaths comes from news reports and information is automatically extracted from article text. We work to keep this information as accurate as possible. Although we follow procedures to ensure quality, some cases may not be reported by the press and therefore do not appear in our database, and the information may reflect inaccuracies present in the news. For this reason, Arquivo da Violência should be used as a reference source and does not replace official records.',
+    'Our data on violent deaths comes from news reports. Use it as a reference, not as an official record. See the full methodology for details on collection, processing, and limitations.',
 };
 
 export function strings(lang: Lang): Strings {
