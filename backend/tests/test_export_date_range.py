@@ -1,12 +1,22 @@
 """Tests for CSV export date range filtering."""
 
 from datetime import datetime, timedelta
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from decimal import Decimal
 from httpx import AsyncClient
 
 from app.models.unique_event import UniqueEvent
+
+
+@pytest.fixture(autouse=True)
+def bypass_export_rate_limit():
+    with patch(
+        "app.services.geocode_protection.enforce_export_rate_limit",
+        AsyncMock(return_value=None),
+    ):
+        yield
 
 
 @pytest.mark.asyncio
