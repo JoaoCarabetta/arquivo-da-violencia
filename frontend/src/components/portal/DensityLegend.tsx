@@ -28,7 +28,7 @@ export const DensityLegend = memo(function DensityLegend() {
           <span className="h-[11px] w-[26px] rounded-r-[2px]" style={{ background: 'rgba(135,43,38,1)' }} />
         </div>
         <div className="mt-1 flex justify-between" style={{ fontSize: 10, color: 'var(--color-text-muted)' }}>
-          <span>{t.fewer}</span>
+          <span>0</span>
           <span>{t.more}</span>
         </div>
       </div>

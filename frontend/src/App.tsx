@@ -74,6 +74,7 @@ function App() {
               <Route path="/eventos/:id" element={<MapExplorerRoute initialMode="feed" />} />
               <Route path="/dados" element={<MapExplorerRoute initialMode="data" />} />
               <Route path="/sobre" element={<MapExplorerRoute initialMode="stats" initialAbout />} />
+              <Route path="/metodologia" element={<MapExplorerRoute initialMode="stats" initialMethodology />} />
 
               <Route path="/admin/login" element={<Login />} />
 

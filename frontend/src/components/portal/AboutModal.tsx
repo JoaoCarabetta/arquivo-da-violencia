@@ -1,13 +1,17 @@
 import { X } from 'lucide-react';
 import { memo, useEffect } from 'react';
 import { useI18n } from '@/contexts/I18nContext';
-
 interface AboutModalProps {
   open: boolean;
   onClose: () => void;
+  onOpenMethodology: () => void;
 }
 
-export const AboutModal = memo(function AboutModal({ open, onClose }: AboutModalProps) {
+export const AboutModal = memo(function AboutModal({
+  open,
+  onClose,
+  onOpenMethodology,
+}: AboutModalProps) {
   const { t } = useI18n();
 
   useEffect(() => {
@@ -64,6 +68,16 @@ export const AboutModal = memo(function AboutModal({ open, onClose }: AboutModal
           <p className="mb-3.5 text-pretty" style={{ fontSize: 15, lineHeight: 1.65, color: 'var(--stone-700)' }}>
             {t.aboutP2}
           </p>
+          <button
+            onClick={() => {
+              onClose();
+              onOpenMethodology();
+            }}
+            className="mb-3.5 w-full rounded-[10px] border-none px-4 py-2.5"
+            style={{ background: 'var(--blue-500)', color: '#fff', fontSize: 14, fontWeight: 500 }}
+          >
+            {t.aboutMethodologyLink}
+          </button>
           <div className="mt-1.5 rounded-[11px] px-4 py-3.5" style={{ background: 'var(--gold-50)', border: '1px solid var(--gold-500)' }}>
             <div className="mb-[5px] font-mono text-[9.5px] uppercase tracking-[.1em]" style={{ color: 'var(--gold-700)' }}>
               {t.disclaimerLabel}

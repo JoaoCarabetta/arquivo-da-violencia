@@ -4,7 +4,6 @@ import { useI18n } from '@/contexts/I18nContext';
 import { geocode, type MapPoint } from '@/lib/api';
 import { ufName } from '@/lib/i18n';
 import { fmtNumber } from '@/lib/i18n';
-
 export interface LocatedPlace {
   lat: number;
   lng: number;
@@ -68,15 +67,21 @@ function buildPlaces(points: MapPoint[]): Place[] {
 }
 
 const ZOOM_FOR: Record<Place['kind'], number> = { uf: 6.5, city: 11, hood: 13.2 };
+const BRAZIL_LOCATE: LocatedPlace = { lat: -14, lng: -52, label: 'Brasil', zoom: 3.6 };
 
 function looksLikeCep(text: string): boolean {
   return /^\d{8}$/.test(text.replace(/\D/g, ''));
+}
+
+function isBrazilQuery(text: string): boolean {
+  return /^(brasil|brazil)$/i.test(text.trim());
 }
 
 export const SearchCard = memo(function SearchCard({ points, onLocate }: SearchCardProps) {
   const { t, lang } = useI18n();
   const [query, setQuery] = useState('');
   const [geocoding, setGeocoding] = useState(false);
+  const [geocodeError, setGeocodeError] = useState(false);
 
   const places = useMemo(() => buildPlaces(points), [points]);
 
@@ -105,20 +110,46 @@ export const SearchCard = memo(function SearchCard({ points, onLocate }: SearchC
     onLocate({ lat: p.lat, lng: p.lng, label: p.label, zoom: ZOOM_FOR[p.kind] });
   }
 
+  function locateBrazil() {
+    setQuery('');
+    setGeocodeError(false);
+    onLocate(BRAZIL_LOCATE);
+  }
+
   async function geocodeQuery() {
     const raw = query.trim();
     if (!raw) return;
+    if (isBrazilQuery(raw)) {
+      locateBrazil();
+      return;
+    }
     setGeocoding(true);
+    setGeocodeError(false);
     try {
       const isCep = looksLikeCep(raw);
       const r = await geocode(isCep ? { cep: raw.replace(/\D/g, '') } : { q: raw });
       setQuery('');
-      onLocate({ lat: r.latitude, lng: r.longitude, label: r.label, zoom: 13 });
+      onLocate({ lat: r.latitude, lng: r.longitude, label: r.label, zoom: r.zoom ?? 13 });
     } catch {
-      /* keep query; user can retry */
+      setGeocodeError(true);
     } finally {
       setGeocoding(false);
     }
+  }
+
+  function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    const raw = query.trim();
+    if (isBrazilQuery(raw)) {
+      locateBrazil();
+      return;
+    }
+    if (looksLikeCep(raw)) {
+      geocodeQuery();
+      return;
+    }
+    if (results.length > 0) selectPlace(results[0]);
+    else geocodeQuery();
   }
 
   return (
@@ -151,13 +182,7 @@ export const SearchCard = memo(function SearchCard({ points, onLocate }: SearchC
         </div>
 
         <div className="relative px-[13px] py-[11px]">
-          <form
-            onSubmit={(e) => {
-              e.preventDefault();
-              if (results.length > 0) selectPlace(results[0]);
-              else geocodeQuery();
-            }}
-          >
+          <form onSubmit={handleSubmit}>
             <div
               className="flex items-center gap-[9px] rounded-[10px] px-3 py-[9px]"
               style={{ background: 'var(--stone-100)', border: '1px solid var(--stone-200)' }}
@@ -169,7 +194,10 @@ export const SearchCard = memo(function SearchCard({ points, onLocate }: SearchC
               )}
               <input
                 value={query}
-                onChange={(e) => setQuery(e.target.value)}
+                onChange={(e) => {
+                  setQuery(e.target.value);
+                  setGeocodeError(false);
+                }}
                 placeholder={t.searchPlaceholder}
                 className="min-w-0 flex-1 border-none bg-transparent outline-none"
                 style={{ fontFamily: 'var(--font-sans)', fontSize: 14, color: 'var(--stone-900)' }}
@@ -186,6 +214,12 @@ export const SearchCard = memo(function SearchCard({ points, onLocate }: SearchC
               )}
             </div>
           </form>
+
+          {geocodeError && (
+            <p className="mt-2 px-1" style={{ fontSize: 12, color: 'var(--red-700)' }}>
+              {t.geocodeFailed}
+            </p>
+          )}
 
           {showResults && (
             <div

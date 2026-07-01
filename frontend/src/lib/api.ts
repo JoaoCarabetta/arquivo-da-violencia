@@ -194,6 +194,7 @@ export interface GeocodeResult {
   label: string;
   source: string;
   query: string;
+  zoom?: number;
 }
 
 export interface NearbyEvent {
@@ -474,7 +475,20 @@ export async function fetchMapPoints(filters?: {
 }
 
 // Export URLs
-export function getExportUrl(format: 'csv' | 'json'): string {
-  return `${API_BASE}/public/export/${format}`;
+export interface ExportFilters {
+  types?: string[];
+  methods?: string[];
+  periods?: string[];
+  days?: number;
+}
+
+export function getExportUrl(format: 'csv' | 'json', filters?: ExportFilters): string {
+  const qs = new URLSearchParams();
+  qs.set('format', format);
+  qs.set('days', String(filters?.days ?? 365));
+  for (const t of filters?.types ?? []) qs.append('types', t);
+  for (const m of filters?.methods ?? []) qs.append('methods', m);
+  for (const p of filters?.periods ?? []) qs.append('periods', p);
+  return `${API_BASE}/public/events/export?${qs.toString()}`;
 }
 
