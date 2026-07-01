@@ -34,7 +34,7 @@ const statusColors: Record<string, string> = {
   ready_for_download: "var(--color-chart-3)", // yellow
   failed_in_download: "var(--color-chart-4)", // red
   ready_for_extraction: "var(--color-chart-5)", // orange
-  failed_in_extraction: "hsl(var(--destructive))", // destructive red
+  failed_in_extraction: "var(--destructive)", // destructive red
   extracted: "var(--color-chart-6)", // green
 }
 

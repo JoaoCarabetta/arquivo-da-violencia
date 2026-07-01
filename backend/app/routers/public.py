@@ -17,6 +17,26 @@ from app.models.source_google_news import SourceGoogleNews
 
 router = APIRouter(prefix="/public", tags=["public"])
 
+# Rolling window shared by the map, export, and temporal-scope note.
+PUBLIC_MAP_DAYS = 365
+
+
+def _map_window(days: int = PUBLIC_MAP_DAYS) -> tuple[datetime, datetime]:
+    """Return (cutoff, now) for the public map data window."""
+    now = datetime.utcnow()
+    return now - timedelta(days=days), now
+
+
+def _expand_period_filters(periods: list[str]) -> list[str]:
+    """Match period filters across spelling variants (e.g. manhã / manha)."""
+    expanded: set[str] = set()
+    for period in periods:
+        if period.lower() in ("manhã", "manha"):
+            expanded.update(["manhã", "manha"])
+        else:
+            expanded.add(period)
+    return list(expanded)
+
 
 @router.get("/stats")
 async def get_public_stats(session: AsyncSession = Depends(get_session)):
@@ -52,9 +72,16 @@ async def get_public_stats(session: AsyncSession = Depends(get_session)):
         )
     )
     
-    # Project start date - use earliest event_date, fallback to 2025-12-21 if none
+    # Earliest event in the public map window (geocoded, last 365 days).
+    cutoff, now = _map_window(PUBLIC_MAP_DAYS)
     earliest = await session.scalar(
-        select(func.min(UniqueEvent.event_date))
+        select(func.min(UniqueEvent.event_date)).where(
+            UniqueEvent.event_date >= cutoff,
+            UniqueEvent.event_date <= now,
+            UniqueEvent.event_date.isnot(None),
+            UniqueEvent.latitude.isnot(None),
+            UniqueEvent.longitude.isnot(None),
+        )
     )
     
     # Default to 2025-12-21 if no events found, otherwise use earliest event_date
@@ -193,6 +220,284 @@ async def get_security_force_stats(session: AsyncSession = Depends(get_session))
     }
 
 
+@router.get("/geocode")
+async def geocode_location(
+    q: str | None = Query(None, description="Free-text place (city, neighborhood, address)"),
+    cep: str | None = Query(None, description="Brazilian postal code (CEP)"),
+):
+    """
+    Resolve a user-supplied location (CEP, city or neighborhood) to coordinates.
+
+    Used by the homepage "near me" search. The browser sends the typed text and
+    gets back lat/lng so it can then call /nearby. Geolocation (GPS) skips this.
+    """
+    from fastapi import HTTPException
+    from app.services.geocoding import geocode_user_query
+
+    query = (cep or q or "").strip()
+    if not query:
+        raise HTTPException(status_code=400, detail="Informe um CEP, cidade ou bairro")
+
+    result = await geocode_user_query(query)
+    if not result:
+        raise HTTPException(
+            status_code=404,
+            detail="Não foi possível localizar esse endereço",
+        )
+
+    return {
+        "latitude": result["latitude"],
+        "longitude": result["longitude"],
+        "label": result["label"],
+        "source": result["source"],
+        "query": query,
+        "zoom": result.get("zoom"),
+    }
+
+
+def _haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    """Great-circle distance between two points in kilometers."""
+    r = 6371.0
+    p1, p2 = math.radians(lat1), math.radians(lat2)
+    d_phi = math.radians(lat2 - lat1)
+    d_lambda = math.radians(lon2 - lon1)
+    a = (
+        math.sin(d_phi / 2) ** 2
+        + math.cos(p1) * math.cos(p2) * math.sin(d_lambda / 2) ** 2
+    )
+    return 2 * r * math.asin(min(1.0, math.sqrt(a)))
+
+
+@router.get("/nearby")
+async def get_nearby_events(
+    session: AsyncSession = Depends(get_session),
+    lat: float = Query(..., ge=-90, le=90, description="Latitude"),
+    lng: float = Query(..., ge=-180, le=180, description="Longitude"),
+    radius_km: float = Query(5.0, gt=0, le=200, description="Search radius in km"),
+    days: int | None = Query(None, ge=1, le=3650, description="Only events in the last N days"),
+    limit: int = Query(100, ge=1, le=500, description="Max events returned"),
+):
+    """
+    Return geocoded violent-death events near a point, plus a "most common
+    crimes near you" summary (counts by type, by method, security-force share,
+    and the trend vs the previous equal period).
+
+    SQLite has no geo functions, so we prefilter with a lat/lng bounding box in
+    SQL and then compute the exact Haversine distance in Python.
+    """
+    # Bounding box (degrees). 1 deg latitude ~= 111 km; longitude shrinks with
+    # latitude. cos can be ~0 near the poles, so clamp to avoid huge boxes.
+    lat_delta = radius_km / 111.0
+    cos_lat = max(math.cos(math.radians(lat)), 0.01)
+    lng_delta = radius_km / (111.0 * cos_lat)
+
+    min_lat, max_lat = lat - lat_delta, lat + lat_delta
+    min_lng, max_lng = lng - lng_delta, lng + lng_delta
+
+    query = select(UniqueEvent).where(
+        UniqueEvent.latitude.isnot(None),
+        UniqueEvent.longitude.isnot(None),
+        UniqueEvent.latitude >= min_lat,
+        UniqueEvent.latitude <= max_lat,
+        UniqueEvent.longitude >= min_lng,
+        UniqueEvent.longitude <= max_lng,
+    )
+
+    now = datetime.utcnow()
+    cutoff = None
+    prev_cutoff = None
+    if days is not None:
+        cutoff = now - timedelta(days=days)
+        prev_cutoff = now - timedelta(days=days * 2)
+        # Keep events older than the window too (for trend); filter per-bucket below.
+        query = query.where(
+            (UniqueEvent.event_date >= prev_cutoff) | (UniqueEvent.event_date.is_(None))
+        )
+
+    result = await session.execute(query)
+    candidates = result.scalars().all()
+
+    # Exact distance filter + distance annotation.
+    in_radius = []
+    for event in candidates:
+        try:
+            elat = float(event.latitude)
+            elng = float(event.longitude)
+        except (TypeError, ValueError):
+            continue
+        distance = _haversine_km(lat, lng, elat, elng)
+        if distance <= radius_km:
+            in_radius.append((distance, event))
+
+    # Split into current vs previous period for the trend (only when days given).
+    def in_current_period(ev) -> bool:
+        if cutoff is None:
+            return True
+        return ev.event_date is not None and ev.event_date >= cutoff
+
+    def in_previous_period(ev) -> bool:
+        if cutoff is None or prev_cutoff is None:
+            return False
+        return ev.event_date is not None and prev_cutoff <= ev.event_date < cutoff
+
+    current = [(d, e) for d, e in in_radius if in_current_period(e)]
+    previous_count = sum(1 for _, e in in_radius if in_previous_period(e))
+
+    # Aggregations over the current-period events.
+    by_type: dict[str, int] = {}
+    by_method: dict[str, int] = {}
+    security_involved = 0
+    total_victims = 0
+    for _, event in current:
+        t = event.homicide_type or "Não classificado"
+        by_type[t] = by_type.get(t, 0) + 1
+        m = event.method_of_death or "Não especificado"
+        by_method[m] = by_method.get(m, 0) + 1
+        if event.security_force_involved:
+            security_involved += 1
+        if event.victim_count:
+            total_victims += event.victim_count
+
+    def to_sorted(d: dict[str, int]) -> list[dict]:
+        total = sum(d.values()) or 1
+        items = [
+            {"label": k, "count": v, "percent": round(v / total * 100, 1)}
+            for k, v in d.items()
+        ]
+        items.sort(key=lambda x: x["count"], reverse=True)
+        return items
+
+    current_count = len(current)
+    trend_pct = None
+    if days is not None and previous_count > 0:
+        trend_pct = round((current_count - previous_count) / previous_count * 100, 1)
+
+    # Sort events by distance and format for the client.
+    current.sort(key=lambda x: x[0])
+    events = []
+    for distance, event in current[:limit]:
+        events.append({
+            "id": event.id,
+            "distance_km": round(distance, 2),
+            "event_date": event.event_date.isoformat() if event.event_date else None,
+            "state": event.state,
+            "city": event.city,
+            "neighborhood": event.neighborhood,
+            "homicide_type": event.homicide_type,
+            "method_of_death": event.method_of_death,
+            "victim_count": event.victim_count,
+            "victims_summary": event.victims_summary,
+            "security_force_involved": event.security_force_involved,
+            "title": event.title,
+            "latitude": float(event.latitude),
+            "longitude": float(event.longitude),
+            "location_precision": event.location_precision,
+            "source_count": event.source_count,
+        })
+
+    return {
+        "center": {"lat": lat, "lng": lng},
+        "radius_km": radius_km,
+        "days": days,
+        "summary": {
+            "total": current_count,
+            "total_victims": total_victims,
+            "previous_period_total": previous_count if days is not None else None,
+            "trend_pct": trend_pct,
+            "security_force_involved": security_involved,
+            "by_type": to_sorted(by_type),
+            "by_method": to_sorted(by_method),
+        },
+        "events": events,
+    }
+
+
+@router.get("/map-points")
+async def get_map_points(
+    session: AsyncSession = Depends(get_session),
+    days: int = Query(365, ge=1, le=3650, description="Only events in the last N days"),
+    type: str | None = Query(None, description="Filter by homicide type"),
+    min_lng: float | None = Query(None, description="Bounding box west longitude"),
+    min_lat: float | None = Query(None, description="Bounding box south latitude"),
+    max_lng: float | None = Query(None, description="Bounding box east longitude"),
+    max_lat: float | None = Query(None, description="Bounding box north latitude"),
+    limit: int = Query(100000, ge=1, le=200000),
+):
+    """
+    Return every geocoded event as a compact array for client-side map
+    aggregation (deck.gl). Short keys keep the payload small.
+
+    Keys: id, lat, lng, t=homicide_type, m=method_of_death, d=event_date (ISO),
+    v=victim_count, s=security_force_involved, c=city, n=neighborhood, st=state,
+    p=time_of_day.
+
+    Defaults to the last 365 days. No sort — order is undefined (cheaper for map tiles).
+    """
+    cutoff, now = _map_window(days)
+    query = select(
+        UniqueEvent.id,
+        UniqueEvent.latitude,
+        UniqueEvent.longitude,
+        UniqueEvent.homicide_type,
+        UniqueEvent.method_of_death,
+        UniqueEvent.event_date,
+        UniqueEvent.victim_count,
+        UniqueEvent.security_force_involved,
+        UniqueEvent.city,
+        UniqueEvent.neighborhood,
+        UniqueEvent.state,
+        UniqueEvent.time_of_day,
+    ).where(
+        UniqueEvent.latitude.isnot(None),
+        UniqueEvent.longitude.isnot(None),
+        UniqueEvent.event_date >= cutoff,
+        UniqueEvent.event_date <= now,
+    )
+
+    if type:
+        query = query.where(UniqueEvent.homicide_type == type)
+
+    if min_lng is not None and max_lng is not None:
+        query = query.where(
+            UniqueEvent.longitude >= min_lng,
+            UniqueEvent.longitude <= max_lng,
+        )
+    if min_lat is not None and max_lat is not None:
+        query = query.where(
+            UniqueEvent.latitude >= min_lat,
+            UniqueEvent.latitude <= max_lat,
+        )
+
+    query = query.limit(limit)
+
+    result = await session.execute(query)
+    rows = result.all()
+
+    points = []
+    for r in rows:
+        try:
+            lat = float(r.latitude)
+            lng = float(r.longitude)
+        except (TypeError, ValueError):
+            continue
+        points.append({
+            "id": r.id,
+            "lat": lat,
+            "lng": lng,
+            "t": r.homicide_type,
+            "m": r.method_of_death,
+            "d": r.event_date.isoformat() if r.event_date else None,
+            "v": r.victim_count,
+            "s": r.security_force_involved,
+            "c": r.city,
+            "n": r.neighborhood,
+            "st": r.state,
+            "p": r.time_of_day,
+        })
+
+    return {"count": len(points), "points": points}
+
+
 @router.get("/events")
 async def get_public_events(
     session: AsyncSession = Depends(get_session),
@@ -278,33 +583,50 @@ async def get_public_events(
 @router.get("/events/export")
 async def export_events(
     session: AsyncSession = Depends(get_session),
+    format: str = Query("csv", pattern="^(csv|json)$"),
     state: str | None = None,
     type: str | None = None,
+    types: list[str] | None = Query(None),
+    methods: list[str] | None = Query(None),
+    periods: list[str] | None = Query(None),
+    days: int = Query(365, ge=1, le=3650),
 ):
-    """Export all unique events as CSV with complete data."""
-    
-    # Build query - get ALL unique events
-    query = select(UniqueEvent)
-    
+    """Export geocoded events as CSV, optionally filtered (matches map data window)."""
+    cutoff, now = _map_window(days)
+    query = select(UniqueEvent).where(
+        UniqueEvent.event_date >= cutoff,
+        UniqueEvent.event_date <= now,
+        UniqueEvent.event_date.isnot(None),
+        UniqueEvent.latitude.isnot(None),
+        UniqueEvent.longitude.isnot(None),
+    )
+
     if state:
         query = query.where(UniqueEvent.state == state)
-    
+
+    type_filters = list(types or [])
     if type:
-        query = query.where(UniqueEvent.homicide_type == type)
-    
+        type_filters.append(type)
+    if type_filters:
+        query = query.where(UniqueEvent.homicide_type.in_(type_filters))
+
+    if methods:
+        query = query.where(UniqueEvent.method_of_death.in_(methods))
+
+    if periods:
+        query = query.where(UniqueEvent.time_of_day.in_(_expand_period_filters(periods)))
+
     query = query.order_by(UniqueEvent.event_date.desc().nullslast())
-    
+
     result = await session.execute(query)
     events = result.scalars().all()
-    
-    # Format data with ALL fields from UniqueEvent
+
     data = []
     for event in events:
-        # Serialize merged_data as JSON string if present
         merged_data_str = None
         if event.merged_data:
             merged_data_str = json.dumps(event.merged_data, ensure_ascii=False)
-        
+
         data.append({
             "id": event.id,
             "homicide_type": event.homicide_type,
@@ -345,20 +667,24 @@ async def export_events(
             "created_at": event.created_at.isoformat(),
             "updated_at": event.updated_at.isoformat(),
         })
-    
-    # Create CSV
+
+    if format == "json":
+        return Response(
+            content=json.dumps(data, ensure_ascii=False),
+            media_type="application/json",
+            headers={"Content-Disposition": "attachment; filename=eventos.json"},
+        )
+
     output = io.StringIO()
     if data:
         writer = csv.DictWriter(output, fieldnames=data[0].keys())
         writer.writeheader()
         writer.writerows(data)
-    
-    csv_content = output.getvalue()
-    
+
     return Response(
-        content=csv_content,
+        content=output.getvalue(),
         media_type="text/csv",
-        headers={"Content-Disposition": "attachment; filename=eventos.csv"}
+        headers={"Content-Disposition": "attachment; filename=eventos.csv"},
     )
 
 

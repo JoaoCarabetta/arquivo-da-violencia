@@ -1,0 +1,60 @@
+/* ============================================================
+   Rio AI Labs — Typography tokens
+   ------------------------------------------------------------
+   Geist for everything structural, Newsreader for editorial
+   display moments, Geist Mono for eyebrows & code.
+   ============================================================ */
+
+:root {
+  /* ---- Families ----------------------------------------- */
+  --font-sans:  'Geist', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif;
+  --font-serif: 'Newsreader', ui-serif, Georgia, 'Times New Roman', serif;
+  --font-mono:  'Geist Mono', ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+
+  /* ---- Weights ------------------------------------------ */
+  --weight-light:    300;
+  --weight-regular:  400;
+  --weight-medium:   500;
+  --weight-semibold: 600;
+  --weight-bold:     700;
+
+  /* ---- Type scale (16px base) --------------------------- */
+  --text-xs:   0.75rem;   /* 12 */
+  --text-sm:   0.875rem;  /* 14 */
+  --text-base: 1rem;      /* 16 */
+  --text-lg:   1.125rem;  /* 18 */
+  --text-xl:   1.25rem;   /* 20 */
+  --text-2xl:  1.5rem;    /* 24 */
+  --text-3xl:  1.875rem;  /* 30 */
+  --text-4xl:  2.5rem;    /* 40 */
+  --text-5xl:  3.25rem;   /* 52 */
+  --text-6xl:  4.25rem;   /* 68 */
+  --text-7xl:  5.5rem;    /* 88 */
+
+  /* ---- Line heights ------------------------------------- */
+  --leading-tight:   1.08;
+  --leading-snug:    1.2;
+  --leading-normal:  1.5;
+  --leading-relaxed: 1.65;
+
+  /* ---- Letter spacing ----------------------------------- */
+  --tracking-tighter: -0.025em;
+  --tracking-tight:   -0.015em;
+  --tracking-normal:  0em;
+  --tracking-wide:    0.02em;
+  --tracking-eyebrow: 0.14em;  /* uppercase mono eyebrows */
+
+  /* ========================================================
+     Semantic type roles
+     ======================================================== */
+  --text-display:      var(--text-6xl);
+  --text-display-line: var(--leading-tight);
+  --text-h1:           var(--text-4xl);
+  --text-h2:           var(--text-3xl);
+  --text-h3:           var(--text-2xl);
+  --text-h4:           var(--text-xl);
+  --text-body-lg:      var(--text-lg);
+  --text-body:         var(--text-base);
+  --text-body-sm:      var(--text-sm);
+  --text-caption:      var(--text-xs);
+}

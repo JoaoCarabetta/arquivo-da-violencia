@@ -24,6 +24,7 @@ export default defineConfig({
         '/eventos',
         '/dados',
         '/sobre',
+        '/metodologia',
       ],
     }),
   ],

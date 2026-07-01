@@ -1,0 +1,4 @@
+services:
+  api:
+    ports: !override
+      - "8010:8000"

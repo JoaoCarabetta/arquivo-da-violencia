@@ -22,6 +22,7 @@ async def login(request: LoginRequest):
     Default credentials:
     - username: admin (from ADMIN_USERNAME env var)
     - password: admin123 (from ADMIN_PASSWORD env var)
+    - additional users: ADMIN_USERS (comma-separated username:password pairs)
     """
     if not authenticate_user(request.username, request.password):
         raise HTTPException(
