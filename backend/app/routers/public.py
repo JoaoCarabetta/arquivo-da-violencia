@@ -20,6 +20,47 @@ router = APIRouter(prefix="/public", tags=["public"])
 # Rolling window shared by the map, export, and temporal-scope note.
 PUBLIC_MAP_DAYS = 365
 
+EXPORT_FIELD_NAMES = [
+    "id",
+    "homicide_type",
+    "method_of_death",
+    "event_date",
+    "date_precision",
+    "time_of_day",
+    "country",
+    "state",
+    "city",
+    "neighborhood",
+    "street",
+    "establishment",
+    "full_location_description",
+    "latitude",
+    "longitude",
+    "plus_code",
+    "place_id",
+    "formatted_address",
+    "location_precision",
+    "geocoding_source",
+    "geocoding_confidence",
+    "victim_count",
+    "identified_victim_count",
+    "victims_summary",
+    "perpetrator_count",
+    "identified_perpetrator_count",
+    "security_force_involved",
+    "title",
+    "chronological_description",
+    "additional_context",
+    "merged_data",
+    "source_count",
+    "confirmed",
+    "needs_enrichment",
+    "last_enriched_at",
+    "enrichment_model",
+    "created_at",
+    "updated_at",
+]
+
 
 def _map_window(days: int = PUBLIC_MAP_DAYS) -> tuple[datetime, datetime]:
     """Return (cutoff, now) for the public map data window."""
@@ -611,6 +652,7 @@ async def export_events(
     methods: list[str] | None = Query(None),
     periods: list[str] | None = Query(None),
     days: int = Query(365, ge=1, le=3650),
+    columns: list[str] | None = Query(None),
 ):
     """Export geocoded events as CSV, optionally filtered (matches map data window)."""
     cutoff, now = _map_window(days)
@@ -642,13 +684,20 @@ async def export_events(
     result = await session.execute(query)
     events = result.scalars().all()
 
+    allowed_columns = set(EXPORT_FIELD_NAMES)
+    selected_columns: list[str] | None = None
+    if columns:
+        selected_columns = [column for column in columns if column in allowed_columns]
+        if not selected_columns:
+            raise HTTPException(status_code=400, detail="Nenhuma coluna válida selecionada")
+
     data = []
     for event in events:
         merged_data_str = None
         if event.merged_data:
             merged_data_str = json.dumps(event.merged_data, ensure_ascii=False)
 
-        data.append({
+        row = {
             "id": event.id,
             "homicide_type": event.homicide_type,
             "method_of_death": event.method_of_death,
@@ -687,7 +736,12 @@ async def export_events(
             "enrichment_model": event.enrichment_model,
             "created_at": event.created_at.isoformat(),
             "updated_at": event.updated_at.isoformat(),
-        })
+        }
+        if selected_columns:
+            row = {key: row[key] for key in selected_columns}
+        data.append(row)
+
+    fieldnames = selected_columns or (list(data[0].keys()) if data else EXPORT_FIELD_NAMES)
 
     if format == "json":
         return Response(
@@ -698,7 +752,7 @@ async def export_events(
 
     output = io.StringIO()
     if data:
-        writer = csv.DictWriter(output, fieldnames=data[0].keys())
+        writer = csv.DictWriter(output, fieldnames=fieldnames)
         writer.writeheader()
         writer.writerows(data)
 
