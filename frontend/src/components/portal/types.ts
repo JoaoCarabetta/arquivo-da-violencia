@@ -11,6 +11,26 @@ export interface PortalFilters {
 
 export const EMPTY_FILTERS: PortalFilters = { types: [], methods: [], periods: [] };
 
+/** Canonical period key — merges spelling variants. */
+export function normalizePeriodKey(value: string): string {
+  const lower = value.toLowerCase();
+  if (lower === 'manha' || lower === 'manhã') return 'manhã';
+  return value;
+}
+
+function periodFilterVariants(value: string): string[] {
+  const lower = value.toLowerCase();
+  if (lower === 'manha' || lower === 'manhã') return ['manhã', 'manha'];
+  return [value];
+}
+
+function matchesPeriodFilter(pointPeriod: string | null, selected: string[]): boolean {
+  if (selected.length === 0) return true;
+  if (!pointPeriod) return false;
+  const allowed = new Set(selected.flatMap(periodFilterVariants));
+  return allowed.has(pointPeriod);
+}
+
 export function hasActiveFilters(f: PortalFilters): boolean {
   return f.types.length + f.methods.length + f.periods.length > 0;
 }
@@ -22,7 +42,7 @@ export function applyFilters(points: MapPoint[], f: PortalFilters): MapPoint[] {
     (p) =>
       (f.types.length === 0 || (p.t != null && f.types.includes(p.t))) &&
       (f.methods.length === 0 || (p.m != null && f.methods.includes(p.m))) &&
-      (f.periods.length === 0 || (p.p != null && f.periods.includes(p.p)))
+      matchesPeriodFilter(p.p, f.periods)
   );
 }
 
@@ -102,7 +122,8 @@ export function distinctValues(points: MapPoint[], key: 't' | 'm' | 'p'): string
   const set = new Set<string>();
   for (const p of points) {
     const v = p[key];
-    if (v) set.add(v);
+    if (!v) continue;
+    set.add(key === 'p' ? normalizePeriodKey(v) : v);
   }
   return [...set].sort((a, b) => a.localeCompare(b));
 }

@@ -90,9 +90,10 @@ export function MapExplorer({
 
   const filteredPoints = useMemo(() => applyFilters(allPoints, filters), [allPoints, filters]);
   const pointsInView = useMemo(() => {
-    if (!panelBounds) return filteredPoints;
+    if (!panelBounds) return [];
     return pointsInBounds(filteredPoints, panelBounds);
   }, [filteredPoints, panelBounds]);
+  const viewportReady = panelBounds != null;
 
   const canReset = panelZoom > 4.2 || Math.abs(panelLng - BRAZIL_VIEW.longitude) > 6;
   const filtersActive = hasActiveFilters(filters);
@@ -252,6 +253,7 @@ export function MapExplorer({
         mode={mode}
         sinceDate={sinceDate}
         pointsInView={pointsInView}
+        viewportReady={viewportReady}
         filteredCount={filteredPoints.length}
         filters={filters}
         availableTypes={availableTypes}

@@ -17,6 +17,26 @@ from app.models.source_google_news import SourceGoogleNews
 
 router = APIRouter(prefix="/public", tags=["public"])
 
+# Rolling window shared by the map, export, and temporal-scope note.
+PUBLIC_MAP_DAYS = 365
+
+
+def _map_window(days: int = PUBLIC_MAP_DAYS) -> tuple[datetime, datetime]:
+    """Return (cutoff, now) for the public map data window."""
+    now = datetime.utcnow()
+    return now - timedelta(days=days), now
+
+
+def _expand_period_filters(periods: list[str]) -> list[str]:
+    """Match period filters across spelling variants (e.g. manhã / manha)."""
+    expanded: set[str] = set()
+    for period in periods:
+        if period.lower() in ("manhã", "manha"):
+            expanded.update(["manhã", "manha"])
+        else:
+            expanded.add(period)
+    return list(expanded)
+
 
 @router.get("/stats")
 async def get_public_stats(session: AsyncSession = Depends(get_session)):
@@ -52,9 +72,16 @@ async def get_public_stats(session: AsyncSession = Depends(get_session)):
         )
     )
     
-    # Project start date - use earliest event_date, fallback to 2025-12-21 if none
+    # Earliest event in the public map window (geocoded, last 365 days).
+    cutoff, now = _map_window(PUBLIC_MAP_DAYS)
     earliest = await session.scalar(
-        select(func.min(UniqueEvent.event_date))
+        select(func.min(UniqueEvent.event_date)).where(
+            UniqueEvent.event_date >= cutoff,
+            UniqueEvent.event_date <= now,
+            UniqueEvent.event_date.isnot(None),
+            UniqueEvent.latitude.isnot(None),
+            UniqueEvent.longitude.isnot(None),
+        )
     )
     
     # Default to 2025-12-21 if no events found, otherwise use earliest event_date
@@ -406,7 +433,7 @@ async def get_map_points(
 
     Defaults to the last 365 days. No sort — order is undefined (cheaper for map tiles).
     """
-    cutoff = datetime.utcnow() - timedelta(days=days)
+    cutoff, now = _map_window(days)
     query = select(
         UniqueEvent.id,
         UniqueEvent.latitude,
@@ -424,6 +451,7 @@ async def get_map_points(
         UniqueEvent.latitude.isnot(None),
         UniqueEvent.longitude.isnot(None),
         UniqueEvent.event_date >= cutoff,
+        UniqueEvent.event_date <= now,
     )
 
     if type:
@@ -563,9 +591,15 @@ async def export_events(
     periods: list[str] | None = Query(None),
     days: int = Query(365, ge=1, le=3650),
 ):
-    """Export unique events as CSV or JSON, optionally filtered."""
-    cutoff = datetime.utcnow() - timedelta(days=days)
-    query = select(UniqueEvent).where(UniqueEvent.event_date >= cutoff)
+    """Export geocoded events as CSV, optionally filtered (matches map data window)."""
+    cutoff, now = _map_window(days)
+    query = select(UniqueEvent).where(
+        UniqueEvent.event_date >= cutoff,
+        UniqueEvent.event_date <= now,
+        UniqueEvent.event_date.isnot(None),
+        UniqueEvent.latitude.isnot(None),
+        UniqueEvent.longitude.isnot(None),
+    )
 
     if state:
         query = query.where(UniqueEvent.state == state)
@@ -580,7 +614,7 @@ async def export_events(
         query = query.where(UniqueEvent.method_of_death.in_(methods))
 
     if periods:
-        query = query.where(UniqueEvent.time_of_day.in_(periods))
+        query = query.where(UniqueEvent.time_of_day.in_(_expand_period_filters(periods)))
 
     query = query.order_by(UniqueEvent.event_date.desc().nullslast())
 

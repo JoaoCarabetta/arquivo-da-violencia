@@ -29,6 +29,7 @@ interface RightPanelProps {
   mode: PortalMode;
   sinceDate: string | null;
   pointsInView: MapPoint[];
+  viewportReady: boolean;
   filteredCount: number;
   filters: PortalFilters;
   availableTypes: string[];
@@ -205,12 +206,14 @@ function FiltersSection(props: RightPanelProps) {
 
 function StatsMode(props: RightPanelProps) {
   const { t, lang } = useI18n();
-  const { pointsInView, hasFilters } = props;
+  const { pointsInView, hasFilters, viewportReady } = props;
 
   const stats = useMemo(() => computeStats(pointsInView), [pointsInView]);
   const months = useMemo(() => buildTrendMonths(pointsInView), [pointsInView]);
 
-  const scopeNote = t.inVisibleArea + (hasFilters ? t.filtersActive : '');
+  const scopeNote = viewportReady
+    ? t.inVisibleArea + (hasFilters ? t.filtersActive : '')
+    : t.mapLoadingStats;
 
   const trendMax = Math.max(1, ...months.map((m) => stats.trend[m.key] ?? 0));
   const typeMax = Math.max(1, ...Object.values(stats.byType));
@@ -233,7 +236,7 @@ function StatsMode(props: RightPanelProps) {
             className="leading-none"
             style={{ fontSize: 30, fontWeight: 600, letterSpacing: '-.02em', color: 'var(--stone-900)', fontVariantNumeric: 'tabular-nums' }}
           >
-            {fmtNumber(stats.total, lang)}
+            {viewportReady ? fmtNumber(stats.total, lang) : '—'}
           </div>
           <div className="mt-[5px]" style={{ fontSize: 12, color: 'var(--color-text-muted)' }}>
             {t.events}
@@ -244,7 +247,7 @@ function StatsMode(props: RightPanelProps) {
             className="leading-none"
             style={{ fontSize: 30, fontWeight: 600, letterSpacing: '-.02em', color: 'var(--red-700)', fontVariantNumeric: 'tabular-nums' }}
           >
-            {fmtNumber(stats.victims, lang)}
+            {viewportReady ? fmtNumber(stats.victims, lang) : '—'}
           </div>
           <div className="mt-[5px]" style={{ fontSize: 12, color: 'var(--red-700)', opacity: 0.85 }}>
             {t.victims}
@@ -407,10 +410,15 @@ function FeedMode(props: RightPanelProps) {
   return (
     <div className="px-[14px] pb-[30px] pt-2">
       <div className="px-1.5 pb-3 pt-2" style={{ fontSize: 11.5, color: 'var(--color-text-subtle)' }}>
-        {t.feedNote}
+        {props.viewportReady ? t.feedNote : t.mapLoadingStats}
       </div>
       <div className="flex flex-col gap-2">
-        {feed.map((e) => {
+        {!props.viewportReady ? (
+          <div className="px-2.5 py-[30px] text-center" style={{ fontSize: 13, color: 'var(--color-text-muted)' }}>
+            {t.mapLoadingStats}
+          </div>
+        ) : (
+        feed.map((e) => {
           const victims = e.v ?? 0;
           return (
             <button
@@ -449,8 +457,9 @@ function FeedMode(props: RightPanelProps) {
               </div>
             </button>
           );
-        })}
-        {feed.length === 0 && (
+        })
+        )}
+        {props.viewportReady && feed.length === 0 && (
           <div className="px-2.5 py-[30px] text-center" style={{ fontSize: 13, color: 'var(--color-text-muted)' }}>
             {t.emptyArea}
           </div>

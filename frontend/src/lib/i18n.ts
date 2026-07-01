@@ -54,6 +54,7 @@ export interface Strings {
   allEvents: string;
   statistics: string;
   inThisView: string;
+  mapLoadingStats: string;
   filtersActive: string;
   inVisibleArea: string;
   state: string;
@@ -109,15 +110,16 @@ const PT: Strings = {
   timeNote: 'Período aproximado do registro',
   feedNote: 'Eventos visíveis na área atual do mapa, mais recentes primeiro.',
   dataIntro:
-    'Baixe os dados brutos da área e dos filtros selecionados no momento. O arquivo segue o dicionário de dados completo abaixo.',
+    'Baixe os dados brutos dos eventos geocodados do recorte de 365 dias, com os filtros ativos no momento. O arquivo segue o dicionário de dados completo abaixo.',
   downloadCsv: 'Baixar CSV',
-  recordsExport: 'registros no recorte atual',
+  recordsExport: 'registros geocodados no recorte',
   columns: 'colunas',
   dictionary: 'Dicionário de dados',
-  dataNote: 'O download reflete os filtros ativos.',
-  allEvents: 'Todos os eventos do arquivo.',
+  dataNote: 'O download inclui eventos geocodados dos últimos 365 dias com os filtros ativos (não limitado à área visível do mapa).',
+  allEvents: 'Todos os eventos geocodados do recorte de 365 dias.',
   statistics: 'Estatísticas',
   inThisView: 'Nesta área',
+  mapLoadingStats: 'Aguardando área do mapa…',
   filtersActive: ' · filtros ativos',
   inVisibleArea: 'No recorte visível do mapa',
   state: 'Estado',
@@ -176,15 +178,16 @@ const EN: Strings = {
   timeNote: 'Approximate time recorded',
   feedNote: 'Events visible in the current map area, most recent first.',
   dataIntro:
-    'Download the raw data for the current area and active filters. The file follows the full data dictionary below.',
+    'Download raw data for geocoded events in the 365-day window with the currently active filters. The file follows the full data dictionary below.',
   downloadCsv: 'Download CSV',
-  recordsExport: 'records in current view',
+  recordsExport: 'geocoded records in current view',
   columns: 'columns',
   dictionary: 'Data dictionary',
-  dataNote: 'The download reflects active filters.',
-  allEvents: 'All events in the archive.',
+  dataNote: 'Download includes geocoded events from the last 365 days matching active filters (not limited to the visible map area).',
+  allEvents: 'All geocoded events in the 365-day window.',
   statistics: 'Statistics',
   inThisView: 'In this view',
+  mapLoadingStats: 'Waiting for map area…',
   filtersActive: ' · filters active',
   inVisibleArea: 'In the visible map area',
   state: 'State',
