@@ -47,7 +47,6 @@ export interface Strings {
   feedNote: string;
   dataIntro: string;
   downloadCsv: string;
-  downloadJson: string;
   recordsExport: string;
   columns: string;
   dictionary: string;
@@ -112,7 +111,6 @@ const PT: Strings = {
   dataIntro:
     'Baixe os dados brutos da área e dos filtros selecionados no momento. O arquivo segue o dicionário de dados completo abaixo.',
   downloadCsv: 'Baixar CSV',
-  downloadJson: 'Baixar JSON',
   recordsExport: 'registros no recorte atual',
   columns: 'colunas',
   dictionary: 'Dicionário de dados',
@@ -180,7 +178,6 @@ const EN: Strings = {
   dataIntro:
     'Download the raw data for the current area and active filters. The file follows the full data dictionary below.',
   downloadCsv: 'Download CSV',
-  downloadJson: 'Download JSON',
   recordsExport: 'records in current view',
   columns: 'columns',
   dictionary: 'Data dictionary',

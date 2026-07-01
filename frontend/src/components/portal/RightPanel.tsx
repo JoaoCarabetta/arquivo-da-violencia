@@ -503,7 +503,7 @@ function DataMode(props: RightPanelProps) {
           </div>
         </div>
         <a
-          href={getExportUrl('csv', exportFilters)}
+          href={getExportUrl(exportFilters)}
           download="eventos.csv"
           className="flex w-full items-center justify-center gap-2 rounded-[10px] p-3 transition-colors"
           style={{ background: 'var(--blue-500)', color: '#fff', fontSize: 14, fontWeight: 500 }}
@@ -512,17 +512,6 @@ function DataMode(props: RightPanelProps) {
         >
           <Download className="h-[17px] w-[17px]" />
           {t.downloadCsv}
-        </a>
-        <a
-          href={getExportUrl('json', exportFilters)}
-          download="eventos.json"
-          className="mt-2 flex w-full items-center justify-center gap-2 rounded-[10px] p-2.5 transition-colors"
-          style={{ border: '1px solid var(--stone-300)', color: 'var(--stone-700)', fontSize: 13, fontWeight: 500 }}
-          onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--stone-100)')}
-          onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
-        >
-          <Download className="h-4 w-4" />
-          {t.downloadJson}
         </a>
         <div className="mt-2 text-center" style={{ fontSize: 11, color: 'var(--color-text-subtle)' }}>
           {props.hasFilters ? t.dataNote : t.allEvents}

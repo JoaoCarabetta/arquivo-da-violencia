@@ -482,9 +482,9 @@ export interface ExportFilters {
   days?: number;
 }
 
-export function getExportUrl(format: 'csv' | 'json', filters?: ExportFilters): string {
+export function getExportUrl(filters?: ExportFilters): string {
   const qs = new URLSearchParams();
-  qs.set('format', format);
+  qs.set('format', 'csv');
   qs.set('days', String(filters?.days ?? 365));
   for (const t of filters?.types ?? []) qs.append('types', t);
   for (const m of filters?.methods ?? []) qs.append('methods', m);
