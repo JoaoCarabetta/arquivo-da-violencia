@@ -1,6 +1,6 @@
 """Pipeline control API router."""
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from arq import create_pool
 from arq.jobs import Job
 from loguru import logger
@@ -14,8 +14,13 @@ from app.tasks.worker import (
     is_cron_enabled,
 )
 from app.services.telegram import send_test_message, get_notifier
+from app.auth import require_admin
 
-router = APIRouter(prefix="/pipeline", tags=["pipeline"])
+router = APIRouter(
+    prefix="/pipeline",
+    tags=["pipeline"],
+    dependencies=[Depends(require_admin)],
+)
 
 
 async def get_arq_pool():
