@@ -18,11 +18,10 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 async def login(request: LoginRequest):
     """
     Login endpoint that returns a JWT token.
-    
-    Default credentials:
-    - username: admin (from ADMIN_USERNAME env var)
-    - password: admin123 (from ADMIN_PASSWORD env var)
-    - additional users: ADMIN_USERS (comma-separated username:password pairs)
+
+    Configure credentials via environment variables:
+    - ADMIN_USERNAME / ADMIN_PASSWORD (bcrypt hash in staging/production)
+    - ADMIN_USERS (comma-separated username:hash pairs)
     """
     if not authenticate_user(request.username, request.password):
         raise HTTPException(
