@@ -480,6 +480,7 @@ export interface ExportFilters {
   methods?: string[];
   periods?: string[];
   days?: number;
+  columns?: string[];
 }
 
 export function getExportUrl(filters?: ExportFilters): string {
@@ -489,6 +490,7 @@ export function getExportUrl(filters?: ExportFilters): string {
   for (const t of filters?.types ?? []) qs.append('types', t);
   for (const m of filters?.methods ?? []) qs.append('methods', m);
   for (const p of filters?.periods ?? []) qs.append('periods', p);
+  for (const c of filters?.columns ?? []) qs.append('columns', c);
   return `${API_BASE}/public/events/export?${qs.toString()}`;
 }
 

@@ -1,4 +1,4 @@
-import { memo, useMemo } from 'react';
+import { memo, useMemo, useState, useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { ChevronLeft, RotateCcw, SlidersHorizontal, MapPin, Clock, FileText, Download } from 'lucide-react';
 import { useI18n } from '@/contexts/I18nContext';
@@ -16,6 +16,14 @@ import {
   dictionaryRows,
 } from '@/lib/i18n';
 import { TemporalScopeNote } from './TemporalScopeNote';
+import {
+  DEFAULT_SELECTED_COLUMN_IDS,
+  EXPORT_COLUMN_GROUPS,
+  countSelectedFields,
+  loadSelectedColumnIds,
+  saveSelectedColumnIds,
+  selectedExportFields,
+} from '@/lib/exportColumns';
 import {
   computeStats,
   buildTrendMonths,
@@ -474,15 +482,42 @@ function FeedMode(props: RightPanelProps) {
 function DataMode(props: RightPanelProps) {
   const { t, lang } = useI18n();
   const dict = dictionaryRows(lang);
+  const [selectedColumnIds, setSelectedColumnIds] = useState<string[]>(loadSelectedColumnIds);
+
+  useEffect(() => {
+    saveSelectedColumnIds(selectedColumnIds);
+  }, [selectedColumnIds]);
+
+  const selectedDictionaryFields = useMemo(
+    () => new Set(
+      EXPORT_COLUMN_GROUPS
+        .filter((group) => selectedColumnIds.includes(group.id))
+        .map((group) => group.dictionaryField)
+    ),
+    [selectedColumnIds]
+  );
+  const visibleDict = useMemo(
+    () => dict.filter((row) => selectedDictionaryFields.has(row.field)),
+    [dict, selectedDictionaryFields]
+  );
   const exportFilters = useMemo(
     () => ({
       types: props.filters.types,
       methods: props.filters.methods,
       periods: props.filters.periods,
       days: 365,
+      columns: selectedExportFields(selectedColumnIds),
     }),
-    [props.filters]
+    [props.filters, selectedColumnIds]
   );
+
+  const toggleColumn = (id: string) => {
+    setSelectedColumnIds((current) =>
+      current.includes(id)
+        ? current.filter((value) => value !== id)
+        : [...current, id]
+    );
+  };
 
   return (
     <div className="px-5 pb-[30px] pt-[18px]">
@@ -504,7 +539,7 @@ function DataMode(props: RightPanelProps) {
           </div>
           <div className="text-right">
             <div className="leading-none" style={{ fontSize: 26, fontWeight: 600, color: 'var(--stone-900)', fontVariantNumeric: 'tabular-nums' }}>
-              {dict.length}
+              {countSelectedFields(selectedColumnIds)}
             </div>
             <div className="mt-1" style={{ fontSize: 11.5, color: 'var(--color-text-muted)' }}>
               {t.columns}
@@ -527,16 +562,68 @@ function DataMode(props: RightPanelProps) {
         </div>
       </div>
 
+      <SectionLabel>{t.selectColumns}</SectionLabel>
+      <div className="mb-[18px] overflow-hidden rounded-[10px] p-3" style={{ border: '1px solid var(--stone-200)' }}>
+        <div className="mb-2 flex gap-2">
+          <button
+            type="button"
+            className="rounded-md px-2 py-1"
+            style={{ fontSize: 11, color: 'var(--blue-700)', background: 'var(--stone-100)' }}
+            onClick={() => setSelectedColumnIds(DEFAULT_SELECTED_COLUMN_IDS)}
+          >
+            {t.selectAllColumns}
+          </button>
+          <button
+            type="button"
+            className="rounded-md px-2 py-1"
+            style={{ fontSize: 11, color: 'var(--stone-600)', background: 'var(--stone-100)' }}
+            onClick={() => setSelectedColumnIds([])}
+          >
+            {t.clearColumnSelection}
+          </button>
+        </div>
+        <div className="grid gap-2">
+          {EXPORT_COLUMN_GROUPS.map((group) => {
+            const row = dict.find((entry) => entry.field === group.dictionaryField);
+            return (
+              <label
+                key={group.id}
+                className="flex cursor-pointer items-start gap-2 rounded-md px-1 py-0.5"
+              >
+                <input
+                  type="checkbox"
+                  checked={selectedColumnIds.includes(group.id)}
+                  onChange={() => toggleColumn(group.id)}
+                  className="mt-0.5"
+                />
+                <span style={{ fontSize: 12, color: 'var(--stone-700)', lineHeight: 1.35 }}>
+                  <span className="font-mono" style={{ color: 'var(--blue-700)' }}>
+                    {group.dictionaryField}
+                  </span>
+                  {row ? ` — ${row.desc}` : ''}
+                </span>
+              </label>
+            );
+          })}
+        </div>
+      </div>
+
       <SectionLabel>{t.dictionary}</SectionLabel>
       <div className="overflow-hidden rounded-[10px]" style={{ border: '1px solid var(--stone-200)' }}>
-        {dict.map((d) => (
-          <div key={d.field} className="flex gap-2.5 px-3 py-[9px]" style={{ borderBottom: '1px solid var(--stone-100)' }}>
-            <span className="w-[128px] flex-none break-all font-mono" style={{ fontSize: 11, color: 'var(--blue-700)' }}>
-              {d.field}
-            </span>
-            <span style={{ fontSize: 12, color: 'var(--stone-600)', lineHeight: 1.35 }}>{d.desc}</span>
+        {visibleDict.length === 0 ? (
+          <div className="px-3 py-4 text-center" style={{ fontSize: 12, color: 'var(--color-text-muted)' }}>
+            {t.clearColumnSelection}
           </div>
-        ))}
+        ) : (
+          visibleDict.map((d) => (
+            <div key={d.field} className="flex gap-2.5 px-3 py-[9px]" style={{ borderBottom: '1px solid var(--stone-100)' }}>
+              <span className="w-[128px] flex-none break-all font-mono" style={{ fontSize: 11, color: 'var(--blue-700)' }}>
+                {d.field}
+              </span>
+              <span style={{ fontSize: 12, color: 'var(--stone-600)', lineHeight: 1.35 }}>{d.desc}</span>
+            </div>
+          ))
+        )}
       </div>
     </div>
   );
