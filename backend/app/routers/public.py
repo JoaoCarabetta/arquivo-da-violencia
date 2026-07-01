@@ -1,7 +1,7 @@
 """Public API router for public-facing website."""
 
 from datetime import datetime, timedelta
-from fastapi import APIRouter, Depends, Query, Response
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, text
@@ -25,6 +25,42 @@ def _map_window(days: int = PUBLIC_MAP_DAYS) -> tuple[datetime, datetime]:
     """Return (cutoff, now) for the public map data window."""
     now = datetime.utcnow()
     return now - timedelta(days=days), now
+
+
+def _parse_export_date(value: str, field_label: str) -> datetime:
+    """Parse YYYY-MM-DD export filter dates."""
+    try:
+        return datetime.strptime(value, "%Y-%m-%d")
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail=f"{field_label} inválida. Use o formato AAAA-MM-DD.",
+        ) from exc
+
+
+def _export_date_window(
+    *,
+    days: int,
+    start_date: str | None,
+    end_date: str | None,
+) -> tuple[datetime | None, datetime]:
+    """Resolve export date bounds from rolling days or explicit range."""
+    if not start_date and not end_date:
+        cutoff, now = _map_window(days)
+        return cutoff, now
+
+    start = _parse_export_date(start_date, "Data inicial") if start_date else None
+    end = _parse_export_date(end_date, "Data final") if end_date else datetime.utcnow()
+    if end_date:
+        end = end.replace(hour=23, minute=59, second=59, microsecond=999999)
+
+    if start and end and start > end:
+        raise HTTPException(
+            status_code=400,
+            detail="A data inicial não pode ser posterior à data final.",
+        )
+
+    return start, end
 
 
 def _expand_period_filters(periods: list[str]) -> list[str]:
@@ -590,16 +626,19 @@ async def export_events(
     methods: list[str] | None = Query(None),
     periods: list[str] | None = Query(None),
     days: int = Query(365, ge=1, le=3650),
+    start_date: str | None = Query(None, description="Start date (YYYY-MM-DD, inclusive)"),
+    end_date: str | None = Query(None, description="End date (YYYY-MM-DD, inclusive)"),
 ):
     """Export geocoded events as CSV, optionally filtered (matches map data window)."""
-    cutoff, now = _map_window(days)
+    cutoff, end = _export_date_window(days=days, start_date=start_date, end_date=end_date)
     query = select(UniqueEvent).where(
-        UniqueEvent.event_date >= cutoff,
-        UniqueEvent.event_date <= now,
         UniqueEvent.event_date.isnot(None),
         UniqueEvent.latitude.isnot(None),
         UniqueEvent.longitude.isnot(None),
     )
+    if cutoff is not None:
+        query = query.where(UniqueEvent.event_date >= cutoff)
+    query = query.where(UniqueEvent.event_date <= end)
 
     if state:
         query = query.where(UniqueEvent.state == state)
