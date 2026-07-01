@@ -1,7 +1,7 @@
 """Public API router for public-facing website."""
 
 from datetime import datetime, timedelta
-from fastapi import APIRouter, Depends, Query, Response
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, text
@@ -222,6 +222,7 @@ async def get_security_force_stats(session: AsyncSession = Depends(get_session))
 
 @router.get("/geocode")
 async def geocode_location(
+    request: Request,
     q: str | None = Query(None, description="Free-text place (city, neighborhood, address)"),
     cep: str | None = Query(None, description="Brazilian postal code (CEP)"),
 ):
@@ -231,12 +232,30 @@ async def geocode_location(
     Used by the homepage "near me" search. The browser sends the typed text and
     gets back lat/lng so it can then call /nearby. Geolocation (GPS) skips this.
     """
-    from fastapi import HTTPException
     from app.services.geocoding import geocode_user_query
+    from app.services.geocode_protection import (
+        cache_geocode_response,
+        enforce_geocode_rate_limit,
+        get_cached_geocode,
+        get_client_ip,
+        log_geocode_request,
+        normalize_geocode_query,
+    )
 
     query = (cep or q or "").strip()
     if not query:
         raise HTTPException(status_code=400, detail="Informe um CEP, cidade ou bairro")
+
+    client_ip = get_client_ip(request)
+    normalized = normalize_geocode_query(query)
+
+    cached = await get_cached_geocode(normalized)
+    if cached is not None:
+        log_geocode_request(client_ip=client_ip, query=query, cache_hit=True)
+        return cached
+
+    await enforce_geocode_rate_limit(client_ip)
+    log_geocode_request(client_ip=client_ip, query=query, cache_hit=False)
 
     result = await geocode_user_query(query)
     if not result:
@@ -245,7 +264,7 @@ async def geocode_location(
             detail="Não foi possível localizar esse endereço",
         )
 
-    return {
+    payload = {
         "latitude": result["latitude"],
         "longitude": result["longitude"],
         "label": result["label"],
@@ -253,6 +272,8 @@ async def geocode_location(
         "query": query,
         "zoom": result.get("zoom"),
     }
+    await cache_geocode_response(normalized, payload)
+    return payload
 
 
 def _haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
