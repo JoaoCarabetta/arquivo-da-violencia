@@ -244,7 +244,7 @@ export function MapExplorer({
           </div>
         )}
 
-        <SearchCard points={allPoints} since={sinceDate} onLocate={onLocate} />
+        <SearchCard points={allPoints} onLocate={onLocate} />
         <DensityLegend />
       </div>
 
@@ -267,13 +267,8 @@ export function MapExplorer({
         onResetView={onResetView}
       />
 
-      <AboutModal
-        open={aboutOpen}
-        onClose={closeAbout}
-        since={sinceDate}
-        onOpenMethodology={openMethodology}
-      />
-      <MethodologyPanel open={methodologyOpen} onClose={closeMethodology} since={sinceDate} />
+      <AboutModal open={aboutOpen} onClose={closeAbout} onOpenMethodology={openMethodology} />
+      <MethodologyPanel open={methodologyOpen} onClose={closeMethodology} />
     </div>
   );
 }

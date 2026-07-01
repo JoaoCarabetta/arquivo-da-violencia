@@ -3,18 +3,15 @@ import { memo, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useI18n } from '@/contexts/I18nContext';
 import { methodologyContent } from '@/lib/methodology';
-import { TemporalScopeNote } from './TemporalScopeNote';
 
 interface MethodologyPanelProps {
   open: boolean;
   onClose: () => void;
-  since: string | null;
 }
 
 export const MethodologyPanel = memo(function MethodologyPanel({
   open,
   onClose,
-  since,
 }: MethodologyPanelProps) {
   const { lang } = useI18n();
   const navigate = useNavigate();
@@ -69,10 +66,6 @@ export const MethodologyPanel = memo(function MethodologyPanel({
           >
             {content.title}
           </h2>
-
-          <div className="mb-4">
-            <TemporalScopeNote since={since} />
-          </div>
 
           <p className="mb-5 text-pretty" style={{ fontSize: 15, lineHeight: 1.65, color: 'var(--stone-700)' }}>
             {content.intro}

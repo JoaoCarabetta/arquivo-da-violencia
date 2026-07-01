@@ -160,9 +160,52 @@ function Chip({
   );
 }
 
+function FiltersSection(props: RightPanelProps) {
+  const { t, lang } = useI18n();
+
+  return (
+    <>
+      <div className="mb-[9px] flex items-center justify-between">
+        <div className="flex items-center gap-[7px] font-mono text-[10px] uppercase tracking-[.1em]" style={{ color: 'var(--color-text-subtle)' }}>
+          <SlidersHorizontal className="h-[13px] w-[13px]" />
+          {t.filters}
+        </div>
+        {props.hasFilters && (
+          <button onClick={props.onClearFilters} className="border-none bg-transparent p-0" style={{ fontSize: 11.5, color: 'var(--blue-600)' }}>
+            {t.clear}
+          </button>
+        )}
+      </div>
+
+      <FilterGroupBlock
+        label={t.fType}
+        values={props.availableTypes}
+        active={props.filters.types}
+        render={(v) => translateType(v, lang)}
+        onToggle={(v) => props.onToggleFilter('types', v)}
+      />
+      <FilterGroupBlock
+        label={t.fMethod}
+        values={props.availableMethods}
+        active={props.filters.methods}
+        render={(v) => translateMethod(v, lang)}
+        onToggle={(v) => props.onToggleFilter('methods', v)}
+      />
+      <FilterGroupBlock
+        label={t.fPeriod}
+        values={sortPeriods(props.availablePeriods)}
+        active={props.filters.periods}
+        render={(v) => translatePeriod(v, lang)}
+        onToggle={(v) => props.onToggleFilter('periods', v)}
+        extraMargin
+      />
+    </>
+  );
+}
+
 function StatsMode(props: RightPanelProps) {
   const { t, lang } = useI18n();
-  const { pointsInView, filters, hasFilters } = props;
+  const { pointsInView, hasFilters } = props;
 
   const stats = useMemo(() => computeStats(pointsInView), [pointsInView]);
   const months = useMemo(() => buildTrendMonths(pointsInView), [pointsInView]);
@@ -212,41 +255,7 @@ function StatsMode(props: RightPanelProps) {
         {scopeNote}
       </div>
 
-      {/* filters */}
-      <div className="mb-[9px] flex items-center justify-between">
-        <div className="flex items-center gap-[7px] font-mono text-[10px] uppercase tracking-[.1em]" style={{ color: 'var(--color-text-subtle)' }}>
-          <SlidersHorizontal className="h-[13px] w-[13px]" />
-          {t.filters}
-        </div>
-        {hasFilters && (
-          <button onClick={props.onClearFilters} className="border-none bg-transparent p-0" style={{ fontSize: 11.5, color: 'var(--blue-600)' }}>
-            {t.clear}
-          </button>
-        )}
-      </div>
-
-      <FilterGroupBlock
-        label={t.fType}
-        values={props.availableTypes}
-        active={filters.types}
-        render={(v) => translateType(v, lang)}
-        onToggle={(v) => props.onToggleFilter('types', v)}
-      />
-      <FilterGroupBlock
-        label={t.fMethod}
-        values={props.availableMethods}
-        active={filters.methods}
-        render={(v) => translateMethod(v, lang)}
-        onToggle={(v) => props.onToggleFilter('methods', v)}
-      />
-      <FilterGroupBlock
-        label={t.fPeriod}
-        values={sortPeriods(props.availablePeriods)}
-        active={filters.periods}
-        render={(v) => translatePeriod(v, lang)}
-        onToggle={(v) => props.onToggleFilter('periods', v)}
-        extraMargin
-      />
+      <FiltersSection {...props} />
 
       {/* monthly trend */}
       <SectionLabel>{t.trend}</SectionLabel>
@@ -456,12 +465,24 @@ function FeedMode(props: RightPanelProps) {
 function DataMode(props: RightPanelProps) {
   const { t, lang } = useI18n();
   const dict = dictionaryRows(lang);
+  const exportFilters = useMemo(
+    () => ({
+      types: props.filters.types,
+      methods: props.filters.methods,
+      periods: props.filters.periods,
+      days: 365,
+    }),
+    [props.filters]
+  );
 
   return (
     <div className="px-5 pb-[30px] pt-[18px]">
       <p className="mb-[18px] text-pretty" style={{ fontSize: 14, lineHeight: 1.6, color: 'var(--stone-700)' }}>
         {t.dataIntro}
       </p>
+
+      <FiltersSection {...props} />
+
       <div className="mb-[18px] rounded-xl p-4" style={{ border: '1px solid var(--stone-200)', background: 'var(--stone-50)' }}>
         <div className="mb-[13px] flex justify-between">
           <div>
@@ -482,7 +503,8 @@ function DataMode(props: RightPanelProps) {
           </div>
         </div>
         <a
-          href={getExportUrl('csv')}
+          href={getExportUrl('csv', exportFilters)}
+          download="eventos.csv"
           className="flex w-full items-center justify-center gap-2 rounded-[10px] p-3 transition-colors"
           style={{ background: 'var(--blue-500)', color: '#fff', fontSize: 14, fontWeight: 500 }}
           onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--blue-600)')}
@@ -492,7 +514,8 @@ function DataMode(props: RightPanelProps) {
           {t.downloadCsv}
         </a>
         <a
-          href={getExportUrl('json')}
+          href={getExportUrl('json', exportFilters)}
+          download="eventos.json"
           className="mt-2 flex w-full items-center justify-center gap-2 rounded-[10px] p-2.5 transition-colors"
           style={{ border: '1px solid var(--stone-300)', color: 'var(--stone-700)', fontSize: 13, fontWeight: 500 }}
           onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--stone-100)')}

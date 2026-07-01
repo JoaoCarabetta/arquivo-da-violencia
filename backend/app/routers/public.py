@@ -555,33 +555,44 @@ async def get_public_events(
 @router.get("/events/export")
 async def export_events(
     session: AsyncSession = Depends(get_session),
+    format: str = Query("csv", pattern="^(csv|json)$"),
     state: str | None = None,
     type: str | None = None,
+    types: list[str] | None = Query(None),
+    methods: list[str] | None = Query(None),
+    periods: list[str] | None = Query(None),
+    days: int = Query(365, ge=1, le=3650),
 ):
-    """Export all unique events as CSV with complete data."""
-    
-    # Build query - get ALL unique events
-    query = select(UniqueEvent)
-    
+    """Export unique events as CSV or JSON, optionally filtered."""
+    cutoff = datetime.utcnow() - timedelta(days=days)
+    query = select(UniqueEvent).where(UniqueEvent.event_date >= cutoff)
+
     if state:
         query = query.where(UniqueEvent.state == state)
-    
+
+    type_filters = list(types or [])
     if type:
-        query = query.where(UniqueEvent.homicide_type == type)
-    
+        type_filters.append(type)
+    if type_filters:
+        query = query.where(UniqueEvent.homicide_type.in_(type_filters))
+
+    if methods:
+        query = query.where(UniqueEvent.method_of_death.in_(methods))
+
+    if periods:
+        query = query.where(UniqueEvent.time_of_day.in_(periods))
+
     query = query.order_by(UniqueEvent.event_date.desc().nullslast())
-    
+
     result = await session.execute(query)
     events = result.scalars().all()
-    
-    # Format data with ALL fields from UniqueEvent
+
     data = []
     for event in events:
-        # Serialize merged_data as JSON string if present
         merged_data_str = None
         if event.merged_data:
             merged_data_str = json.dumps(event.merged_data, ensure_ascii=False)
-        
+
         data.append({
             "id": event.id,
             "homicide_type": event.homicide_type,
@@ -622,20 +633,24 @@ async def export_events(
             "created_at": event.created_at.isoformat(),
             "updated_at": event.updated_at.isoformat(),
         })
-    
-    # Create CSV
+
+    if format == "json":
+        return Response(
+            content=json.dumps(data, ensure_ascii=False),
+            media_type="application/json",
+            headers={"Content-Disposition": "attachment; filename=eventos.json"},
+        )
+
     output = io.StringIO()
     if data:
         writer = csv.DictWriter(output, fieldnames=data[0].keys())
         writer.writeheader()
         writer.writerows(data)
-    
-    csv_content = output.getvalue()
-    
+
     return Response(
-        content=csv_content,
+        content=output.getvalue(),
         media_type="text/csv",
-        headers={"Content-Disposition": "attachment; filename=eventos.csv"}
+        headers={"Content-Disposition": "attachment; filename=eventos.csv"},
     )
 
 

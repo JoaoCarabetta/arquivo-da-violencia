@@ -1,19 +1,15 @@
 import { X } from 'lucide-react';
 import { memo, useEffect } from 'react';
 import { useI18n } from '@/contexts/I18nContext';
-import { TemporalScopeNote } from './TemporalScopeNote';
-
 interface AboutModalProps {
   open: boolean;
   onClose: () => void;
-  since: string | null;
   onOpenMethodology: () => void;
 }
 
 export const AboutModal = memo(function AboutModal({
   open,
   onClose,
-  since,
   onOpenMethodology,
 }: AboutModalProps) {
   const { t } = useI18n();
@@ -66,9 +62,6 @@ export const AboutModal = memo(function AboutModal({
           >
             {t.aboutTitle}
           </h2>
-          <div className="mb-3.5">
-            <TemporalScopeNote since={since} />
-          </div>
           <p className="mb-3.5 text-pretty" style={{ fontSize: 15, lineHeight: 1.65, color: 'var(--stone-700)' }}>
             {t.aboutP1}
           </p>

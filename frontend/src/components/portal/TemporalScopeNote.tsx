@@ -4,12 +4,10 @@ import { fmtDateLong } from '@/lib/i18n';
 
 interface TemporalScopeNoteProps {
   since: string | null;
-  variant?: 'subtle' | 'inline';
 }
 
 export const TemporalScopeNote = memo(function TemporalScopeNote({
   since,
-  variant = 'subtle',
 }: TemporalScopeNoteProps) {
   const { t, lang } = useI18n();
 
@@ -17,14 +15,6 @@ export const TemporalScopeNote = memo(function TemporalScopeNote({
 
   const date = fmtDateLong(since, lang);
   const text = t.temporalScope.replace('{date}', date);
-
-  if (variant === 'inline') {
-    return (
-      <span style={{ fontSize: 11.5, color: 'var(--color-text-muted)' }}>
-        {text}
-      </span>
-    );
-  }
 
   return (
     <p
