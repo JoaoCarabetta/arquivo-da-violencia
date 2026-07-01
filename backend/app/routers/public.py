@@ -1,7 +1,7 @@
 """Public API router for public-facing website."""
 
 from datetime import datetime, timedelta
-from fastapi import APIRouter, Depends, Query, Response
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, text
@@ -20,11 +20,88 @@ router = APIRouter(prefix="/public", tags=["public"])
 # Rolling window shared by the map, export, and temporal-scope note.
 PUBLIC_MAP_DAYS = 365
 
+EXPORT_FIELD_NAMES = [
+    "id",
+    "homicide_type",
+    "method_of_death",
+    "event_date",
+    "date_precision",
+    "time_of_day",
+    "country",
+    "state",
+    "city",
+    "neighborhood",
+    "street",
+    "establishment",
+    "full_location_description",
+    "latitude",
+    "longitude",
+    "plus_code",
+    "place_id",
+    "formatted_address",
+    "location_precision",
+    "geocoding_source",
+    "geocoding_confidence",
+    "victim_count",
+    "identified_victim_count",
+    "victims_summary",
+    "perpetrator_count",
+    "identified_perpetrator_count",
+    "security_force_involved",
+    "title",
+    "chronological_description",
+    "additional_context",
+    "merged_data",
+    "source_count",
+    "confirmed",
+    "needs_enrichment",
+    "last_enriched_at",
+    "enrichment_model",
+    "created_at",
+    "updated_at",
+]
+
 
 def _map_window(days: int = PUBLIC_MAP_DAYS) -> tuple[datetime, datetime]:
     """Return (cutoff, now) for the public map data window."""
     now = datetime.utcnow()
     return now - timedelta(days=days), now
+
+
+def _parse_export_date(value: str, field_label: str) -> datetime:
+    """Parse YYYY-MM-DD export filter dates."""
+    try:
+        return datetime.strptime(value, "%Y-%m-%d")
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail=f"{field_label} inválida. Use o formato AAAA-MM-DD.",
+        ) from exc
+
+
+def _export_date_window(
+    *,
+    days: int,
+    start_date: str | None,
+    end_date: str | None,
+) -> tuple[datetime | None, datetime]:
+    """Resolve export date bounds from rolling days or explicit range."""
+    if not start_date and not end_date:
+        cutoff, now = _map_window(days)
+        return cutoff, now
+
+    start = _parse_export_date(start_date, "Data inicial") if start_date else None
+    end = _parse_export_date(end_date, "Data final") if end_date else datetime.utcnow()
+    if end_date:
+        end = end.replace(hour=23, minute=59, second=59, microsecond=999999)
+
+    if start and end and start > end:
+        raise HTTPException(
+            status_code=400,
+            detail="A data inicial não pode ser posterior à data final.",
+        )
+
+    return start, end
 
 
 def _expand_period_filters(periods: list[str]) -> list[str]:
@@ -222,6 +299,7 @@ async def get_security_force_stats(session: AsyncSession = Depends(get_session))
 
 @router.get("/geocode")
 async def geocode_location(
+    request: Request,
     q: str | None = Query(None, description="Free-text place (city, neighborhood, address)"),
     cep: str | None = Query(None, description="Brazilian postal code (CEP)"),
 ):
@@ -231,12 +309,30 @@ async def geocode_location(
     Used by the homepage "near me" search. The browser sends the typed text and
     gets back lat/lng so it can then call /nearby. Geolocation (GPS) skips this.
     """
-    from fastapi import HTTPException
     from app.services.geocoding import geocode_user_query
+    from app.services.geocode_protection import (
+        cache_geocode_response,
+        enforce_geocode_rate_limit,
+        get_cached_geocode,
+        get_client_ip,
+        log_geocode_request,
+        normalize_geocode_query,
+    )
 
     query = (cep or q or "").strip()
     if not query:
         raise HTTPException(status_code=400, detail="Informe um CEP, cidade ou bairro")
+
+    client_ip = get_client_ip(request)
+    normalized = normalize_geocode_query(query)
+
+    cached = await get_cached_geocode(normalized)
+    if cached is not None:
+        log_geocode_request(client_ip=client_ip, query=query, cache_hit=True)
+        return cached
+
+    await enforce_geocode_rate_limit(client_ip)
+    log_geocode_request(client_ip=client_ip, query=query, cache_hit=False)
 
     result = await geocode_user_query(query)
     if not result:
@@ -245,7 +341,7 @@ async def geocode_location(
             detail="Não foi possível localizar esse endereço",
         )
 
-    return {
+    payload = {
         "latitude": result["latitude"],
         "longitude": result["longitude"],
         "label": result["label"],
@@ -253,6 +349,8 @@ async def geocode_location(
         "query": query,
         "zoom": result.get("zoom"),
     }
+    await cache_geocode_response(normalized, payload)
+    return payload
 
 
 def _haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
@@ -590,16 +688,20 @@ async def export_events(
     methods: list[str] | None = Query(None),
     periods: list[str] | None = Query(None),
     days: int = Query(365, ge=1, le=3650),
+    columns: list[str] | None = Query(None),
+    start_date: str | None = Query(None, description="Start date (YYYY-MM-DD, inclusive)"),
+    end_date: str | None = Query(None, description="End date (YYYY-MM-DD, inclusive)"),
 ):
     """Export geocoded events as CSV, optionally filtered (matches map data window)."""
-    cutoff, now = _map_window(days)
+    cutoff, end = _export_date_window(days=days, start_date=start_date, end_date=end_date)
     query = select(UniqueEvent).where(
-        UniqueEvent.event_date >= cutoff,
-        UniqueEvent.event_date <= now,
         UniqueEvent.event_date.isnot(None),
         UniqueEvent.latitude.isnot(None),
         UniqueEvent.longitude.isnot(None),
     )
+    if cutoff is not None:
+        query = query.where(UniqueEvent.event_date >= cutoff)
+    query = query.where(UniqueEvent.event_date <= end)
 
     if state:
         query = query.where(UniqueEvent.state == state)
@@ -621,13 +723,20 @@ async def export_events(
     result = await session.execute(query)
     events = result.scalars().all()
 
+    allowed_columns = set(EXPORT_FIELD_NAMES)
+    selected_columns: list[str] | None = None
+    if columns:
+        selected_columns = [column for column in columns if column in allowed_columns]
+        if not selected_columns:
+            raise HTTPException(status_code=400, detail="Nenhuma coluna válida selecionada")
+
     data = []
     for event in events:
         merged_data_str = None
         if event.merged_data:
             merged_data_str = json.dumps(event.merged_data, ensure_ascii=False)
 
-        data.append({
+        row = {
             "id": event.id,
             "homicide_type": event.homicide_type,
             "method_of_death": event.method_of_death,
@@ -666,7 +775,12 @@ async def export_events(
             "enrichment_model": event.enrichment_model,
             "created_at": event.created_at.isoformat(),
             "updated_at": event.updated_at.isoformat(),
-        })
+        }
+        if selected_columns:
+            row = {key: row[key] for key in selected_columns}
+        data.append(row)
+
+    fieldnames = selected_columns or (list(data[0].keys()) if data else EXPORT_FIELD_NAMES)
 
     if format == "json":
         return Response(
@@ -677,7 +791,7 @@ async def export_events(
 
     output = io.StringIO()
     if data:
-        writer = csv.DictWriter(output, fieldnames=data[0].keys())
+        writer = csv.DictWriter(output, fieldnames=fieldnames)
         writer.writeheader()
         writer.writerows(data)
 
