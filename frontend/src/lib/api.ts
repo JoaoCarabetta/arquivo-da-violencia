@@ -481,12 +481,19 @@ export interface ExportFilters {
   periods?: string[];
   days?: number;
   columns?: string[];
+  startDate?: string;
+  endDate?: string;
 }
 
 export function getExportUrl(filters?: ExportFilters): string {
   const qs = new URLSearchParams();
   qs.set('format', 'csv');
-  qs.set('days', String(filters?.days ?? 365));
+  if (filters?.startDate || filters?.endDate) {
+    if (filters.startDate) qs.set('start_date', filters.startDate);
+    if (filters.endDate) qs.set('end_date', filters.endDate);
+  } else {
+    qs.set('days', String(filters?.days ?? 365));
+  }
   for (const t of filters?.types ?? []) qs.append('types', t);
   for (const m of filters?.methods ?? []) qs.append('methods', m);
   for (const p of filters?.periods ?? []) qs.append('periods', p);
