@@ -177,5 +177,9 @@ backend/tests/fixtures/failure_test_set.json
 # Classification eval fixture built from prod DB (pending manual labels)
 backend/tests/fixtures/eval/classification.json
 
+# Extraction eval fixtures built from prod DB (article content)
+backend/tests/fixtures/eval/extraction.json
+backend/tests/fixtures/eval/extraction_seed.json
+
 # Eval run outputs (may include LLM reasoning)
 backend/eval/results/

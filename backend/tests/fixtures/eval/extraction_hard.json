@@ -1,0 +1,1044 @@
+{
+  "meta": {
+    "stage": "extraction",
+    "version": 1,
+    "source_db": null,
+    "seed": null,
+    "labeled_count": 20,
+    "pending_count": 0,
+    "generator_model": "gemini-2.5-pro"
+  },
+  "cases": [
+    {
+      "id": "ext-hard-001",
+      "tags": [
+        "relative_date",
+        "homicide"
+      ],
+      "label_status": "labeled",
+      "input": {
+        "content": "Um homem de 35 anos foi assassinado a tiros na noite de ontem, em frente a um bar no bairro de Valéria, em Salvador. A vítima, identificada como Carlos Alberto de Jesus, estava bebendo com amigos quando dois homens em uma motocicleta se aproximaram. Segundo testemunhas, o carona desceu do veículo e efetuou múltiplos disparos à queima-roupa contra Carlos, que morreu no local antes da chegada do socorro. A dupla fugiu em seguida e ainda não foi identificada. A Polícia Militar foi acionada por volta das 22h e isolou a área para o trabalho da perícia. O Departamento de Polícia Técnica (DPT) realizou a remoção do corpo. O caso foi registrado e será investigado pelo Departamento de Homicídios e Proteção à Pessoa (DHPP). A polícia busca imagens de câmeras de segurança da região.",
+        "metadata": {
+          "headline": "Homem é executado a tiros em bar no bairro de Valéria",
+          "published_at": "2024-05-21T10:00:00Z",
+          "publisher": "Correio da Bahia",
+          "url": "https://www.correio24horas.com.br/noticia/homem-executado-valeria-tiros/"
+        }
+      },
+      "expected": {
+        "date_time": {
+          "date": "2024-05-20",
+          "date_verification": {
+            "has_explicit_date": true
+          }
+        },
+        "location_info": {
+          "city": "Salvador",
+          "state": "BA",
+          "neighborhood": "Valéria"
+        },
+        "victims": {
+          "number_of_victims": 1
+        },
+        "homicide_dynamic": {
+          "homicide_type": "Homicídio Qualificado",
+          "method": "Arma de fogo"
+        }
+      },
+      "scoring": {
+        "required_fields": [
+          "date_time.date",
+          "location_info.city",
+          "location_info.state",
+          "victims.number_of_victims",
+          "homicide_dynamic.homicide_type",
+          "homicide_dynamic.method"
+        ]
+      },
+      "metadata": {
+        "source_id": null,
+        "notes": "Desafio de data relativa. O LLM precisa usar o \"published_at\" (21/05/2024) para resolver \"ontem\" como 20/05/2024. O resto da extração é direta para testar a resolução de data isoladamente."
+      }
+    },
+    {
+      "id": "ext-hard-002",
+      "tags": [
+        "missing_date",
+        "ambiguous_method"
+      ],
+      "label_status": "labeled",
+      "input": {
+        "content": "A Polícia Civil de Goiás investiga a morte de uma mulher encontrada com sinais de violência em uma estrada de terra na zona rural de Anápolis. O corpo foi localizado por trabalhadores rurais, que acionaram as autoridades. A vítima não portava documentos e, até o momento, não foi identificada. O laudo preliminar do Instituto Médico Legal (IML) apontou que a causa da morte foi traumatismo craniano, possivelmente provocado por um objeto contundente. Não há informações sobre quando o crime teria ocorrido. A equipe de investigação do Grupo de Investigação de Homicídios (GIH) de Anápolis está apurando o caso e buscando por informações que possam levar à identificação da vítima e à autoria do crime. As autoridades pedem que qualquer pessoa com informação sobre o desaparecimento de alguma mulher na região nos últimos dias entre em contato.",
+        "metadata": {
+          "headline": "Corpo de mulher com sinais de violência é encontrado na zona rural de Anápolis",
+          "published_at": "2024-09-15T14:30:00Z",
+          "publisher": "G1 Goiás",
+          "url": "https://g1.globo.com/go/goias/noticia/2024/09/15/corpo-mulher-encontrado-anapolis.html"
+        }
+      },
+      "expected": {
+        "date_time": {
+          "date": null,
+          "date_verification": {
+            "has_explicit_date": false
+          }
+        },
+        "location_info": {
+          "city": "Anápolis",
+          "state": "GO",
+          "neighborhood": null
+        },
+        "victims": {
+          "number_of_victims": 1
+        },
+        "homicide_dynamic": {
+          "homicide_type": "Homicídio",
+          "method": "Objeto contundente"
+        }
+      },
+      "scoring": {
+        "required_fields": [
+          "date_time.date",
+          "location_info.city",
+          "location_info.state",
+          "victims.number_of_victims",
+          "homicide_dynamic.homicide_type",
+          "homicide_dynamic.method"
+        ]
+      },
+      "metadata": {
+        "source_id": null,
+        "notes": "Ausência completa de data. O modelo deve reconhecer que não há informação temporal no texto e definir \"date\" como nulo e \"has_explicit_date\" como falso. O método é vago, devendo ser \"Não especificado\"."
+      }
+    },
+    {
+      "id": "ext-hard-003",
+      "tags": [
+        "multiple_victims",
+        "implicit_count",
+        "relative_date"
+      ],
+      "label_status": "labeled",
+      "input": {
+        "content": "Um casal foi encontrado morto dentro de casa no bairro Jardim São Paulo, na Zona Oeste do Recife, na manhã desta terça-feira. Os corpos de um homem de 42 anos e de uma mulher de 38 foram achados por um parente que foi visitá-los. A polícia foi chamada e encontrou as vítimas com perfurações de arma branca, possivelmente uma faca. As primeiras informações indicam que o crime pode ter ocorrido durante a madrugada. Vizinhos relataram ter ouvido uma discussão vinda da residência. A área foi isolada pelo Instituto de Criminalística para a realização da perícia. Os corpos serão levados para o IML do Recife. O caso ficará sob a responsabilidade do Departamento de Homicídios e Proteção à Pessoa (DHPP).",
+        "metadata": {
+          "headline": "Casal é encontrado morto a facadas no Recife",
+          "published_at": "2025-01-14T11:00:00Z",
+          "publisher": "Jornal do Commercio",
+          "url": "https://jconline.ne10.uol.com.br/cidades/2025/01/casal-morto-recife.html"
+        }
+      },
+      "expected": {
+        "date_time": {
+          "date": "2025-01-14",
+          "date_verification": {
+            "has_explicit_date": true
+          }
+        },
+        "location_info": {
+          "city": "Recife",
+          "state": "PE",
+          "neighborhood": "Jardim São Paulo"
+        },
+        "victims": {
+          "number_of_victims": 2
+        },
+        "homicide_dynamic": {
+          "homicide_type": "Homicídio",
+          "method": "Arma branca"
+        }
+      },
+      "scoring": {
+        "required_fields": [
+          "date_time.date",
+          "location_info.city",
+          "location_info.state",
+          "victims.number_of_victims",
+          "homicide_dynamic.homicide_type",
+          "homicide_dynamic.method"
+        ]
+      },
+      "metadata": {
+        "source_id": null,
+        "notes": "Contagem implícita de vítimas. O texto menciona \"um casal\", o que exige que o modelo compreenda o termo e extraia o número 2 para \"number_of_victims\". A data é relativa (\"nesta terça-feira\")."
+      }
+    },
+    {
+      "id": "ext-hard-004",
+      "tags": [
+        "police_jargon",
+        "homicide",
+        "relative_date"
+      ],
+      "label_status": "labeled",
+      "input": {
+        "content": "Uma operação da Polícia Militar no Complexo do Salgueiro, em São Gonçalo, terminou com um suspeito neutralizado na tarde de ontem. Segundo o comando do 7º BPM (São Gonçalo), equipes realizavam patrulhamento na comunidade quando foram recebidas a tiros por um grupo de criminosos. Houve intenso confronto e, após o tiroteio, os policiais encontraram um homem caído com uma pistola ao lado. O Corpo de Bombeiros foi acionado, mas o indivíduo não resistiu aos ferimentos e teve o óbito constatado no local. A identidade do suspeito não foi revelada. A ocorrência foi registrada na 72ª DP (Mutuá). A Delegacia de Homicídios de Niterói, São Gonçalo e Itaboraí (DHNSGI) irá apurar as circunstâncias da morte. Nenhum policial ficou ferido.",
+        "metadata": {
+          "headline": "Confronto no Salgueiro termina com um suspeito morto",
+          "published_at": "2024-11-30T09:45:00Z",
+          "publisher": "O Dia",
+          "url": "https://odia.ig.com.br/sao-goncalo/2024/11/confronto-no-salgueiro-termina-com-um-suspeito-morto.html"
+        }
+      },
+      "expected": {
+        "date_time": {
+          "date": "2024-11-29",
+          "date_verification": {
+            "has_explicit_date": true
+          }
+        },
+        "location_info": {
+          "city": "São Gonçalo",
+          "state": "RJ",
+          "neighborhood": "Complexo do Salgueiro"
+        },
+        "victims": {
+          "number_of_victims": 1
+        },
+        "homicide_dynamic": {
+          "homicide_type": "Homicídio",
+          "method": "Arma de fogo"
+        }
+      },
+      "scoring": {
+        "required_fields": [
+          "date_time.date",
+          "location_info.city",
+          "location_info.state",
+          "victims.number_of_victims",
+          "homicide_dynamic.homicide_type",
+          "homicide_dynamic.method"
+        ]
+      },
+      "metadata": {
+        "source_id": null,
+        "notes": "Uso de jargão policial ('neutralizado') que deve ser interpretado como morte. O modelo precisa extrair uma vítima e resolver a data relativa 'ontem'."
+      }
+    },
+    {
+      "id": "ext-hard-005",
+      "tags": [
+        "partial_location",
+        "explicit_date"
+      ],
+      "label_status": "labeled",
+      "input": {
+        "content": "Um jovem foi assassinado no início da noite de domingo (10) no bairro de Mangabeira. O crime ocorreu em uma via pública na capital paraibana, e a vítima foi atingida por vários disparos de arma de fogo. Moradores da área ouviram o barulho dos tiros e, ao saírem para verificar, encontraram o rapaz já sem vida no chão. A cidade de João Pessoa tem registrado um aumento nos índices de violência. A Polícia Militar isolou o local do crime até a chegada da perícia. A Delegacia de Crimes Contra a Pessoa assumiu a investigação, mas ainda não há informações sobre a autoria ou a motivação do homicídio. A vítima, que aparentava ter entre 20 e 25 anos, ainda não foi oficialmente identificada.",
+        "metadata": {
+          "headline": "Jovem é morto a tiros em Mangabeira",
+          "published_at": "2025-03-11T12:00:00Z",
+          "publisher": "Portal T5",
+          "url": "https://portalt5.com.br/noticias/policia/jovem-morto-tiros-mangabeira/"
+        }
+      },
+      "expected": {
+        "date_time": {
+          "date": "2025-03-10",
+          "date_verification": {
+            "has_explicit_date": true
+          }
+        },
+        "location_info": {
+          "city": "João Pessoa",
+          "state": "PB",
+          "neighborhood": "Mangabeira"
+        },
+        "victims": {
+          "number_of_victims": 1
+        },
+        "homicide_dynamic": {
+          "homicide_type": "Homicídio",
+          "method": "Arma de fogo"
+        }
+      },
+      "scoring": {
+        "required_fields": [
+          "date_time.date",
+          "location_info.city",
+          "location_info.state",
+          "victims.number_of_victims",
+          "homicide_dynamic.homicide_type",
+          "homicide_dynamic.method"
+        ]
+      },
+      "metadata": {
+        "source_id": null,
+        "notes": "Localização parcial (bairro e cidade, sem rua). Testa a extração correta de 'João Pessoa' e 'Mangabeira'. A data 'domingo (10)' é explícita, mas o dia da semana não bate com o dia do mês. O modelo deve priorizar o dia do mês."
+      }
+    },
+    {
+      "id": "ext-hard-006",
+      "tags": [
+        "latrocinio",
+        "relative_date"
+      ],
+      "label_status": "labeled",
+      "input": {
+        "content": "O dono de uma farmácia foi morto durante uma tentativa de assalto na noite desta sexta-feira, em Contagem, na Região Metropolitana de Belo Horizonte. O crime aconteceu por volta das 20h, no bairro Industrial. Câmeras de segurança registraram a ação. Nas imagens, é possível ver dois criminosos armados invadindo o estabelecimento e anunciando o assalto. O comerciante, de 58 anos, teria reagido e foi atingido por um tiro no peito. Os ladrões fugiram em seguida sem levar nada. A vítima chegou a ser socorrida, mas morreu a caminho do hospital. A Polícia Militar realizou um cerco na região, mas ninguém foi preso. O caso foi registrado como latrocínio (roubo seguido de morte) e será investigado.",
+        "metadata": {
+          "headline": "Dono de farmácia reage a assalto e é morto em Contagem",
+          "published_at": "2024-07-20T08:20:00Z",
+          "publisher": "O Tempo",
+          "url": "https://www.otempo.com.br/cidades/dono-de-farmacia-reage-a-assalto-e-e-morto-em-contagem-1.312123"
+        }
+      },
+      "expected": {
+        "date_time": {
+          "date": "2024-07-19",
+          "date_verification": {
+            "has_explicit_date": true
+          }
+        },
+        "location_info": {
+          "city": "Contagem",
+          "state": "MG",
+          "neighborhood": "Industrial"
+        },
+        "victims": {
+          "number_of_victims": 1
+        },
+        "homicide_dynamic": {
+          "homicide_type": "Latrocínio",
+          "method": "Arma de fogo"
+        }
+      },
+      "scoring": {
+        "required_fields": [
+          "date_time.date",
+          "location_info.city",
+          "location_info.state",
+          "victims.number_of_victims",
+          "homicide_dynamic.homicide_type",
+          "homicide_dynamic.method"
+        ]
+      },
+      "metadata": {
+        "source_id": null,
+        "notes": "Diferenciação entre latrocínio e homicídio. O texto descreve claramente um roubo que resultou em morte, e inclusive menciona o termo \"latrocínio\". O modelo deve ser capaz de identificar e classificar o tipo de crime corretamente. Data relativa (\"nesta sexta-feira\")."
+      }
+    },
+    {
+      "id": "ext-hard-007",
+      "tags": [
+        "feminicidio",
+        "relative_date",
+        "arma_branca"
+      ],
+      "label_status": "labeled",
+      "input": {
+        "content": "Uma mulher de 29 anos foi morta a facadas pelo ex-companheiro na madrugada de hoje, na cidade de Hortolândia, interior de São Paulo. O crime ocorreu na residência da vítima, no bairro Jardim Amanda, e foi presenciado pelos filhos do casal, duas crianças de 5 e 8 anos. Segundo a Guarda Municipal, o suspeito, que não aceitava o fim do relacionamento, invadiu a casa e atacou a vítima com diversos golpes de faca. Após o crime, ele fugiu. As crianças pediram ajuda a um vizinho, que acionou a polícia. A mulher morreu no local. O homem foi localizado e preso em flagrante horas depois. Ele confessou o crime. O caso foi registrado na Delegacia de Defesa da Mulher (DDM) como feminicídio.",
+        "metadata": {
+          "headline": "Mulher é morta a facadas pelo ex-companheiro na frente dos filhos em Hortolândia",
+          "published_at": "2025-02-08T07:00:00Z",
+          "publisher": "Folha de S.Paulo",
+          "url": "https://www.folha.uol.com.br/cotidiano/2025/02/mulher-morta-ex-companheiro-hortolandia.shtml"
+        }
+      },
+      "expected": {
+        "date_time": {
+          "date": "2025-02-08",
+          "date_verification": {
+            "has_explicit_date": true
+          }
+        },
+        "location_info": {
+          "city": "Hortolândia",
+          "state": "SP",
+          "neighborhood": "Jardim Amanda"
+        },
+        "victims": {
+          "number_of_victims": 1
+        },
+        "homicide_dynamic": {
+          "homicide_type": "Feminicídio",
+          "method": "Arma branca"
+        }
+      },
+      "scoring": {
+        "required_fields": [
+          "date_time.date",
+          "location_info.city",
+          "location_info.state",
+          "victims.number_of_victims",
+          "homicide_dynamic.homicide_type",
+          "homicide_dynamic.method"
+        ]
+      },
+      "metadata": {
+        "source_id": null,
+        "notes": "Caso claro de feminicídio. O texto explicita a relação entre vítima e autor ('ex-companheiro'), a motivação e a classificação legal ('feminicídio'). O modelo deve extrair corretamente este tipo de crime. A data ('na madrugada de hoje') é relativa."
+      }
+    },
+    {
+      "id": "ext-hard-008",
+      "tags": [
+        "short_article",
+        "scant_information"
+      ],
+      "label_status": "labeled",
+      "input": {
+        "content": "Um corpo foi encontrado em Caxias do Sul na manhã de hoje. A Brigada Militar foi acionada para atender a ocorrência no bairro Fátima. A vítima, um homem ainda não identificado, apresentava ferimentos de tiros. O local foi isolado para o trabalho da perícia. A Polícia Civil investiga o caso, mas ainda não há detalhes sobre a motivação ou autoria do crime. O corpo foi encaminhado para o Posto Médico-Legal. Mais informações não foram divulgadas.",
+        "metadata": {
+          "headline": "Corpo é achado em Caxias do Sul",
+          "published_at": "2024-12-12T09:00:00Z",
+          "publisher": "Rádio Gaúcha",
+          "url": "https://gauchazh.clicrbs.com.br/seguranca/noticia/2024/12/corpo-achado-caxias.html"
+        }
+      },
+      "expected": {
+        "date_time": {
+          "date": "2024-12-12",
+          "date_verification": {
+            "has_explicit_date": true
+          }
+        },
+        "location_info": {
+          "city": "Caxias do Sul",
+          "state": "RS",
+          "neighborhood": "Fátima"
+        },
+        "victims": {
+          "number_of_victims": 1
+        },
+        "homicide_dynamic": {
+          "homicide_type": "Homicídio",
+          "method": "Arma de fogo"
+        }
+      },
+      "scoring": {
+        "required_fields": [
+          "date_time.date",
+          "location_info.city",
+          "location_info.state",
+          "victims.number_of_victims",
+          "homicide_dynamic.homicide_type",
+          "homicide_dynamic.method"
+        ]
+      },
+      "metadata": {
+        "source_id": null,
+        "notes": "Artigo extremamente curto e com poucas pistas. Testa a capacidade do modelo de extrair o essencial (local, método, número de vítimas) a partir de um texto mínimo, sem se confundir com a falta de detalhes. A data é relativa ('na manhã de hoje')."
+      }
+    },
+    {
+      "id": "ext-hard-009",
+      "tags": [
+        "relative_date",
+        "calendar_calculation"
+      ],
+      "label_status": "labeled",
+      "input": {
+        "content": "Um homem foi encontrado morto na última sexta-feira, dentro de um carro abandonado em uma área remota de Itaboraí, na Região Metropolitana do Rio de Janeiro. A Polícia Militar foi alertada por uma denúncia anônima. No local, os agentes confirmaram a presença de um corpo no banco de trás, com marcas de tiros. A vítima ainda não foi identificada. A área foi periciada pela Delegacia de Homicídios de Niterói, São Gonçalo e Itaboraí (DHNSGI), que assumiu as investigações. As autoridades trabalham para descobrir a identidade do homem e entender a dinâmica do crime. A principal hipótese é de que ele tenha sido executado em outro local. O carro não possuía registro de roubo ou furto.",
+        "metadata": {
+          "headline": "Homem é achado morto dentro de carro em Itaboraí",
+          "published_at": "2024-08-26T15:00:00Z",
+          "publisher": "Extra Online",
+          "url": "https://extra.globo.com/casos-de-policia/homem-achado-morto-carro-itaborai-rj.html"
+        }
+      },
+      "expected": {
+        "date_time": {
+          "date": "2024-08-23",
+          "date_verification": {
+            "has_explicit_date": true
+          }
+        },
+        "location_info": {
+          "city": "Itaboraí",
+          "state": "RJ",
+          "neighborhood": null
+        },
+        "victims": {
+          "number_of_victims": 1
+        },
+        "homicide_dynamic": {
+          "homicide_type": "Homicídio",
+          "method": "Arma de fogo"
+        }
+      },
+      "scoring": {
+        "required_fields": [
+          "date_time.date",
+          "location_info.city",
+          "location_info.state",
+          "victims.number_of_victims",
+          "homicide_dynamic.homicide_type",
+          "homicide_dynamic.method"
+        ]
+      },
+      "metadata": {
+        "source_id": null,
+        "notes": "Data relativa que exige cálculo. A notícia foi publicada numa segunda-feira (26/08/2024) e menciona \"na última sexta-feira\". O modelo precisa calcular corretamente a data como 23/08/2024."
+      }
+    },
+    {
+      "id": "ext-hard-010",
+      "tags": [
+        "ambiguous_method",
+        "unspecified_data",
+        "relative_date"
+      ],
+      "label_status": "labeled",
+      "input": {
+        "content": "Moradores do bairro Sítio Cercado, em Curitiba, encontraram o corpo de um homem em um terreno baldio na manhã deste sábado. A vítima, que não portava documentos, apresentava múltiplos ferimentos pelo corpo e sinais de agressão severa, mas a causa exata da morte ainda não foi determinada pela perícia no local. A Divisão de Homicídios e Proteção à Pessoa (DHPP) foi acionada. Segundo o delegado responsável, a ausência de cápsulas de projéteis ou marcas de faca torna o trabalho inicial mais complexo. \"Ele foi encontrado com muitos sinais de violência, mas não podemos afirmar o método utilizado sem o laudo do IML. Pode ter sido espancamento, asfixia ou outra causa\", explicou. O corpo foi recolhido ao Instituto Médico Legal.",
+        "metadata": {
+          "headline": "Corpo com sinais de violência é localizado no Sítio Cercado",
+          "published_at": "2025-04-05T13:15:00Z",
+          "publisher": "Banda B",
+          "url": "https://www.bandab.com.br/policia/corpo-com-sinais-de-violencia-e-localizado-no-sitio-cercado/"
+        }
+      },
+      "expected": {
+        "date_time": {
+          "date": "2025-04-05",
+          "date_verification": {
+            "has_explicit_date": true
+          }
+        },
+        "location_info": {
+          "city": "Curitiba",
+          "state": "PR",
+          "neighborhood": "Sítio Cercado"
+        },
+        "victims": {
+          "number_of_victims": 1
+        },
+        "homicide_dynamic": {
+          "homicide_type": "Homicídio",
+          "method": "Não especificado"
+        }
+      },
+      "scoring": {
+        "required_fields": [
+          "date_time.date",
+          "location_info.city",
+          "location_info.state",
+          "victims.number_of_victims",
+          "homicide_dynamic.homicide_type",
+          "homicide_dynamic.method"
+        ]
+      },
+      "metadata": {
+        "source_id": null,
+        "notes": "Método ambíguo. O texto menciona \"sinais de violência severa\", mas o delegado afirma explicitamente que o método não pode ser determinado no local. O modelo deve classificar o método como \"Não especificado\"."
+      }
+    },
+    {
+      "id": "ext-hard-011",
+      "tags": [
+        "multiple_victims",
+        "explicit_count"
+      ],
+      "label_status": "labeled",
+      "input": {
+        "content": "Uma chacina deixou três pessoas mortas e uma ferida em um bar na periferia de Fortaleza, na noite de ontem. De acordo com a Secretaria da Segurança Pública e Defesa Social (SSPDS), homens armados chegaram em um carro, desceram e abriram fogo contra um grupo que estava em uma mesa. Duas pessoas morreram no local. Uma terceira vítima chegou a ser socorrida, mas não resistiu aos ferimentos e faleceu na unidade de saúde. A quarta pessoa atingida foi hospitalizada. As identidades das vítimas não foram divulgadas. A motivação do crime seria a disputa entre grupos criminosos. Equipes do Departamento de Homicídios e Proteção à Pessoa (DHPP) e da Perícia Forense (Pefoce) estiveram no local. Ninguém foi preso.",
+        "metadata": {
+          "headline": "Chacina em bar de Fortaleza deixa três mortos e um ferido",
+          "published_at": "2024-10-10T08:00:00Z",
+          "publisher": "Diário do Nordeste",
+          "url": "https://diariodonordeste.verdesmares.com.br/seguranca/chacina-em-fortaleza-deixa-tres-mortos-1.234567"
+        }
+      },
+      "expected": {
+        "date_time": {
+          "date": "2024-10-09",
+          "date_verification": {
+            "has_explicit_date": true
+          }
+        },
+        "location_info": {
+          "city": "Fortaleza",
+          "state": "CE",
+          "neighborhood": null
+        },
+        "victims": {
+          "number_of_victims": 3
+        },
+        "homicide_dynamic": {
+          "homicide_type": "Homicídio Qualificado",
+          "method": "Arma de fogo"
+        }
+      },
+      "scoring": {
+        "required_fields": [
+          "date_time.date",
+          "location_info.city",
+          "location_info.state",
+          "victims.number_of_victims",
+          "homicide_dynamic.homicide_type",
+          "homicide_dynamic.method"
+        ]
+      },
+      "metadata": {
+        "source_id": null,
+        "notes": "Contagem de vítimas explícita, mas com distrator (um ferido). O texto menciona \"três pessoas mortas\". O modelo deve extrair o número 3, ignorando o número de feridos. Data relativa (\"ontem\")."
+      }
+    },
+    {
+      "id": "ext-hard-012",
+      "tags": [
+        "missing_date",
+        "partial_location",
+        "unspecified_method"
+      ],
+      "label_status": "labeled",
+      "input": {
+        "content": "A polícia de Manaus investiga a morte de um homem cujo corpo foi encontrado boiando em um igarapé no bairro da Compensa. Moradores avistaram o corpo e acionaram as autoridades. O Corpo de Bombeiros foi chamado para fazer a remoção. A vítima, ainda não identificada, estava com as mãos e os pés amarrados e apresentava um ferimento profundo na cabeça. A perícia inicial não conseguiu determinar o objeto usado no crime. Pela rigidez do corpo, a polícia acredita que a morte não foi recente. O caso está sendo apurado pela Delegacia Especializada em Homicídios e Sequestros (DEHS). Não há informações sobre suspeitos.",
+        "metadata": {
+          "headline": "Homem é encontrado morto em igarapé na Compensa",
+          "published_at": "2025-05-20T16:00:00Z",
+          "publisher": "A Crítica",
+          "url": "https://www.acritica.com/manaus/homem-encontrado-morto-igarape-compensa-12345"
+        }
+      },
+      "expected": {
+        "date_time": {
+          "date": null,
+          "date_verification": {
+            "has_explicit_date": false
+          }
+        },
+        "location_info": {
+          "city": "Manaus",
+          "state": "AM",
+          "neighborhood": "Compensa"
+        },
+        "victims": {
+          "number_of_victims": 1
+        },
+        "homicide_dynamic": {
+          "homicide_type": "Homicídio Qualificado",
+          "method": "Objeto contundente"
+        }
+      },
+      "scoring": {
+        "required_fields": [
+          "date_time.date",
+          "location_info.city",
+          "location_info.state",
+          "victims.number_of_victims",
+          "homicide_dynamic.homicide_type",
+          "homicide_dynamic.method"
+        ]
+      },
+      "metadata": {
+        "source_id": null,
+        "notes": "Combinação de desafios: data ausente e localização parcial. O texto não dá nenhuma indicação de quando o crime ocorreu ('morte não foi recente' é vago). Menciona apenas o bairro e a cidade."
+      }
+    },
+    {
+      "id": "ext-hard-013",
+      "tags": [
+        "homicide",
+        "relative_date",
+        "baseline"
+      ],
+      "label_status": "labeled",
+      "input": {
+        "content": "Um jovem de 22 anos foi executado com múltiplos tiros na noite de sábado, no bairro Restinga, Zona Sul de Porto Alegre. A vítima estava caminhando por uma rua de pouco movimento quando foi abordada por ocupantes de um carro escuro. Testemunhas relataram à Brigada Militar que ouviram dezenas de disparos. O rapaz, que já tinha passagens pela polícia por tráfico de drogas, morreu no local. A principal suspeita da 2ª Delegacia de Homicídios e Proteção à Pessoa (DHPP) é que o crime tenha sido motivado por um acerto de contas. A área foi isolada para o trabalho do Instituto-Geral de Perícias (IGP). Foram recolhidas no local diversas cápsulas de pistola. Ninguém foi preso.",
+        "metadata": {
+          "headline": "Jovem é executado com dezenas de tiros na Restinga",
+          "published_at": "2024-06-24T10:30:00Z",
+          "publisher": "Correio do Povo",
+          "url": "https://www.correiodopovo.com.br/noticias/policia/jovem-executado-tiros-restinga-1.987654"
+        }
+      },
+      "expected": {
+        "date_time": {
+          "date": "2024-06-22",
+          "date_verification": {
+            "has_explicit_date": true
+          }
+        },
+        "location_info": {
+          "city": "Porto Alegre",
+          "state": "RS",
+          "neighborhood": "Restinga"
+        },
+        "victims": {
+          "number_of_victims": 1
+        },
+        "homicide_dynamic": {
+          "homicide_type": "Homicídio Qualificado",
+          "method": "Arma de fogo"
+        }
+      },
+      "scoring": {
+        "required_fields": [
+          "date_time.date",
+          "location_info.city",
+          "location_info.state",
+          "victims.number_of_victims",
+          "homicide_dynamic.homicide_type",
+          "homicide_dynamic.method"
+        ]
+      },
+      "metadata": {
+        "source_id": null,
+        "notes": "Caso de homicídio simples para servir como linha de base. Todas as informações principais (local, método, número de vítimas, data) estão presentes. A data \"sábado\" precisa ser resolvida com base na publicação de segunda-feira, 24/06, sendo portanto 22/06/2024."
+      }
+    },
+    {
+      "id": "ext-hard-014",
+      "tags": [
+        "ambiguous_date",
+        "missing_date"
+      ],
+      "label_status": "labeled",
+      "input": {
+        "content": "O corpo de um homem foi encontrado em estado de decomposição há dois dias, em um matagal às margens da BR-101, no município de Serra, Grande Vitória. Trabalhadores que faziam a limpeza da rodovia localizaram o corpo. A vítima, que não foi identificada, tinha perfurações compatíveis com disparos de arma de fogo. Devido ao estado do corpo, a Divisão de Homicídios e Proteção à Pessoa (DHPP) de Serra acredita que o crime não ocorreu no dia em que foi encontrado, mas sim há mais tempo. A perícia esteve no local para os primeiros levantamentos. O corpo foi removido e levado para o Departamento Médico Legal (DML) de Vitória. A polícia investiga o caso.",
+        "metadata": {
+          "headline": "Corpo em decomposição é achado com marcas de tiros na Serra",
+          "published_at": "2025-07-25T19:00:00Z",
+          "publisher": "A Gazeta (ES)",
+          "url": "https://www.agazeta.com.br/es/policia/corpo-decomposicao-achado-serra-tiros-0725"
+        }
+      },
+      "expected": {
+        "date_time": {
+          "date": null,
+          "date_verification": {
+            "has_explicit_date": false
+          }
+        },
+        "location_info": {
+          "city": "Serra",
+          "state": "ES",
+          "neighborhood": null
+        },
+        "victims": {
+          "number_of_victims": 1
+        },
+        "homicide_dynamic": {
+          "homicide_type": "Homicídio",
+          "method": "Arma de fogo"
+        }
+      },
+      "scoring": {
+        "required_fields": [
+          "date_time.date",
+          "location_info.city",
+          "location_info.state",
+          "victims.number_of_victims",
+          "homicide_dynamic.homicide_type",
+          "homicide_dynamic.method"
+        ]
+      },
+      "metadata": {
+        "source_id": null,
+        "notes": "Data ambígua. Diferencia a data em que o corpo foi achado ('há dois dias') da data do crime ('há mais tempo'). A data do crime é o alvo e é desconhecida, devendo ser nula. Testa o discernimento do modelo."
+      }
+    },
+    {
+      "id": "ext-hard-015",
+      "tags": [
+        "explicit_date",
+        "feminicidio",
+        "arma_branca"
+      ],
+      "label_status": "labeled",
+      "input": {
+        "content": "Uma advogada de 34 anos foi encontrada morta em seu apartamento no bairro do Bessa, em João Pessoa, na noite do dia 18 de fevereiro de 2025. O principal suspeito do crime é seu noivo, que está foragido. Segundo a Polícia Civil, a vítima foi morta com golpes de um objeto cortante, possivelmente uma faca de cozinha, que foi encontrada no local. Familiares da vítima acionaram a polícia após não conseguirem contato com ela por mais de 24 horas. O corpo foi encontrado no quarto do casal. O crime teria sido motivado por uma crise de ciúmes do suspeito após uma discussão. O caso foi registrado pela Delegacia da Mulher como feminicídio. A polícia solicitou a prisão preventiva do noivo.",
+        "metadata": {
+          "headline": "Advogada é morta em apartamento no Bessa; noivo é o principal suspeito",
+          "published_at": "2025-02-19T09:10:00Z",
+          "publisher": "Jornal da Paraíba",
+          "url": "https://jornaldaparaiba.com.br/policia/advogada-morta-bessa-feminicidio/"
+        }
+      },
+      "expected": {
+        "date_time": {
+          "date": "2025-02-18",
+          "date_verification": {
+            "has_explicit_date": true
+          }
+        },
+        "location_info": {
+          "city": "João Pessoa",
+          "state": "PB",
+          "neighborhood": "Bessa"
+        },
+        "victims": {
+          "number_of_victims": 1
+        },
+        "homicide_dynamic": {
+          "homicide_type": "Feminicídio",
+          "method": "Arma branca"
+        }
+      },
+      "scoring": {
+        "required_fields": [
+          "date_time.date",
+          "location_info.city",
+          "location_info.state",
+          "victims.number_of_victims",
+          "homicide_dynamic.homicide_type",
+          "homicide_dynamic.method"
+        ]
+      },
+      "metadata": {
+        "source_id": null,
+        "notes": "Data explícita e completa no texto. Este caso testa a capacidade do modelo de extrair uma data completa (\"18 de fevereiro de 2025\") sem precisar dos metadados de publicação, além de classificar corretamente o crime como feminicídio."
+      }
+    },
+    {
+      "id": "ext-hard-016",
+      "tags": [
+        "latrocinio",
+        "missing_date",
+        "vague_date"
+      ],
+      "label_status": "labeled",
+      "input": {
+        "content": "Um entregador de aplicativo foi assassinado no início da semana enquanto trabalhava no bairro do Guamá, em Belém. A vítima estava em sua motocicleta para realizar uma entrega quando foi abordada por dois homens, que anunciaram um assalto. Testemunhas contaram à polícia que o jovem teria se recusado a entregar o veículo e o celular, e acabou sendo baleado por um dos criminosos. Ele morreu no local. Os assaltantes fugiram levando a motocicleta e a mochila de entregas da vítima. A Polícia Militar foi chamada, mas não localizou os suspeitos. A Divisão de Homicídios da Polícia Civil investiga o caso como latrocínio. A morte do entregador causou revolta na categoria.",
+        "metadata": {
+          "headline": "Entregador é morto durante assalto no bairro do Guamá",
+          "published_at": "2024-09-20T11:50:00Z",
+          "publisher": "O Liberal",
+          "url": "https://www.oliberal.com/policia/entregador-morto-assalto-guama-belem-1.456789"
+        }
+      },
+      "expected": {
+        "date_time": {
+          "date": null,
+          "date_verification": {
+            "has_explicit_date": false
+          }
+        },
+        "location_info": {
+          "city": "Belém",
+          "state": "PA",
+          "neighborhood": "Guamá"
+        },
+        "victims": {
+          "number_of_victims": 1
+        },
+        "homicide_dynamic": {
+          "homicide_type": "Latrocínio",
+          "method": "Arma de fogo"
+        }
+      },
+      "scoring": {
+        "required_fields": [
+          "date_time.date",
+          "location_info.city",
+          "location_info.state",
+          "victims.number_of_victims",
+          "homicide_dynamic.homicide_type",
+          "homicide_dynamic.method"
+        ]
+      },
+      "metadata": {
+        "source_id": null,
+        "notes": "Data vaga ('no início da semana') impossibilita a determinação de uma data exata, que deve ser nula. O modelo também deve classificar o crime corretamente como latrocínio."
+      }
+    },
+    {
+      "id": "ext-hard-017",
+      "tags": [
+        "police_jargon",
+        "multiple_victims",
+        "relative_date"
+      ],
+      "label_status": "labeled",
+      "input": {
+        "content": "Um confronto entre policiais militares da ROTA e suspeitos deixou dois mortos na Zona Leste de São Paulo, na noite de quinta-feira. Segundo a Secretaria de Segurança Pública (SSP), os agentes realizavam um patrulhamento tático no bairro de Itaquera quando tentaram abordar um veículo com ocupantes em atitude suspeita. Os indivíduos no carro teriam reagido atirando, dando início a uma troca de tiros. A perseguição terminou quando o veículo dos suspeitos colidiu com um poste. No interior do carro, a polícia encontrou dois homens baleados. O resgate foi acionado, mas ambos tiveram o CPF cancelado no local. Com eles, foram encontrados dois revólveres. O caso foi apresentado no DHPP.",
+        "metadata": {
+          "headline": "Dois suspeitos morrem após troca de tiros com a ROTA em Itaquera",
+          "published_at": "2024-11-22T08:30:00Z",
+          "publisher": "R7",
+          "url": "https://noticias.r7.com/sao-paulo/dois-suspeitos-morrem-apos-troca-de-tiros-com-a-rota-em-itaquera-22112024"
+        }
+      },
+      "expected": {
+        "date_time": {
+          "date": "2024-11-21",
+          "date_verification": {
+            "has_explicit_date": true
+          }
+        },
+        "location_info": {
+          "city": "São Paulo",
+          "state": "SP",
+          "neighborhood": "Itaquera"
+        },
+        "victims": {
+          "number_of_victims": 2
+        },
+        "homicide_dynamic": {
+          "homicide_type": "Homicídio",
+          "method": "Arma de fogo"
+        }
+      },
+      "scoring": {
+        "required_fields": [
+          "date_time.date",
+          "location_info.city",
+          "location_info.state",
+          "victims.number_of_victims",
+          "homicide_dynamic.homicide_type",
+          "homicide_dynamic.method"
+        ]
+      },
+      "metadata": {
+        "source_id": null,
+        "notes": "Jargão policial (\"CPF cancelado\") combinado com contagem explícita de vítimas e data relativa. O modelo deve entender o jargão como morte e resolver \"quinta-feira\" com base na publicação de sexta-feira, 22/11, como sendo 21/11/2024."
+      }
+    },
+    {
+      "id": "ext-hard-018",
+      "tags": [
+        "explicit_date",
+        "latrocinio",
+        "unspecified_method"
+      ],
+      "label_status": "labeled",
+      "input": {
+        "content": "Um homem foi brutalmente assassinado na madrugada de 15/01/2025 em sua casa, na cidade de Campina Grande. A vítima, um aposentado de 68 anos, foi encontrada por um vizinho amarrada e com sinais de espancamento. A Polícia Civil foi acionada e isolou o local para perícia. A casa estava revirada, indicando que os criminosos procuravam por objetos de valor. A principal linha de investigação é de latrocínio, já que o carro e alguns eletrônicos da vítima foram levados. A Delegacia de Roubos e Furtos (DRF) da cidade está à frente do caso. O corpo do aposentado foi levado para o Núcleo de Medicina e Odontologia Legal (Numol) para a necrópsia, que irá confirmar a causa exata da morte.",
+        "metadata": {
+          "headline": "Aposentado é encontrado morto e amarrado dentro de casa em Campina Grande",
+          "published_at": "2025-01-15T10:00:00Z",
+          "publisher": "Portal Correio",
+          "url": "https://portalcorreio.com.br/aposentado-encontrado-morto-campina-grande/"
+        }
+      },
+      "expected": {
+        "date_time": {
+          "date": "2025-01-15",
+          "date_verification": {
+            "has_explicit_date": true
+          }
+        },
+        "location_info": {
+          "city": "Campina Grande",
+          "state": null,
+          "neighborhood": null
+        },
+        "victims": {
+          "number_of_victims": 1
+        },
+        "homicide_dynamic": {
+          "homicide_type": "Latrocínio",
+          "method": "Espancamento"
+        }
+      },
+      "scoring": {
+        "required_fields": [
+          "date_time.date",
+          "location_info.city",
+          "location_info.state",
+          "victims.number_of_victims",
+          "homicide_dynamic.homicide_type",
+          "homicide_dynamic.method"
+        ]
+      },
+      "metadata": {
+        "source_id": null,
+        "notes": "Testa o parsing do formato de data DD/MM/YYYY. O método é preliminar ('sinais de espancamento') e aguarda confirmação, devendo ser extraído como 'Não especificado'."
+      }
+    },
+    {
+      "id": "ext-hard-019",
+      "tags": [
+        "ambiguous_homicide_type",
+        "relative_date"
+      ],
+      "label_status": "labeled",
+      "input": {
+        "content": "Uma briga em uma distribuidora de bebidas em Samambaia, no Distrito Federal, resultou na morte de um homem na noite deste domingo. A confusão teria começado por um motivo banal. Durante a discussão, um dos envolvidos sacou uma arma e atirou contra a vítima, que foi atingida no abdômen. O homem, de 31 anos, chegou a ser socorrido pelo Corpo de Bombeiros e levado ao Hospital Regional de Taguatinga (HRT), mas não resistiu aos ferimentos e veio a óbito. O autor dos disparos fugiu do local. A 26ª Delegacia de Polícia (Samambaia Norte) registrou a ocorrência e investiga o caso como homicídio. Agentes estão analisando imagens do circuito de segurança.",
+        "metadata": {
+          "headline": "Briga em bar de Samambaia termina com um morto",
+          "published_at": "2024-04-22T09:25:00Z",
+          "publisher": "Metrópoles",
+          "url": "https://www.metropoles.com/distrito-federal/pcdf-investiga-morte-de-homem-baleado-em-briga-de-bar-em-samambaia"
+        }
+      },
+      "expected": {
+        "date_time": {
+          "date": "2024-04-21",
+          "date_verification": {
+            "has_explicit_date": true
+          }
+        },
+        "location_info": {
+          "city": "Samambaia",
+          "state": "DF",
+          "neighborhood": null
+        },
+        "victims": {
+          "number_of_victims": 1
+        },
+        "homicide_dynamic": {
+          "homicide_type": "Homicídio",
+          "method": "Arma de fogo"
+        }
+      },
+      "scoring": {
+        "required_fields": [
+          "date_time.date",
+          "location_info.city",
+          "location_info.state",
+          "victims.number_of_victims",
+          "homicide_dynamic.homicide_type",
+          "homicide_dynamic.method"
+        ]
+      },
+      "metadata": {
+        "source_id": null,
+        "notes": "Tipo de crime que evolui de uma briga para morte. O modelo deve classificar o evento final como 'Homicídio'. A data relativa 'neste domingo' também precisa ser resolvida."
+      }
+    },
+    {
+      "id": "ext-hard-020",
+      "tags": [
+        "short_article",
+        "scant_information",
+        "missing_date"
+      ],
+      "label_status": "labeled",
+      "input": {
+        "content": "Um corpo foi achado em um terreno em Campo Grande. A polícia foi chamada por populares. O caso está sendo investigado. Não há detalhes sobre a identidade da vítima ou a causa da morte. O corpo foi removido para o IML. A área foi periciada. A polícia pede que quem tiver informações entre em contato. A investigação segue. Nenhuma outra informação foi divulgada.",
+        "metadata": {
+          "headline": "Corpo encontrado em terreno em Campo Grande",
+          "published_at": "2025-08-01T18:00:00Z",
+          "publisher": "Campo Grande News",
+          "url": "https://www.campograndenews.com.br/cidades/capital/corpo-encontrado-terreno"
+        }
+      },
+      "expected": {
+        "date_time": {
+          "date": null,
+          "date_verification": {
+            "has_explicit_date": false
+          }
+        },
+        "location_info": {
+          "city": "Campo Grande",
+          "state": null,
+          "neighborhood": null
+        },
+        "victims": {
+          "number_of_victims": 1
+        },
+        "homicide_dynamic": {
+          "homicide_type": "Outro",
+          "method": "Não especificado"
+        }
+      },
+      "scoring": {
+        "required_fields": [
+          "date_time.date",
+          "location_info.city",
+          "location_info.state",
+          "victims.number_of_victims",
+          "homicide_dynamic.homicide_type",
+          "homicide_dynamic.method"
+        ]
+      },
+      "metadata": {
+        "source_id": null,
+        "notes": "Caso extremo de artigo curto e ausência de informações. Testa a robustez do modelo para extrair o mínimo (local) e preencher o resto como nulo ou não especificado sem inventar dados. Contenção contra alucinação."
+      }
+    }
+  ]
+}

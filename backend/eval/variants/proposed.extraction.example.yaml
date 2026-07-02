@@ -1,0 +1,3 @@
+stage: extraction
+# extraction_model: gemini-2.5-flash
+# system_prompt_file: proposed_extraction_prompt.txt
