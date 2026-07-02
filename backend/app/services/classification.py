@@ -127,6 +127,44 @@ Baseie-se APENAS no texto da manchete. Em dúvida sobre local (Brasil vs exterio
 topônimos estrangeiros (Texas, EUA, Rússia, Ucrânia) ou contexto claramente internacional.
 """
 
+CONTENT_CLASSIFICATION_SYSTEM_PROMPT = """
+Você é um classificador de ARTIGOS JORNALÍSTICOS do Google News Brasil. A manchete já passou
+por um filtro inicial, mas o CORPO do artigo pode revelar que a matéria NÃO descreve um
+incidente único de morte violenta no Brasil.
+
+Sua tarefa:
+1. Determinar se o artigo trata de MORTE(S) VIOLENTA(S) no Brasil.
+2. Determinar se descreve UM ÚNICO INCIDENTE específico (is_single_incident).
+
+Use a manchete apenas como contexto. Baseie a decisão principalmente no corpo do artigo.
+
+CLASSIFIQUE COMO MORTE VIOLENTA (is_violent_death = true):
+- Morte violenta no Brasil descrita no corpo: homicídio, tiroteio, operação policial com morte
+- Corpo/restos encontrados com indícios de violência
+- Feminicídio, latrocínio, chacina, execução
+
+NÃO CLASSIFIQUE COMO MORTE VIOLENTA (is_violent_death = false):
+- Eventos FORA DO BRASIL (desastres, guerras, crimes internacionais)
+- Vítima sobrevive ou matéria é sobre julgamento/pena sem novo óbito
+- Apreensões, políticas, análises sem caso específico
+
+INCIDENTE ÚNICO (is_single_incident = true):
+- Um homicídio ou tiroteio específico no Brasil, em local identificável
+- Um evento claramente delimitado ("tiroteio deixa dois mortos na Zona Norte")
+
+NÃO É INCIDENTE ÚNICO (is_single_incident = false) — descarte:
+- Estatísticas agregadas: balanço anual, CVLI, totais estaduais/nacionais, "X mortes em 2025"
+- Notícias estrangeiras mesmo que a manchete pareça local
+- Suicídios, crueldade contra animais, acidentes sem homicídio doloso
+- Resumos com múltiplos incidentes não relacionados
+
+Use content_class_hint quando aplicável: incident, aggregate_statistics, foreign,
+non_incident, suicide, accident_disaster.
+"""
+
+# Truncate article bodies before LLM content classification (~8k chars).
+CONTENT_CLASSIFICATION_MAX_CHARS = 8000
+
 
 def get_classification_client(*, model: str | None = None):
     """Get instructor client for classification using the selection model."""
@@ -180,6 +218,60 @@ def classify_headline(
     )
 
     return result
+
+
+@retry(
+    stop=stop_after_attempt(3),
+    wait=wait_exponential(multiplier=1, min=1, max=4),
+    retry=retry_if_exception_type(Exception),
+    reraise=True,
+)
+def classify_article_content(
+    headline: str,
+    content: str,
+    *,
+    system_prompt: str | None = None,
+    model: str | None = None,
+) -> ViolentDeathClassification:
+    """Classify downloaded article body before extraction."""
+    client = get_classification_client(model=model)
+    prompt = system_prompt or CONTENT_CLASSIFICATION_SYSTEM_PROMPT
+    truncated = content[:CONTENT_CLASSIFICATION_MAX_CHARS]
+
+    result = client.create(
+        response_model=ViolentDeathClassification,
+        messages=[
+            {"role": "system", "content": prompt},
+            {
+                "role": "user",
+                "content": (
+                    f"Manchete:\n{headline}\n\n"
+                    f"Corpo do artigo:\n{truncated}"
+                ),
+            },
+        ],
+        max_retries=2,
+    )
+
+    return result
+
+
+def passes_content_gate(classification: ViolentDeathClassification) -> bool:
+    """Whether article content should proceed to extraction."""
+    return classification.is_violent_death and classification.is_single_incident
+
+
+def format_content_gate_reasoning(
+    classification: ViolentDeathClassification,
+    *,
+    method: str,
+) -> str:
+    """Build classification_reasoning suffix for content-gate discards."""
+    hint = classification.content_class_hint or "non-incident"
+    return (
+        f"{classification.reasoning} "
+        f"[content_gate={method}, single_incident={classification.is_single_incident}, hint={hint}]"
+    )
 
 
 async def classify_source(source_id: int) -> bool:

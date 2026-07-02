@@ -188,11 +188,11 @@ async def download_task(ctx: dict, source_id: int) -> dict:
     """
     logger.info(f"[DOWNLOAD] Starting for source_id: {source_id}")
     
-    from app.services.download import download_source_content
+    from app.services.download import DownloadOutcome, download_source_content
     
-    success = await download_source_content(source_id)
+    outcome = await download_source_content(source_id)
     
-    if success:
+    if outcome == DownloadOutcome.ready_for_extraction:
         logger.info(f"[DOWNLOAD] Success for source_id: {source_id}")
         # Enqueue extraction task
         if ctx.get("redis"):
@@ -204,15 +204,22 @@ async def download_task(ctx: dict, source_id: int) -> dict:
             "task": "download",
             "source_id": source_id,
         }
-    else:
-        logger.warning(f"[DOWNLOAD] Failed for source_id: {source_id}")
-        await notify_job_failed("download", "Download failed", {"source_id": source_id})
-        await create_failure_issue("download", "Download failed", {"source_id": source_id})
+    if outcome == DownloadOutcome.discarded:
+        logger.info(f"[DOWNLOAD] Discarded by content gate for source_id: {source_id}")
         return {
-            "status": "failed",
+            "status": "discarded",
             "task": "download",
             "source_id": source_id,
         }
+
+    logger.warning(f"[DOWNLOAD] Failed for source_id: {source_id}")
+    await notify_job_failed("download", "Download failed", {"source_id": source_id})
+    await create_failure_issue("download", "Download failed", {"source_id": source_id})
+    return {
+        "status": "failed",
+        "task": "download",
+        "source_id": source_id,
+    }
 
 
 @notify_on_failure("extract")
