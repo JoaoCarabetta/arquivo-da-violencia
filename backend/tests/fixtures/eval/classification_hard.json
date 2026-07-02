@@ -1,0 +1,558 @@
+{
+  "meta": {
+    "stage": "classification",
+    "version": 1,
+    "source_db": null,
+    "seed": null,
+    "labeled_count": 30,
+    "pending_count": 0,
+    "generator_model": "gemini-3.1-pro-preview"
+  },
+  "cases": [
+    {
+      "id": "cls-hard-001",
+      "tags": [
+        "metaphor_or_fiction",
+        "subtle_false"
+      ],
+      "label_status": "labeled",
+      "input": {
+        "headline": "O assassinato da língua portuguesa pelo Enem virou piada nas redes."
+      },
+      "expected": {
+        "is_violent_death": false
+      },
+      "metadata": {
+        "source_id": null,
+        "notes": "Usa a palavra 'assassinato' explicitamente, mas em um contexto puramente figurativo."
+      }
+    },
+    {
+      "id": "cls-hard-002",
+      "tags": [
+        "implied_death",
+        "subtle_true"
+      ],
+      "label_status": "labeled",
+      "input": {
+        "headline": "Saco com restos mortais é deixado em porta de delegacia na Baixada."
+      },
+      "expected": {
+        "is_violent_death": true
+      },
+      "metadata": {
+        "source_id": null,
+        "notes": "A expressão 'restos mortais deixado' indica desova de corpo, uma clara morte violenta implícita."
+      }
+    },
+    {
+      "id": "cls-hard-003",
+      "tags": [
+        "police_op_ambiguous",
+        "explicit_non_death"
+      ],
+      "label_status": "labeled",
+      "input": {
+        "headline": "Bope troca tiros com traficantes no Jacarezinho; caveirão é acionado."
+      },
+      "expected": {
+        "is_violent_death": false
+      },
+      "metadata": {
+        "source_id": null,
+        "notes": "Houve intenso tiroteio (violência armada), mas sem nenhuma menção a mortos ou feridos."
+      }
+    },
+    {
+      "id": "cls-hard-004",
+      "tags": [
+        "police_op_ambiguous",
+        "implied_death",
+        "subtle_true"
+      ],
+      "label_status": "labeled",
+      "input": {
+        "headline": "Confronto em comunidade termina com um neutralizado e três fuzis apreendidos."
+      },
+      "expected": {
+        "is_violent_death": true
+      },
+      "metadata": {
+        "source_id": null,
+        "notes": "Usa o jargão policial 'neutralizado' para indicar que um suspeito foi morto no confronto."
+      }
+    },
+    {
+      "id": "cls-hard-005",
+      "tags": [
+        "legal_process",
+        "victim_status_unclear",
+        "subtle_false"
+      ],
+      "label_status": "labeled",
+      "input": {
+        "headline": "Vítima de 15 facadas chora ao ver ex-marido sentar no banco dos réus."
+      },
+      "expected": {
+        "is_violent_death": false
+      },
+      "metadata": {
+        "source_id": null,
+        "notes": "A manchete relata extrema violência ('15 facadas') e um processo legal, mas a vítima sobreviveu."
+      }
+    },
+    {
+      "id": "cls-hard-006",
+      "tags": [
+        "implied_death",
+        "subtle_true"
+      ],
+      "label_status": "labeled",
+      "input": {
+        "headline": "Após sequestro, empresário é achado carbonizado no porta-malas de seu veículo."
+      },
+      "expected": {
+        "is_violent_death": true
+      },
+      "metadata": {
+        "source_id": null,
+        "notes": "Não usa as palavras 'morte' ou 'assassinato', mas 'carbonizado no porta-malas' é prova incontestável de morte violenta."
+      }
+    },
+    {
+      "id": "cls-hard-007",
+      "tags": [
+        "accident_vs_violent",
+        "subtle_false"
+      ],
+      "label_status": "labeled",
+      "input": {
+        "headline": "Caminhão perde freio na Dutra e motorista perde a vida preso às ferragens."
+      },
+      "expected": {
+        "is_violent_death": false
+      },
+      "metadata": {
+        "source_id": null,
+        "notes": "Menciona morte de forma explícita ('perde a vida'), porém trata-se de acidente de trânsito culposo, não homicídio."
+      }
+    },
+    {
+      "id": "cls-hard-008",
+      "tags": [
+        "legal_process",
+        "subtle_true"
+      ],
+      "label_status": "labeled",
+      "input": {
+        "headline": "Após confessar duplo homicídio, criminoso leva polícia ao local onde ocultou os corpos."
+      },
+      "expected": {
+        "is_violent_death": true
+      },
+      "metadata": {
+        "source_id": null,
+        "notes": "Foca no processo legal (confissão), mas confirma a ocorrência de um assassinato múltiplo."
+      }
+    },
+    {
+      "id": "cls-hard-009",
+      "tags": [
+        "explicit_non_death",
+        "victim_status_unclear",
+        "subtle_false"
+      ],
+      "label_status": "labeled",
+      "input": {
+        "headline": "Jovem baleado na cabeça durante assalto a padaria tem quadro estável no hospital."
+      },
+      "expected": {
+        "is_violent_death": false
+      },
+      "metadata": {
+        "source_id": null,
+        "notes": "Ação incrivelmente violenta ('baleado na cabeça' num assalto), mas não houve óbito."
+      }
+    },
+    {
+      "id": "cls-hard-010",
+      "tags": [
+        "subtle_true"
+      ],
+      "label_status": "labeled",
+      "input": {
+        "headline": "Feminicídio: ex-companheiro não aceita término e dispara contra professora."
+      },
+      "expected": {
+        "is_violent_death": true
+      },
+      "metadata": {
+        "source_id": null,
+        "notes": "A palavra 'dispara' sozinha poderia ser tentativa, mas a tag 'Feminicídio' no início garante que houve morte."
+      }
+    },
+    {
+      "id": "cls-hard-011",
+      "tags": [
+        "foreign_or_offtopic",
+        "legal_process"
+      ],
+      "label_status": "labeled",
+      "input": {
+        "headline": "Atirador em massa de escola no Texas recebe pena de morte nos EUA."
+      },
+      "expected": {
+        "is_violent_death": false
+      },
+      "metadata": {
+        "source_id": null,
+        "notes": "Menciona tiroteio em massa e pena de morte, mas o evento ocorreu fora do Brasil."
+      }
+    },
+    {
+      "id": "cls-hard-012",
+      "tags": [
+        "accident_vs_violent",
+        "subtle_true"
+      ],
+      "label_status": "labeled",
+      "input": {
+        "headline": "Laudo aponta que suposto atropelamento acidental foi, na verdade, homicídio doloso."
+      },
+      "expected": {
+        "is_violent_death": true
+      },
+      "metadata": {
+        "source_id": null,
+        "notes": "Reverte a premissa de um acidente, revelando tratar-se de um assassinato intencional."
+      }
+    },
+    {
+      "id": "cls-hard-013",
+      "tags": [
+        "metaphor_or_fiction",
+        "subtle_false"
+      ],
+      "label_status": "labeled",
+      "input": {
+        "headline": "Inflação e juros altos executam o orçamento das famílias de baixa renda."
+      },
+      "expected": {
+        "is_violent_death": false
+      },
+      "metadata": {
+        "source_id": null,
+        "notes": "O termo 'executam' simula um assassinato, mas refere-se metaforicamente à economia."
+      }
+    },
+    {
+      "id": "cls-hard-014",
+      "tags": [
+        "implied_death",
+        "subtle_true"
+      ],
+      "label_status": "labeled",
+      "input": {
+        "headline": "Ataque a tiros em bar deixa dois CPFs cancelados na zona sul."
+      },
+      "expected": {
+        "is_violent_death": true
+      },
+      "metadata": {
+        "source_id": null,
+        "notes": "Usa a gíria 'CPFs cancelados' para noticiar uma execução a tiros, comum na linguagem popular e policial."
+      }
+    },
+    {
+      "id": "cls-hard-015",
+      "tags": [
+        "legal_process",
+        "explicit_non_death",
+        "subtle_false"
+      ],
+      "label_status": "labeled",
+      "input": {
+        "headline": "Polícia Federal cumpre mandados contra grupo de extermínio no nordeste."
+      },
+      "expected": {
+        "is_violent_death": false
+      },
+      "metadata": {
+        "source_id": null,
+        "notes": "Menciona um 'grupo de extermínio' (que mata pessoas), mas a notícia é estritamente sobre a operação de busca/prisão."
+      }
+    },
+    {
+      "id": "cls-hard-016",
+      "tags": [
+        "implied_death",
+        "subtle_true"
+      ],
+      "label_status": "labeled",
+      "input": {
+        "headline": "Reagiu ao assalto: universitário não entrega o celular e é crivado de balas."
+      },
+      "expected": {
+        "is_violent_death": true
+      },
+      "metadata": {
+        "source_id": null,
+        "notes": "Descreve um óbvio latrocínio. 'Crivado de balas' aponta para letalidade extrema da violência armada."
+      }
+    },
+    {
+      "id": "cls-hard-017",
+      "tags": [
+        "accident_vs_violent",
+        "subtle_false"
+      ],
+      "label_status": "labeled",
+      "input": {
+        "headline": "Pedreiro tem morte instantânea após cair do 5º andar de obra por falta de EPI."
+      },
+      "expected": {
+        "is_violent_death": false
+      },
+      "metadata": {
+        "source_id": null,
+        "notes": "Uma morte brutal e explícita, porém classifica-se como acidente de trabalho, não morte violenta intencional/homicídio."
+      }
+    },
+    {
+      "id": "cls-hard-018",
+      "tags": [
+        "police_op_ambiguous",
+        "implied_death",
+        "subtle_true"
+      ],
+      "label_status": "labeled",
+      "input": {
+        "headline": "Operação Escudo: sobe para 14 o número de suspeitos que tombaram na Baixada."
+      },
+      "expected": {
+        "is_violent_death": true
+      },
+      "metadata": {
+        "source_id": null,
+        "notes": "Usa o eufemismo 'tombaram' no contexto de operação policial, indicando mortes em confronto."
+      }
+    },
+    {
+      "id": "cls-hard-019",
+      "tags": [
+        "metaphor_or_fiction",
+        "subtle_false"
+      ],
+      "label_status": "labeled",
+      "input": {
+        "headline": "No último capítulo da novela, vilã planeja o assassinato do rival com veneno."
+      },
+      "expected": {
+        "is_violent_death": false
+      },
+      "metadata": {
+        "source_id": null,
+        "notes": "Contém a palavra 'assassinato', mas descreve explicitamente uma obra de ficção/entretenimento."
+      }
+    },
+    {
+      "id": "cls-hard-020",
+      "tags": [
+        "implied_death",
+        "subtle_true"
+      ],
+      "label_status": "labeled",
+      "input": {
+        "headline": "Desova: pescadores relatam ter visto lancha jogando corpo amarrado no mar."
+      },
+      "expected": {
+        "is_violent_death": true
+      },
+      "metadata": {
+        "source_id": null,
+        "notes": "Palavras como 'desova' e 'corpo amarrado' são fortíssimos indicadores de ocultação de cadáver por homicídio."
+      }
+    },
+    {
+      "id": "cls-hard-021",
+      "tags": [
+        "police_op_ambiguous",
+        "explicit_non_death"
+      ],
+      "label_status": "labeled",
+      "input": {
+        "headline": "Rocam persegue dupla em moto roubada; suspeitos perdem o controle e são presos."
+      },
+      "expected": {
+        "is_violent_death": false
+      },
+      "metadata": {
+        "source_id": null,
+        "notes": "Trata de perseguição e crime, mas não houve morte, apenas acidente leve seguido de prisão."
+      }
+    },
+    {
+      "id": "cls-hard-022",
+      "tags": [
+        "implied_death",
+        "subtle_true"
+      ],
+      "label_status": "labeled",
+      "input": {
+        "headline": "Vingança do tráfico: facção divulga vídeo de execução brutal de informante."
+      },
+      "expected": {
+        "is_violent_death": true
+      },
+      "metadata": {
+        "source_id": null,
+        "notes": "A notícia cobre a divulgação de um vídeo, mas confirma indiretamente que ocorreu um homicídio brutal."
+      }
+    },
+    {
+      "id": "cls-hard-023",
+      "tags": [
+        "explicit_non_death",
+        "victim_status_unclear",
+        "subtle_false"
+      ],
+      "label_status": "labeled",
+      "input": {
+        "headline": "Atentado a faca em praça pública termina com três pessoas no centro cirúrgico."
+      },
+      "expected": {
+        "is_violent_death": false
+      },
+      "metadata": {
+        "source_id": null,
+        "notes": "Citação de um ataque violento ('atentado a faca'), porém os feridos estão em cirurgia (não relata morte)."
+      }
+    },
+    {
+      "id": "cls-hard-024",
+      "tags": [
+        "implied_death",
+        "subtle_true"
+      ],
+      "label_status": "labeled",
+      "input": {
+        "headline": "Chacina na madrugada: bando encapuzado invade residência e não deixa sobreviventes."
+      },
+      "expected": {
+        "is_violent_death": true
+      },
+      "metadata": {
+        "source_id": null,
+        "notes": "O termo 'chacina' e a frase 'não deixa sobreviventes' apontam para múltiplas vítimas de execução letal."
+      }
+    },
+    {
+      "id": "cls-hard-025",
+      "tags": [
+        "accident_vs_violent",
+        "subtle_false"
+      ],
+      "label_status": "labeled",
+      "input": {
+        "headline": "Idoso morre após sofrer infarto fulminante ao presenciar assalto em sua loja."
+      },
+      "expected": {
+        "is_violent_death": false
+      },
+      "metadata": {
+        "source_id": null,
+        "notes": "Houve um crime e uma morte, mas a causa mortis foi médica (infarto), não a violência direta dos criminosos."
+      }
+    },
+    {
+      "id": "cls-hard-026",
+      "tags": [
+        "implied_death",
+        "subtle_true"
+      ],
+      "label_status": "labeled",
+      "input": {
+        "headline": "Amarrado a um poste, suspeito de estupro é linchado até parar de respirar."
+      },
+      "expected": {
+        "is_violent_death": true
+      },
+      "metadata": {
+        "source_id": null,
+        "notes": "Descreve um justiçamento popular fatal, usando 'até parar de respirar' para implicar a morte por espancamento."
+      }
+    },
+    {
+      "id": "cls-hard-027",
+      "tags": [
+        "foreign_or_offtopic",
+        "explicit_non_death"
+      ],
+      "label_status": "labeled",
+      "input": {
+        "headline": "Ataque com drones em base militar russa deixa dezenas de soldados mortos."
+      },
+      "expected": {
+        "is_violent_death": false
+      },
+      "metadata": {
+        "source_id": null,
+        "notes": "Trata-se de mortes violentas por conflito armado, mas ocorre na Rússia (guerra no exterior), irrelevante para o filtro BR."
+      }
+    },
+    {
+      "id": "cls-hard-028",
+      "tags": [
+        "victim_status_unclear",
+        "subtle_true"
+      ],
+      "label_status": "labeled",
+      "input": {
+        "headline": "Baleado no peito em emboscada, sargento não resiste aos ferimentos no bloco cirúrgico."
+      },
+      "expected": {
+        "is_violent_death": true
+      },
+      "metadata": {
+        "source_id": null,
+        "notes": "O início da manchete foca no ferimento, mas o fim usa a expressão 'não resiste' para confirmar a morte da vítima."
+      }
+    },
+    {
+      "id": "cls-hard-029",
+      "tags": [
+        "subtle_false",
+        "explicit_non_death"
+      ],
+      "label_status": "labeled",
+      "input": {
+        "headline": "Polícia Civil apreende arsenal que seria usado para cometer série de assassinatos."
+      },
+      "expected": {
+        "is_violent_death": false
+      },
+      "metadata": {
+        "source_id": null,
+        "notes": "Possui a palavra forte 'assassinatos', mas o crime foi frustrado; trata-se de apreensão de armas."
+      }
+    },
+    {
+      "id": "cls-hard-030",
+      "tags": [
+        "implied_death",
+        "subtle_true"
+      ],
+      "label_status": "labeled",
+      "input": {
+        "headline": "Ossada humana com marca de tiro no crânio é descoberta em área de mata."
+      },
+      "expected": {
+        "is_violent_death": true
+      },
+      "metadata": {
+        "source_id": null,
+        "notes": "Não diz 'assassinato' nem 'morte', mas o achado de ossada e uma 'marca de tiro' evidenciam execução passada."
+      }
+    }
+  ]
+}

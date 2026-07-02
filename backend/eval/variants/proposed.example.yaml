@@ -1,0 +1,4 @@
+# Copy to proposed.yaml and edit for prompt/model experiments.
+stage: classification
+selection_model: gemini-2.5-flash-lite
+# system_prompt_file: proposed_prompt.txt

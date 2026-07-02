@@ -1,0 +1,252 @@
+{
+  "meta": {
+    "stage": "classification",
+    "version": 1,
+    "source_db": null,
+    "seed": null,
+    "labeled_count": 30,
+    "pending_count": 0
+  },
+  "cases": [
+    {
+      "id": "cls-seed-001",
+      "tags": ["clear_true", "explicit_death"],
+      "label_status": "labeled",
+      "input": { "headline": "Tiroteio deixa dois mortos na Zona Norte do Rio" },
+      "expected": { "is_violent_death": true },
+      "metadata": { "source_id": null, "notes": "" }
+    },
+    {
+      "id": "cls-seed-002",
+      "tags": ["clear_true", "explicit_death"],
+      "label_status": "labeled",
+      "input": { "headline": "Homem é morto a tiros em operação policial no Complexo da Maré" },
+      "expected": { "is_violent_death": true },
+      "metadata": { "source_id": null, "notes": "" }
+    },
+    {
+      "id": "cls-seed-003",
+      "tags": ["clear_true", "explicit_death"],
+      "label_status": "labeled",
+      "input": { "headline": "Mulher é assassinada pelo ex-marido em Niterói" },
+      "expected": { "is_violent_death": true },
+      "metadata": { "source_id": null, "notes": "" }
+    },
+    {
+      "id": "cls-seed-004",
+      "tags": ["clear_true", "explicit_death"],
+      "label_status": "labeled",
+      "input": { "headline": "Corpo é encontrado com marcas de violência em terreno baldio na Baixada" },
+      "expected": { "is_violent_death": true },
+      "metadata": { "source_id": null, "notes": "" }
+    },
+    {
+      "id": "cls-seed-005",
+      "tags": ["clear_true", "explicit_death"],
+      "label_status": "labeled",
+      "input": { "headline": "Jovem é executado a tiros na porta de casa em São Gonçalo" },
+      "expected": { "is_violent_death": true },
+      "metadata": { "source_id": null, "notes": "" }
+    },
+    {
+      "id": "cls-seed-006",
+      "tags": ["clear_true", "explicit_death"],
+      "label_status": "labeled",
+      "input": { "headline": "Feminicídio: mulher é morta a facadas pelo companheiro em Duque de Caxias" },
+      "expected": { "is_violent_death": true },
+      "metadata": { "source_id": null, "notes": "" }
+    },
+    {
+      "id": "cls-seed-007",
+      "tags": ["clear_true", "explicit_death"],
+      "label_status": "labeled",
+      "input": { "headline": "Latrocínio termina com morte de comerciante na Zona Oeste" },
+      "expected": { "is_violent_death": true },
+      "metadata": { "source_id": null, "notes": "" }
+    },
+    {
+      "id": "cls-seed-008",
+      "tags": ["clear_true", "explicit_death"],
+      "label_status": "labeled",
+      "input": { "headline": "Confronto entre traficantes deixa um morto em favela da Zona Sul" },
+      "expected": { "is_violent_death": true },
+      "metadata": { "source_id": null, "notes": "" }
+    },
+    {
+      "id": "cls-seed-009",
+      "tags": ["clear_false"],
+      "label_status": "labeled",
+      "input": { "headline": "Polícia prende suspeito de roubo a transeunte na Tijuca" },
+      "expected": { "is_violent_death": false },
+      "metadata": { "source_id": null, "notes": "" }
+    },
+    {
+      "id": "cls-seed-010",
+      "tags": ["clear_false"],
+      "label_status": "labeled",
+      "input": { "headline": "Operação apreende drogas e armas em comunidade da Zona Norte" },
+      "expected": { "is_violent_death": false },
+      "metadata": { "source_id": null, "notes": "" }
+    },
+    {
+      "id": "cls-seed-011",
+      "tags": ["clear_false"],
+      "label_status": "labeled",
+      "input": { "headline": "Governo anuncia nova política de segurança pública para o Rio" },
+      "expected": { "is_violent_death": false },
+      "metadata": { "source_id": null, "notes": "" }
+    },
+    {
+      "id": "cls-seed-012",
+      "tags": ["clear_false"],
+      "label_status": "labeled",
+      "input": { "headline": "PM prende quadrilha especializada em assaltos a bancos" },
+      "expected": { "is_violent_death": false },
+      "metadata": { "source_id": null, "notes": "" }
+    },
+    {
+      "id": "cls-seed-013",
+      "tags": ["clear_false"],
+      "label_status": "labeled",
+      "input": { "headline": "Secretaria de Segurança divulga balanço de apreensões no mês" },
+      "expected": { "is_violent_death": false },
+      "metadata": { "source_id": null, "notes": "" }
+    },
+    {
+      "id": "cls-seed-014",
+      "tags": ["clear_false"],
+      "label_status": "labeled",
+      "input": { "headline": "Homem é detido após tentativa de furto em supermercado" },
+      "expected": { "is_violent_death": false },
+      "metadata": { "source_id": null, "notes": "" }
+    },
+    {
+      "id": "cls-seed-015",
+      "tags": ["clear_false"],
+      "label_status": "labeled",
+      "input": { "headline": "Justiça mantém prisão de acusado de tráfico de drogas" },
+      "expected": { "is_violent_death": false },
+      "metadata": { "source_id": null, "notes": "" }
+    },
+    {
+      "id": "cls-seed-016",
+      "tags": ["clear_false"],
+      "label_status": "labeled",
+      "input": { "headline": "Forças de segurança realizam operação integrada sem registros de mortes" },
+      "expected": { "is_violent_death": false },
+      "metadata": { "source_id": null, "notes": "" }
+    },
+    {
+      "id": "cls-seed-017",
+      "tags": ["injured_not_dead"],
+      "label_status": "labeled",
+      "input": { "headline": "Dois feridos em tiroteio no Complexo da Maré" },
+      "expected": { "is_violent_death": false },
+      "metadata": { "source_id": null, "notes": "" }
+    },
+    {
+      "id": "cls-seed-018",
+      "tags": ["injured_not_dead"],
+      "label_status": "labeled",
+      "input": { "headline": "Homem sobrevive após ser baleado na Zona Norte" },
+      "expected": { "is_violent_death": false },
+      "metadata": { "source_id": null, "notes": "" }
+    },
+    {
+      "id": "cls-seed-019",
+      "tags": ["injured_not_dead"],
+      "label_status": "labeled",
+      "input": { "headline": "Três pessoas ficam feridas após confronto entre grupos rivais" },
+      "expected": { "is_violent_death": false },
+      "metadata": { "source_id": null, "notes": "" }
+    },
+    {
+      "id": "cls-seed-020",
+      "tags": ["injured_not_dead"],
+      "label_status": "labeled",
+      "input": { "headline": "Adolescente baleado é hospitalizado em estado grave" },
+      "expected": { "is_violent_death": false },
+      "metadata": { "source_id": null, "notes": "" }
+    },
+    {
+      "id": "cls-seed-021",
+      "tags": ["injured_not_dead"],
+      "label_status": "labeled",
+      "input": { "headline": "Motorista fica ferido após ser atingido por disparos na Avenida Brasil" },
+      "expected": { "is_violent_death": false },
+      "metadata": { "source_id": null, "notes": "" }
+    },
+    {
+      "id": "cls-seed-022",
+      "tags": ["injured_not_dead"],
+      "label_status": "labeled",
+      "input": { "headline": "Policial fica ferido durante troca de tiros em operação" },
+      "expected": { "is_violent_death": false },
+      "metadata": { "source_id": null, "notes": "" }
+    },
+    {
+      "id": "cls-seed-023",
+      "tags": ["ambiguous"],
+      "label_status": "labeled",
+      "input": { "headline": "Operação policial mobiliza tropas em favelas da Zona Norte" },
+      "expected": { "is_violent_death": false },
+      "metadata": { "source_id": null, "notes": "" }
+    },
+    {
+      "id": "cls-seed-024",
+      "tags": ["ambiguous"],
+      "label_status": "labeled",
+      "input": { "headline": "Tiroteio interrompe trânsito na Linha Vermelha" },
+      "expected": { "is_violent_death": false },
+      "metadata": { "source_id": null, "notes": "" }
+    },
+    {
+      "id": "cls-seed-025",
+      "tags": ["ambiguous"],
+      "label_status": "labeled",
+      "input": { "headline": "Confronto entre PM e suspeitos mobiliza equipes no Jacarezinho" },
+      "expected": { "is_violent_death": false },
+      "metadata": { "source_id": null, "notes": "" }
+    },
+    {
+      "id": "cls-seed-026",
+      "tags": ["ambiguous"],
+      "label_status": "labeled",
+      "input": { "headline": "Disparos são ouvidos durante operação em comunidade da Baixada" },
+      "expected": { "is_violent_death": false },
+      "metadata": { "source_id": null, "notes": "" }
+    },
+    {
+      "id": "cls-seed-027",
+      "tags": ["ambiguous"],
+      "label_status": "labeled",
+      "input": { "headline": "Moradores relatam intenso tiroteio na madrugada em Belford Roxo" },
+      "expected": { "is_violent_death": false },
+      "metadata": { "source_id": null, "notes": "" }
+    },
+    {
+      "id": "cls-seed-028",
+      "tags": ["edge_false_positive"],
+      "label_status": "labeled",
+      "input": { "headline": "Prefeito de São Paulo anuncia medidas contra violência urbana" },
+      "expected": { "is_violent_death": false },
+      "metadata": { "source_id": null, "notes": "Non-RJ / policy headline" }
+    },
+    {
+      "id": "cls-seed-029",
+      "tags": ["edge_false_positive"],
+      "label_status": "labeled",
+      "input": { "headline": "Série sobre morte de personagem movimenta redes sociais" },
+      "expected": { "is_violent_death": false },
+      "metadata": { "source_id": null, "notes": "Metaphorical / entertainment" }
+    },
+    {
+      "id": "cls-seed-030",
+      "tags": ["edge_false_positive"],
+      "label_status": "labeled",
+      "input": { "headline": "Acidente de trânsito deixa motorista morto na BR-101" },
+      "expected": { "is_violent_death": false },
+      "metadata": { "source_id": null, "notes": "Non-violent death (culposo / accident)" }
+    }
+  ]
+}

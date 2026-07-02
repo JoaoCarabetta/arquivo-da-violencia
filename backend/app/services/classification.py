@@ -20,23 +20,23 @@ class ViolentDeathClassification(BaseModel):
     is_violent_death: bool = Field(
         ...,
         description="""
-        TRUE if the headline indicates news about one or more violent deaths 
+        TRUE only if the headline is about one or more NEW violent deaths in Brazil
         (homicides, murders, killings, police operations with deaths).
-        
+
         Examples of TRUE:
         - "Homem é morto a tiros em operação policial"
         - "Corpo é encontrado com marcas de violência"
         - "Tiroteio deixa dois mortos na Zona Norte"
         - "Mulher é assassinada pelo ex-marido"
-        
+
         Examples of FALSE:
         - "Polícia prende suspeito de roubo"
-        - "Governo anuncia nova política de segurança"
         - "Homem sobrevive após ser baleado"
+        - "Vítima de facadas chora no julgamento do agressor" (victim alive)
+        - "Atirador em massa no Texas recebe pena de morte" (foreign event)
         - "Operação apreende drogas e armas"
         """
     )
-    
     confidence: Literal["alta", "média", "baixa"] = Field(
         ...,
         description="""
@@ -81,32 +81,39 @@ class ViolentDeathClassification(BaseModel):
 
 # System prompt for classification
 CLASSIFICATION_SYSTEM_PROMPT = """
-Você é um classificador de manchetes de notícias. Sua tarefa é determinar:
-1. Se a manchete indica MORTE(S) VIOLENTA(S) (homicídios, assassinatos, execuções).
-2. Se descreve UM ÚNICO INCIDENTE específico (is_single_incident), ou conteúdo agregado/fora de escopo.
+Você é um classificador de manchetes de notícias do GOOGLE NEWS BRASIL. Sua tarefa é:
+1. Determinar se a manchete indica NOTÍCIA sobre MORTE(S) VIOLENTA(S) no Brasil.
+2. Determinar se descreve UM ÚNICO INCIDENTE específico (is_single_incident).
+
+Este filtro alimenta um arquivo de violência no Rio de Janeiro. Manchetes sobre mortes
+violentas no exterior NÃO entram, mesmo que mencionem tiroteio, guerra ou assassinato.
 
 CLASSIFIQUE COMO MORTE VIOLENTA (is_violent_death = true):
-- Manchetes que mencionam morte por arma de fogo
-- Manchetes que mencionam morte por arma branca
-- Manchetes que mencionam corpo encontrado
-- Manchetes que mencionam morte em operação policial
-- Manchetes que mencionam morte em confronto
-- Manchetes que mencionam feminicídio, latrocínio, homicídio, assassinato
+- Morte violenta no Brasil: morto(s), assassinado(s), executado(s), baleado(s) MORTO
+- Corpo, restos mortais ou ossada encontrados com indícios de violência
+- Tiroteio/confronto/operação policial que deixa mortos (inclui jargão: "neutralizado",
+  "CPF cancelado" no sentido de pessoa morta)
+- Feminicídio, latrocínio, homicídio, chacina, execução
+- Vítima que MORRE: "não resistiu aos ferimentos", "morre após ser baleado"
 
 NÃO CLASSIFIQUE COMO MORTE VIOLENTA (is_violent_death = false):
-- Manchetes sobre prisões sem morte
-- Manchetes sobre violência sem morte (feridos, agressões)
-- Manchetes sobre políticas de segurança
-- Manchetes sobre apreensões de drogas/armas
-- Manchetes que não mencionam morte explicitamente
+- Eventos FORA DO BRASIL (EUA, Europa, Rússia, Ucrânia, México, etc.), mesmo com mortes
+- Vítima VIVA: sobrevive, ferido(s), hospitalizado, chora, presta depoimento, "vítima de
+  X facadas" no julgamento (sobrevivente), tentativa de homicídio sem morte
+- Tiroteio, operação ou confronto SEM menção a morte ou feridos mortos
+- Prisões, mandados, julgamentos, pena de morte como sentença judicial (notícia jurídica)
+- Apreensões de armas/drogas, políticas de segurança
+- Metáforas ("assassinato da língua", "executa o orçamento")
+- Acidentes (trânsito, queda) sem homicídio doloso
+- Arsenal apreendido para crimes futuros (crime frustrado, sem morte na notícia)
 
 INCIDENTE ÚNICO (is_single_incident = true):
-- Um homicídio ou tiroteio específico em local e data identificáveis
+- Um homicídio ou tiroteio específico no Brasil, em local identificável
 - "Tiroteio deixa dois mortos na Zona Norte" (um evento)
 - "Homem é morto a tiros em operação policial"
 
 NÃO É INCIDENTE ÚNICO (is_single_incident = false) — descarte mesmo se mencionar mortes:
-- Estatísticas agregadas: balanço anual, CVLI, "X mortes em 2025", "no estado", painéis estatísticos
+- Estatísticas agregadas: balanço anual, CVLI, "X mortes em 2025", "no estado", painéis
 - Notícias estrangeiras: terremotos, guerras, desastres fora do Brasil
 - Suicídios (mesmo violentos)
 - Crueldade contra animais
@@ -116,20 +123,22 @@ NÃO É INCIDENTE ÚNICO (is_single_incident = false) — descarte mesmo se menc
 Use content_class_hint quando aplicável: incident, aggregate_statistics, foreign,
 non_incident, suicide, accident_disaster.
 
-Baseie-se APENAS no texto da manchete fornecida.
+Baseie-se APENAS no texto da manchete. Em dúvida sobre local (Brasil vs exterior), procure
+topônimos estrangeiros (Texas, EUA, Rússia, Ucrânia) ou contexto claramente internacional.
 """
 
 
-def get_classification_client():
+def get_classification_client(*, model: str | None = None):
     """Get instructor client for classification using the selection model."""
     settings = get_settings()
-    
+
     if not settings.gemini_api_key:
         raise ValueError("GEMINI_API_KEY not configured")
-    
+
+    model_name = model or settings.selection_model
     return instructor.from_provider(
-        f"google/{settings.selection_model}",
-        api_key=settings.gemini_api_key
+        f"google/{model_name}",
+        api_key=settings.gemini_api_key,
     )
 
 
@@ -139,29 +148,37 @@ def get_classification_client():
     retry=retry_if_exception_type(Exception),
     reraise=True,
 )
-def classify_headline(headline: str) -> ViolentDeathClassification:
+def classify_headline(
+    headline: str,
+    *,
+    system_prompt: str | None = None,
+    model: str | None = None,
+) -> ViolentDeathClassification:
     """
     Classify a headline to determine if it's about violent death.
-    
+
     Uses tenacity for retries with exponential backoff.
-    
+
     Args:
         headline: News headline text
-    
+        system_prompt: Optional override for the classification system prompt
+        model: Optional override for the Gemini model name
+
     Returns:
         ViolentDeathClassification with is_violent_death, confidence, and reasoning
     """
-    client = get_classification_client()
-    
+    client = get_classification_client(model=model)
+    prompt = system_prompt or CLASSIFICATION_SYSTEM_PROMPT
+
     result = client.create(
         response_model=ViolentDeathClassification,
         messages=[
-            {"role": "system", "content": CLASSIFICATION_SYSTEM_PROMPT},
-            {"role": "user", "content": f"Classifique esta manchete:\n\n{headline}"}
+            {"role": "system", "content": prompt},
+            {"role": "user", "content": f"Classifique esta manchete:\n\n{headline}"},
         ],
-        max_retries=2  # Instructor's internal retry
+        max_retries=2,  # Instructor's internal retry
     )
-    
+
     return result
 
 
