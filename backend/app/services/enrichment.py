@@ -50,8 +50,10 @@ def parse_datetime(value) -> datetime | None:
 # === Configuration ===
 DATE_TOLERANCE_DAYS = 1  # For date+city blocking
 VICTIM_NAME_DATE_TOLERANCE_DAYS = 10  # Wider window when victim name matches
+TITLE_DATE_TOLERANCE_DAYS = 3  # Wider window when title similarity is high
 FUZZY_NAME_THRESHOLD = 0.85  # Threshold for fuzzy name matching
-LLM_MATCH_CONFIDENCE_THRESHOLD = 0.7  # Minimum confidence to accept LLM match
+FUZZY_TITLE_THRESHOLD = 0.85  # Threshold for fuzzy title matching
+LLM_MATCH_CONFIDENCE_THRESHOLD = 0.6  # Minimum confidence to accept LLM match
 
 
 # =============================================================================
@@ -99,6 +101,31 @@ def fuzzy_name_match(name1: str, name2: str, threshold: float = FUZZY_NAME_THRES
         return True
     
     return False
+
+
+def normalize_title(title: str) -> str:
+    """Normalize event title for fuzzy matching."""
+    if not title:
+        return ""
+    normalized = unidecode(title.lower().strip())
+    normalized = " ".join(normalized.split())
+    return normalized
+
+
+def fuzzy_title_match(
+    title1: str,
+    title2: str,
+    threshold: float = FUZZY_TITLE_THRESHOLD,
+) -> bool:
+    """Check if two event titles refer to the same incident."""
+    t1, t2 = normalize_title(title1), normalize_title(title2)
+    if not t1 or not t2:
+        return False
+    if t1 == t2:
+        return True
+    if t1 in t2 or t2 in t1:
+        return True
+    return SequenceMatcher(None, t1, t2).ratio() >= threshold
 
 
 def extract_victim_names(raw_event: RawEvent) -> list[str]:
@@ -335,36 +362,97 @@ async def block_by_neighborhood(raw_event: RawEvent) -> list[UniqueEvent]:
         return candidates
 
 
+def _unique_event_from_row(row) -> UniqueEvent:
+    """Build a UniqueEvent from a SQL row."""
+    return UniqueEvent(
+        id=row.id,
+        event_date=parse_datetime(row.event_date),
+        city=row.city,
+        state=row.state,
+        neighborhood=row.neighborhood,
+        street=row.street,
+        victims_summary=row.victims_summary,
+        victim_count=row.victim_count,
+        homicide_type=row.homicide_type,
+        title=row.title,
+        chronological_description=row.chronological_description,
+        source_count=row.source_count,
+        merged_data=row.merged_data,
+    )
+
+
+async def block_by_title_fuzzy(
+    raw_event: RawEvent,
+    days: int = TITLE_DATE_TOLERANCE_DAYS,
+    threshold: float = FUZZY_TITLE_THRESHOLD,
+) -> list[UniqueEvent]:
+    """
+    Find UniqueEvents with similar titles in the same city within a wider date window.
+    """
+    if not raw_event.event_date or not raw_event.city or not raw_event.title:
+        return []
+
+    min_date = raw_event.event_date - timedelta(days=days)
+    max_date = raw_event.event_date + timedelta(days=days)
+    city_lower = raw_event.city.lower()
+
+    async with async_session_maker() as session:
+        result = await session.execute(
+            text("""
+                SELECT * FROM unique_event
+                WHERE event_date BETWEEN :min_date AND :max_date
+                AND LOWER(city) = :city
+                AND title IS NOT NULL
+            """),
+            {"min_date": min_date, "max_date": max_date, "city": city_lower},
+        )
+        rows = result.fetchall()
+
+    candidates = []
+    for row in rows:
+        if fuzzy_title_match(raw_event.title, row.title, threshold=threshold):
+            candidates.append(_unique_event_from_row(row))
+
+    return candidates
+
+
 async def find_candidate_unique_events(raw_event: RawEvent) -> list[UniqueEvent]:
     """
     Combine all blocking strategies and return unique candidates.
     
     Priority:
     1. Victim name match (highest priority, widest date window)
-    2. Date + City (baseline)
-    3. Neighborhood + Date (for events without victim names)
+    2. Title fuzzy match (±3 days, same city)
+    3. Date + City (baseline)
+    4. Neighborhood + Date (for events without victim names)
     """
     candidates_dict = {}  # id -> UniqueEvent to deduplicate
-    
-    # Strategy 1: Date + City (always run if we have date and city)
-    if raw_event.event_date and raw_event.city:
-        date_city_candidates = await block_by_date_city(raw_event)
-        for c in date_city_candidates:
-            candidates_dict[c.id] = c
-    
-    # Strategy 2: Victim Name + City (if victim identified - highest priority)
+
+    # Strategy 1: Victim Name + City (if victim identified - highest priority)
     victim_names = extract_victim_names(raw_event)
     if victim_names:
         victim_candidates = await block_by_victim_name(raw_event, victim_names)
         for c in victim_candidates:
             candidates_dict[c.id] = c
-    
-    # Strategy 3: Neighborhood + Date (if no victim but has neighborhood)
+
+    # Strategy 2: Title fuzzy match (same city, ±3 days)
+    if raw_event.title and raw_event.event_date and raw_event.city:
+        title_candidates = await block_by_title_fuzzy(raw_event)
+        for c in title_candidates:
+            candidates_dict[c.id] = c
+
+    # Strategy 3: Date + City (always run if we have date and city)
+    if raw_event.event_date and raw_event.city:
+        date_city_candidates = await block_by_date_city(raw_event)
+        for c in date_city_candidates:
+            candidates_dict[c.id] = c
+
+    # Strategy 4: Neighborhood + Date (if no victim but has neighborhood)
     if not victim_names and raw_event.neighborhood:
         neighborhood_candidates = await block_by_neighborhood(raw_event)
         for c in neighborhood_candidates:
             candidates_dict[c.id] = c
-    
+
     return list(candidates_dict.values())
 
 
@@ -468,12 +556,16 @@ REGRAS DE MATCHING (em ordem de importância):
    - Exemplo: "João Silva" e "Joao da Silva" = MESMA pessoa
    - Exemplo: fontes diferentes podem focar em aspectos diferentes do mesmo crime
 
-2. **DATA + LOCAL** (peso alto): Mesmo dia + mesmo bairro/local sugere mesmo evento, especialmente se não há vítimas identificadas.
+2. **TÍTULO** (peso alto): Manchetes/títulos muito similares sobre o mesmo crime indicam o MESMO evento,
+   mesmo com pequenas diferenças de data (±3 dias) ou redação entre fontes.
 
-3. **DESCRIÇÃO** (peso médio): Descrições similares do crime ajudam a confirmar, mas fontes diferentes podem descrever o mesmo evento de formas diferentes.
+3. **DATA + LOCAL** (peso alto): Mesmo dia + mesmo bairro/local sugere mesmo evento, especialmente se não há vítimas identificadas.
+
+4. **DESCRIÇÃO** (peso médio): Descrições similares do crime ajudam a confirmar, mas fontes diferentes podem descrever o mesmo evento de formas diferentes.
    - "Homem baleado no Complexo da Maré" e "Tiroteio deixa um morto na Maré" podem ser o MESMO evento
 
-IMPORTANTE: Se há dúvida significativa, responda que NÃO há match. É melhor criar eventos separados que podem ser mesclados depois.
+IMPORTANTE: Prefira match quando há evidência convergente (vítima, título ou local+data).
+Se a evidência for fraca ou ambígua, responda que NÃO há match.
 
 Responda APENAS com JSON válido:
 {{
@@ -1055,7 +1147,7 @@ async def process_single_raw_event(raw_event_id: int) -> dict:
         }
 
 
-async def process_pending_deduplication(limit: int = 100) -> dict:
+async def process_pending_deduplication(limit: int = 200) -> dict:
     """
     Phase 2: Batch clustering (called periodically).
     

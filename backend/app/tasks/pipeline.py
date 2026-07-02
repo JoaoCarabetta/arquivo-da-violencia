@@ -348,7 +348,7 @@ async def extract_ready_task(ctx: dict, limit: int = 10) -> dict:
 
 
 @notify_on_failure("batch_dedup")
-async def batch_dedup_task(ctx: dict, limit: int = 100) -> dict:
+async def batch_dedup_task(ctx: dict, limit: int = 200) -> dict:
     """
     Periodic: Process pending RawEvents through batch clustering.
     
