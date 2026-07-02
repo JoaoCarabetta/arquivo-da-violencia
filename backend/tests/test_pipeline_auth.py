@@ -5,16 +5,18 @@ import os
 import pytest
 from httpx import ASGITransport, AsyncClient
 
-from app.auth import create_access_token
+from app.auth import create_access_token, get_password_hash
 from app.main import create_app
 
 
 @pytest.fixture
 def auth_enabled(monkeypatch):
     """Enable JWT auth for the duration of the test."""
+    monkeypatch.setenv("ENVIRONMENT", "development")
     monkeypatch.setenv("ENABLE_AUTH", "true")
+    monkeypatch.setenv("JWT_SECRET_KEY", "test-jwt-secret")
     monkeypatch.setenv("ADMIN_USERNAME", "testadmin")
-    monkeypatch.setenv("ADMIN_PASSWORD", "testpass")
+    monkeypatch.setenv("ADMIN_PASSWORD", get_password_hash("testpass"))
 
 
 @pytest.fixture

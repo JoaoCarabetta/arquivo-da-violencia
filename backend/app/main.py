@@ -11,6 +11,7 @@ from loguru import logger
 from app.config import get_settings
 from app.database import init_db
 from app.services.worker_monitor import monitor_worker_health
+from app.auth import validate_auth_config
 
 settings = get_settings()
 
@@ -20,6 +21,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Application lifespan handler for startup/shutdown events."""
     # Startup
     logger.info(f"Starting {settings.app_name} v{settings.app_version}")
+    validate_auth_config()
     
     # Ensure instance directory exists
     settings.database_path.parent.mkdir(parents=True, exist_ok=True)

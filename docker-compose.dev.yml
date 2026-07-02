@@ -50,6 +50,7 @@ services:
       - DATABASE_URL=sqlite+aiosqlite:///./instance/violence.db
       - GEMINI_API_KEY=${GEMINI_API_KEY:-}
       - DEBUG=true
+      - ENVIRONMENT=development
       - CORS_ORIGINS=["http://localhost:5173","http://localhost:3000","http://localhost:80","http://localhost"]
       - JWT_SECRET_KEY=dev-secret-key-not-for-production
       - ADMIN_USERNAME=admin
