@@ -9,6 +9,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.database import get_session
 from app.models import UniqueEvent, UniqueEventRead
+from app.services.public_filters import apply_public_incident_filter
 
 router = APIRouter(prefix="/unique-events", tags=["unique-events"])
 
@@ -196,41 +197,51 @@ async def get_unique_events_stats(
 ):
     """Get summary statistics for unique events."""
     # Total count
-    total_query = select(func.count(UniqueEvent.id))
+    total_query = apply_public_incident_filter(select(func.count(UniqueEvent.id)))
     total_result = await session.exec(total_query)
     total = total_result.one()
     
     # Count by homicide type
-    type_query = select(
-        UniqueEvent.homicide_type,
-        func.count(UniqueEvent.id)
-    ).where(UniqueEvent.homicide_type.isnot(None)).group_by(UniqueEvent.homicide_type)
+    type_query = apply_public_incident_filter(
+        select(
+            UniqueEvent.homicide_type,
+            func.count(UniqueEvent.id),
+        ).where(UniqueEvent.homicide_type.isnot(None))
+    ).group_by(UniqueEvent.homicide_type)
     
     type_result = await session.exec(type_query)
     by_type = {row[0]: row[1] for row in type_result.all()}
     
     # Total victims
-    victims_query = select(func.sum(UniqueEvent.victim_count))
+    victims_query = apply_public_incident_filter(
+        select(func.sum(UniqueEvent.victim_count))
+    )
     victims_result = await session.exec(victims_query)
     total_victims = victims_result.one() or 0
     
     # Geocoded count
-    geo_query = select(func.count(UniqueEvent.id)).where(
-        UniqueEvent.latitude.isnot(None)
+    geo_query = apply_public_incident_filter(
+        select(func.count(UniqueEvent.id)).where(
+            UniqueEvent.latitude.isnot(None)
+        )
     )
     geo_result = await session.exec(geo_query)
     geocoded = geo_result.one()
     
     # Confirmed count
-    confirmed_query = select(func.count(UniqueEvent.id)).where(
-        UniqueEvent.confirmed == True  # noqa: E712
+    confirmed_query = apply_public_incident_filter(
+        select(func.count(UniqueEvent.id)).where(
+            UniqueEvent.confirmed == True  # noqa: E712
+        )
     )
     confirmed_result = await session.exec(confirmed_query)
     confirmed = confirmed_result.one()
     
     # Security force involvement
-    sf_query = select(func.count(UniqueEvent.id)).where(
-        UniqueEvent.security_force_involved == True  # noqa: E712
+    sf_query = apply_public_incident_filter(
+        select(func.count(UniqueEvent.id)).where(
+            UniqueEvent.security_force_involved == True  # noqa: E712
+        )
     )
     sf_result = await session.exec(sf_query)
     security_force_count = sf_result.one()
@@ -256,13 +267,15 @@ async def get_events_by_date(
     end_date = datetime.utcnow()
     start_date = end_date - timedelta(days=days)
     
-    query = select(
-        func.date(UniqueEvent.event_date),
-        func.sum(UniqueEvent.victim_count)
-    ).where(
-        UniqueEvent.event_date >= start_date,
-        UniqueEvent.event_date <= end_date,
-        UniqueEvent.victim_count.isnot(None)
+    query = apply_public_incident_filter(
+        select(
+            func.date(UniqueEvent.event_date),
+            func.sum(UniqueEvent.victim_count),
+        ).where(
+            UniqueEvent.event_date >= start_date,
+            UniqueEvent.event_date <= end_date,
+            UniqueEvent.victim_count.isnot(None),
+        )
     ).group_by(
         func.date(UniqueEvent.event_date)
     ).order_by(

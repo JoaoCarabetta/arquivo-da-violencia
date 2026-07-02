@@ -167,8 +167,15 @@ frontend/node_modules/*
 
 *.db
 *.cursor/*
+.venv-notebook/
 
 scripts/*
 
 # Generated failure test-set fixture (contains sampled prod article content)
 backend/tests/fixtures/failure_test_set.json
+
+# Classification eval fixture built from prod DB (pending manual labels)
+backend/tests/fixtures/eval/classification.json
+
+# Eval run outputs (may include LLM reasoning)
+backend/eval/results/

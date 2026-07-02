@@ -1,7 +1,7 @@
 """Classification service - classifies headlines to filter violent death news."""
 
 from datetime import datetime
-from typing import Literal
+from typing import Literal, Optional
 
 import instructor
 from loguru import logger
@@ -20,23 +20,23 @@ class ViolentDeathClassification(BaseModel):
     is_violent_death: bool = Field(
         ...,
         description="""
-        TRUE if the headline indicates news about one or more violent deaths 
+        TRUE only if the headline is about one or more NEW violent deaths in Brazil
         (homicides, murders, killings, police operations with deaths).
-        
+
         Examples of TRUE:
         - "Homem é morto a tiros em operação policial"
         - "Corpo é encontrado com marcas de violência"
         - "Tiroteio deixa dois mortos na Zona Norte"
         - "Mulher é assassinada pelo ex-marido"
-        
+
         Examples of FALSE:
         - "Polícia prende suspeito de roubo"
-        - "Governo anuncia nova política de segurança"
         - "Homem sobrevive após ser baleado"
+        - "Vítima de facadas chora no julgamento do agressor" (victim alive)
+        - "Atirador em massa no Texas recebe pena de morte" (foreign event)
         - "Operação apreende drogas e armas"
         """
     )
-    
     confidence: Literal["alta", "média", "baixa"] = Field(
         ...,
         description="""
@@ -52,41 +52,93 @@ class ViolentDeathClassification(BaseModel):
         description="Brief explanation (1-2 sentences) of why this classification was made."
     )
 
+    is_single_incident: bool = Field(
+        ...,
+        description="""
+        TRUE if the headline describes ONE specific violent-death incident (or a single
+        clearly bounded event such as one shootout with N victims).
+
+        FALSE for aggregate statistics, year-end crime reports, multi-city roundups,
+        foreign disasters, suicides, animal cruelty, policy/analysis pieces, or any
+        headline that is not about a discrete incident.
+        """
+    )
+
+    content_class_hint: Optional[
+        Literal[
+            "incident",
+            "aggregate_statistics",
+            "foreign",
+            "non_incident",
+            "suicide",
+            "accident_disaster",
+        ]
+    ] = Field(
+        None,
+        description="Optional hint about why the headline is or is not a single incident.",
+    )
+
 
 # System prompt for classification
 CLASSIFICATION_SYSTEM_PROMPT = """
-Você é um classificador de manchetes de notícias. Sua única tarefa é determinar se uma manchete 
-indica notícia sobre uma ou mais MORTES VIOLENTAS (homicídios, assassinatos, execuções).
+Você é um classificador de manchetes de notícias do GOOGLE NEWS BRASIL. Sua tarefa é:
+1. Determinar se a manchete indica NOTÍCIA sobre MORTE(S) VIOLENTA(S) no Brasil.
+2. Determinar se descreve UM ÚNICO INCIDENTE específico (is_single_incident).
+
+Este filtro alimenta um arquivo de violência no Rio de Janeiro. Manchetes sobre mortes
+violentas no exterior NÃO entram, mesmo que mencionem tiroteio, guerra ou assassinato.
 
 CLASSIFIQUE COMO MORTE VIOLENTA (is_violent_death = true):
-- Manchetes que mencionam morte por arma de fogo
-- Manchetes que mencionam morte por arma branca
-- Manchetes que mencionam corpo encontrado
-- Manchetes que mencionam morte em operação policial
-- Manchetes que mencionam morte em confronto
-- Manchetes que mencionam feminicídio, latrocínio, homicídio, assassinato
+- Morte violenta no Brasil: morto(s), assassinado(s), executado(s), baleado(s) MORTO
+- Corpo, restos mortais ou ossada encontrados com indícios de violência
+- Tiroteio/confronto/operação policial que deixa mortos (inclui jargão: "neutralizado",
+  "CPF cancelado" no sentido de pessoa morta)
+- Feminicídio, latrocínio, homicídio, chacina, execução
+- Vítima que MORRE: "não resistiu aos ferimentos", "morre após ser baleado"
 
 NÃO CLASSIFIQUE COMO MORTE VIOLENTA (is_violent_death = false):
-- Manchetes sobre prisões sem morte
-- Manchetes sobre violência sem morte (feridos, agressões)
-- Manchetes sobre políticas de segurança
-- Manchetes sobre apreensões de drogas/armas
-- Manchetes que não mencionam morte explicitamente
+- Eventos FORA DO BRASIL (EUA, Europa, Rússia, Ucrânia, México, etc.), mesmo com mortes
+- Vítima VIVA: sobrevive, ferido(s), hospitalizado, chora, presta depoimento, "vítima de
+  X facadas" no julgamento (sobrevivente), tentativa de homicídio sem morte
+- Tiroteio, operação ou confronto SEM menção a morte ou feridos mortos
+- Prisões, mandados, julgamentos, pena de morte como sentença judicial (notícia jurídica)
+- Apreensões de armas/drogas, políticas de segurança
+- Metáforas ("assassinato da língua", "executa o orçamento")
+- Acidentes (trânsito, queda) sem homicídio doloso
+- Arsenal apreendido para crimes futuros (crime frustrado, sem morte na notícia)
 
-Baseie-se APENAS no texto da manchete fornecida.
+INCIDENTE ÚNICO (is_single_incident = true):
+- Um homicídio ou tiroteio específico no Brasil, em local identificável
+- "Tiroteio deixa dois mortos na Zona Norte" (um evento)
+- "Homem é morto a tiros em operação policial"
+
+NÃO É INCIDENTE ÚNICO (is_single_incident = false) — descarte mesmo se mencionar mortes:
+- Estatísticas agregadas: balanço anual, CVLI, "X mortes em 2025", "no estado", painéis
+- Notícias estrangeiras: terremotos, guerras, desastres fora do Brasil
+- Suicídios (mesmo violentos)
+- Crueldade contra animais
+- Resumos com múltiplos incidentes não relacionados
+- Análises/políticas públicas sobre violência sem um caso específico
+
+Use content_class_hint quando aplicável: incident, aggregate_statistics, foreign,
+non_incident, suicide, accident_disaster.
+
+Baseie-se APENAS no texto da manchete. Em dúvida sobre local (Brasil vs exterior), procure
+topônimos estrangeiros (Texas, EUA, Rússia, Ucrânia) ou contexto claramente internacional.
 """
 
 
-def get_classification_client():
+def get_classification_client(*, model: str | None = None):
     """Get instructor client for classification using the selection model."""
     settings = get_settings()
-    
+
     if not settings.gemini_api_key:
         raise ValueError("GEMINI_API_KEY not configured")
-    
+
+    model_name = model or settings.selection_model
     return instructor.from_provider(
-        f"google/{settings.selection_model}",
-        api_key=settings.gemini_api_key
+        f"google/{model_name}",
+        api_key=settings.gemini_api_key,
     )
 
 
@@ -96,29 +148,37 @@ def get_classification_client():
     retry=retry_if_exception_type(Exception),
     reraise=True,
 )
-def classify_headline(headline: str) -> ViolentDeathClassification:
+def classify_headline(
+    headline: str,
+    *,
+    system_prompt: str | None = None,
+    model: str | None = None,
+) -> ViolentDeathClassification:
     """
     Classify a headline to determine if it's about violent death.
-    
+
     Uses tenacity for retries with exponential backoff.
-    
+
     Args:
         headline: News headline text
-    
+        system_prompt: Optional override for the classification system prompt
+        model: Optional override for the Gemini model name
+
     Returns:
         ViolentDeathClassification with is_violent_death, confidence, and reasoning
     """
-    client = get_classification_client()
-    
+    client = get_classification_client(model=model)
+    prompt = system_prompt or CLASSIFICATION_SYSTEM_PROMPT
+
     result = client.create(
         response_model=ViolentDeathClassification,
         messages=[
-            {"role": "system", "content": CLASSIFICATION_SYSTEM_PROMPT},
-            {"role": "user", "content": f"Classifique esta manchete:\n\n{headline}"}
+            {"role": "system", "content": prompt},
+            {"role": "user", "content": f"Classifique esta manchete:\n\n{headline}"},
         ],
-        max_retries=2  # Instructor's internal retry
+        max_retries=2,  # Instructor's internal retry
     )
-    
+
     return result
 
 
@@ -190,7 +250,14 @@ async def classify_source(source_id: int) -> bool:
         return False
 
     # Step 3: persist the result in a fresh short-lived session.
-    new_status = "ready_for_download" if classification.is_violent_death else "discarded"
+    passes_gate = classification.is_violent_death and classification.is_single_incident
+    new_status = "ready_for_download" if passes_gate else "discarded"
+
+    reasoning = classification.reasoning
+    if classification.is_violent_death and not classification.is_single_incident:
+        hint = classification.content_class_hint or "non-incident"
+        reasoning = f"{reasoning} [single_incident=false, hint={hint}]"
+
     async with async_session_maker() as session:
         await session.execute(
             text("""
@@ -207,17 +274,17 @@ async def classify_source(source_id: int) -> bool:
                 "status": new_status,
                 "is_violent_death": 1 if classification.is_violent_death else 0,
                 "confidence": classification.confidence,
-                "reasoning": classification.reasoning,
+                "reasoning": reasoning,
             }
         )
         await session.commit()
 
-    if classification.is_violent_death:
+    if passes_gate:
         logger.info(f"Source {source_id}: VIOLENT DEATH ({classification.confidence})")
     else:
         logger.info(f"Source {source_id}: DISCARDED ({classification.confidence})")
 
-    return classification.is_violent_death
+    return passes_gate
 
 
 async def classify_pending_sources(limit: int = 50, concurrency: int = 10) -> dict:

@@ -30,6 +30,16 @@ DEFAULT_PARAMS = {
     "ceid": "BR:pt-419",
 }
 
+
+async def _resolved_url_exists(session: AsyncSession, resolved_url: str | None) -> bool:
+    """Return True if another source already has this resolved article URL."""
+    if not resolved_url:
+        return False
+    existing = await session.exec(
+        select(SourceGoogleNews).where(SourceGoogleNews.resolved_url == resolved_url)
+    )
+    return existing.first() is not None
+
 # Default search queries for violence-related news in Rio de Janeiro
 DEFAULT_QUERIES = [
     "homicídio Rio de Janeiro",
@@ -171,6 +181,10 @@ async def ingest_feeds(
                 resolved_url = resolve_google_news_url(google_news_url)
                 if resolved_url:
                     logger.debug(f"Resolved: {resolved_url[:60]}...")
+
+            if await _resolved_url_exists(session, resolved_url):
+                logger.debug(f"Skipping duplicate resolved URL: {resolved_url[:60]}...")
+                continue
             
             # Create new source record
             source = SourceGoogleNews(
@@ -394,6 +408,9 @@ async def ingest_city(
             resolved_url = None
             if resolve_urls:
                 resolved_url = resolve_google_news_url(google_news_url)
+
+            if await _resolved_url_exists(session, resolved_url):
+                continue
             
             # Create source record
             source = SourceGoogleNews(
