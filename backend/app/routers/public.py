@@ -4,7 +4,7 @@ from datetime import datetime, timedelta
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func, text
+from sqlalchemy import select, func
 import math
 import csv
 import json  # For serializing merged_data
@@ -14,6 +14,7 @@ from app.database import get_session
 from app.models.unique_event import UniqueEvent
 from app.models.raw_event import RawEvent
 from app.models.source_google_news import SourceGoogleNews
+from app.services.public_filters import apply_public_incident_filter
 
 router = APIRouter(prefix="/public", tags=["public"])
 
@@ -223,7 +224,9 @@ async def get_public_stats(session: AsyncSession = Depends(get_session)):
     """Get public overview stats."""
     
     # Total events
-    total = await session.scalar(select(func.count(UniqueEvent.id)))
+    total = await session.scalar(
+        apply_public_incident_filter(select(func.count(UniqueEvent.id)))
+    )
     
     # Current datetime for rolling window calculations
     now = datetime.utcnow()
@@ -231,36 +234,38 @@ async def get_public_stats(session: AsyncSession = Depends(get_session)):
     # Last 7 days - events from 7 days ago to now (exclude future events)
     last_7_days_start = now - timedelta(days=7)
     last_7_days = await session.scalar(
-        select(func.count(UniqueEvent.id)).where(
-            UniqueEvent.event_date >= last_7_days_start
-        ).where(
-            UniqueEvent.event_date <= now
-        ).where(
-            UniqueEvent.event_date.isnot(None)
+        apply_public_incident_filter(
+            select(func.count(UniqueEvent.id)).where(
+                UniqueEvent.event_date >= last_7_days_start,
+                UniqueEvent.event_date <= now,
+                UniqueEvent.event_date.isnot(None),
+            )
         )
     )
     
     # Last 30 days - events from 30 days ago to now (exclude future events)
     last_30_days_start = now - timedelta(days=30)
     last_30_days = await session.scalar(
-        select(func.count(UniqueEvent.id)).where(
-            UniqueEvent.event_date >= last_30_days_start
-        ).where(
-            UniqueEvent.event_date <= now
-        ).where(
-            UniqueEvent.event_date.isnot(None)
+        apply_public_incident_filter(
+            select(func.count(UniqueEvent.id)).where(
+                UniqueEvent.event_date >= last_30_days_start,
+                UniqueEvent.event_date <= now,
+                UniqueEvent.event_date.isnot(None),
+            )
         )
     )
     
     # Earliest event in the public map window (geocoded, last 365 days).
     cutoff, now = _map_window(PUBLIC_MAP_DAYS)
     earliest = await session.scalar(
-        select(func.min(UniqueEvent.event_date)).where(
-            UniqueEvent.event_date >= cutoff,
-            UniqueEvent.event_date <= now,
-            UniqueEvent.event_date.isnot(None),
-            UniqueEvent.latitude.isnot(None),
-            UniqueEvent.longitude.isnot(None),
+        apply_public_incident_filter(
+            select(func.min(UniqueEvent.event_date)).where(
+                UniqueEvent.event_date >= cutoff,
+                UniqueEvent.event_date <= now,
+                UniqueEvent.event_date.isnot(None),
+                UniqueEvent.latitude.isnot(None),
+                UniqueEvent.longitude.isnot(None),
+            )
         )
     )
     
@@ -346,20 +351,21 @@ async def get_stats_by_day(
     """Get daily event counts."""
     
     cutoff = datetime.utcnow() - timedelta(days=days)
-    
-    # Use SQLite date function with event_date instead of created_at
-    query = text("""
-        SELECT 
-            date(event_date) as date,
-            COUNT(*) as count
-        FROM unique_event
-        WHERE event_date >= :cutoff AND event_date IS NOT NULL
-        GROUP BY date
-        ORDER BY date ASC
-    """)
-    
-    result = await session.execute(query, {"cutoff": cutoff})
-    rows = result.fetchall()
+
+    query = apply_public_incident_filter(
+        select(
+            func.date(UniqueEvent.event_date).label("date"),
+            func.count(UniqueEvent.id).label("count"),
+        ).where(
+            UniqueEvent.event_date >= cutoff,
+            UniqueEvent.event_date.isnot(None),
+        )
+    ).group_by(func.date(UniqueEvent.event_date)).order_by(
+        func.date(UniqueEvent.event_date).asc()
+    )
+
+    result = await session.execute(query)
+    rows = result.all()
     
     data = []
     for row in rows:
@@ -495,13 +501,15 @@ async def get_nearby_events(
     min_lat, max_lat = lat - lat_delta, lat + lat_delta
     min_lng, max_lng = lng - lng_delta, lng + lng_delta
 
-    query = select(UniqueEvent).where(
-        UniqueEvent.latitude.isnot(None),
-        UniqueEvent.longitude.isnot(None),
-        UniqueEvent.latitude >= min_lat,
-        UniqueEvent.latitude <= max_lat,
-        UniqueEvent.longitude >= min_lng,
-        UniqueEvent.longitude <= max_lng,
+    query = apply_public_incident_filter(
+        select(UniqueEvent).where(
+            UniqueEvent.latitude.isnot(None),
+            UniqueEvent.longitude.isnot(None),
+            UniqueEvent.latitude >= min_lat,
+            UniqueEvent.latitude <= max_lat,
+            UniqueEvent.longitude >= min_lng,
+            UniqueEvent.longitude <= max_lng,
+        )
     )
 
     now = datetime.utcnow()
@@ -635,24 +643,26 @@ async def get_map_points(
     Defaults to the last 365 days. No sort — order is undefined (cheaper for map tiles).
     """
     cutoff, now = _map_window(days)
-    query = select(
-        UniqueEvent.id,
-        UniqueEvent.latitude,
-        UniqueEvent.longitude,
-        UniqueEvent.homicide_type,
-        UniqueEvent.method_of_death,
-        UniqueEvent.event_date,
-        UniqueEvent.victim_count,
-        UniqueEvent.security_force_involved,
-        UniqueEvent.city,
-        UniqueEvent.neighborhood,
-        UniqueEvent.state,
-        UniqueEvent.time_of_day,
-    ).where(
-        UniqueEvent.latitude.isnot(None),
-        UniqueEvent.longitude.isnot(None),
-        UniqueEvent.event_date >= cutoff,
-        UniqueEvent.event_date <= now,
+    query = apply_public_incident_filter(
+        select(
+            UniqueEvent.id,
+            UniqueEvent.latitude,
+            UniqueEvent.longitude,
+            UniqueEvent.homicide_type,
+            UniqueEvent.method_of_death,
+            UniqueEvent.event_date,
+            UniqueEvent.victim_count,
+            UniqueEvent.security_force_involved,
+            UniqueEvent.city,
+            UniqueEvent.neighborhood,
+            UniqueEvent.state,
+            UniqueEvent.time_of_day,
+        ).where(
+            UniqueEvent.latitude.isnot(None),
+            UniqueEvent.longitude.isnot(None),
+            UniqueEvent.event_date >= cutoff,
+            UniqueEvent.event_date <= now,
+        )
     )
 
     if type:

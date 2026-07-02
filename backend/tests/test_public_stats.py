@@ -65,19 +65,22 @@ async def test_stats_total_multiple_events(app, async_session):
         title="Event 1",
         event_date=datetime(2024, 1, 15, 10, 0, 0),
         state="RJ",
-        city="Rio de Janeiro"
+        city="Rio de Janeiro",
+        victim_count=1,
     )
     event2 = UniqueEvent(
         title="Event 2",
         event_date=datetime(2024, 2, 20, 14, 0, 0),
         state="SP",
-        city="São Paulo"
+        city="São Paulo",
+        victim_count=1,
     )
     event3 = UniqueEvent(
         title="Event 3",
         event_date=None,  # Null event_date should still be counted in total
         state="MG",
-        city="Belo Horizonte"
+        city="Belo Horizonte",
+        victim_count=1,
     )
     
     async_session.add(event1)
@@ -109,7 +112,8 @@ async def test_stats_last_7_days_no_events_last_7_days(app, async_session):
         title="Event 8 Days Ago",
         event_date=event_8_days_ago,
         state="RJ",
-        city="Rio de Janeiro"
+        city="Rio de Janeiro",
+        victim_count=1,
     )
     
     async_session.add(event)
@@ -140,13 +144,15 @@ async def test_stats_last_7_days_includes_recent_events(app, async_session):
         title="Event 1 Day Ago",
         event_date=event_1_day_ago,
         state="RJ",
-        city="Rio de Janeiro"
+        city="Rio de Janeiro",
+        victim_count=1,
     )
     event_recent2 = UniqueEvent(
         title="Event 3 Days Ago",
         event_date=event_3_days_ago,
         state="SP",
-        city="São Paulo"
+        city="São Paulo",
+        victim_count=1,
     )
     
     async_session.add(event_recent1)
@@ -178,13 +184,15 @@ async def test_stats_last_7_days_excludes_future_events(app, async_session):
         title="Event 1 Day Ago",
         event_date=event_1_day_ago,
         state="RJ",
-        city="Rio de Janeiro"
+        city="Rio de Janeiro",
+        victim_count=1,
     )
     event_future_event = UniqueEvent(
         title="Event Future",
         event_date=event_future,
         state="SP",
-        city="São Paulo"
+        city="São Paulo",
+        victim_count=1,
     )
     
     async_session.add(event_recent)
@@ -215,13 +223,15 @@ async def test_stats_last_7_days_excludes_null_event_date(app, async_session):
         title="Event 2 Days Ago",
         event_date=event_2_days_ago,
         state="RJ",
-        city="Rio de Janeiro"
+        city="Rio de Janeiro",
+        victim_count=1,
     )
     event_null = UniqueEvent(
         title="Event Null Date",
         event_date=None,
         state="SP",
-        city="São Paulo"
+        city="São Paulo",
+        victim_count=1,
     )
     
     async_session.add(event_recent)
@@ -253,13 +263,15 @@ async def test_stats_last_7_days_edge_case_boundary(app, async_session):
         title="Event Within 7 Days",
         event_date=event_6_days_ago,
         state="RJ",
-        city="Rio de Janeiro"
+        city="Rio de Janeiro",
+        victim_count=1,
     )
     event_outside = UniqueEvent(
         title="Event Outside 7 Days",
         event_date=event_7_days_1h_ago,
         state="SP",
-        city="São Paulo"
+        city="São Paulo",
+        victim_count=1,
     )
     
     async_session.add(event_within)
@@ -293,19 +305,22 @@ async def test_stats_last_7_days_multiple_events(app, async_session):
         title="Event 1 Day Ago",
         event_date=event_1_day_ago,
         state="RJ",
-        city="Rio de Janeiro"
+        city="Rio de Janeiro",
+        victim_count=1,
     )
     event2 = UniqueEvent(
         title="Event 3 Days Ago",
         event_date=event_3_days_ago,
         state="SP",
-        city="São Paulo"
+        city="São Paulo",
+        victim_count=1,
     )
     event3 = UniqueEvent(
         title="Event 6 Days Ago",
         event_date=event_6_days_ago,
         state="MG",
-        city="Belo Horizonte"
+        city="Belo Horizonte",
+        victim_count=1,
     )
     
     async_session.add(event1)
@@ -338,7 +353,8 @@ async def test_stats_last_30_days_no_events_last_30_days(app, async_session):
         title="Event 31 Days Ago",
         event_date=event_31_days_ago,
         state="RJ",
-        city="Rio de Janeiro"
+        city="Rio de Janeiro",
+        victim_count=1,
     )
     
     async_session.add(event)
@@ -370,19 +386,22 @@ async def test_stats_last_30_days_includes_recent_events(app, async_session):
         title="Event 5 Days Ago",
         event_date=event_5_days_ago,
         state="RJ",
-        city="Rio de Janeiro"
+        city="Rio de Janeiro",
+        victim_count=1,
     )
     event2 = UniqueEvent(
         title="Event 15 Days Ago",
         event_date=event_15_days_ago,
         state="SP",
-        city="São Paulo"
+        city="São Paulo",
+        victim_count=1,
     )
     event3 = UniqueEvent(
         title="Event 25 Days Ago",
         event_date=event_25_days_ago,
         state="MG",
-        city="Belo Horizonte"
+        city="Belo Horizonte",
+        victim_count=1,
     )
     
     async_session.add(event1)
@@ -415,13 +434,15 @@ async def test_stats_last_30_days_excludes_future_events(app, async_session):
         title="Event 10 Days Ago",
         event_date=event_10_days_ago,
         state="RJ",
-        city="Rio de Janeiro"
+        city="Rio de Janeiro",
+        victim_count=1,
     )
     event_future_event = UniqueEvent(
         title="Event Future",
         event_date=event_future,
         state="SP",
-        city="São Paulo"
+        city="São Paulo",
+        victim_count=1,
     )
     
     async_session.add(event_recent)
@@ -452,13 +473,15 @@ async def test_stats_last_30_days_excludes_null_event_date(app, async_session):
         title="Event 10 Days Ago",
         event_date=event_10_days_ago,
         state="RJ",
-        city="Rio de Janeiro"
+        city="Rio de Janeiro",
+        victim_count=1,
     )
     event_null = UniqueEvent(
         title="Event Null Date",
         event_date=None,
         state="SP",
-        city="São Paulo"
+        city="São Paulo",
+        victim_count=1,
     )
     
     async_session.add(event_recent)
@@ -490,13 +513,15 @@ async def test_stats_last_30_days_edge_case_boundary(app, async_session):
         title="Event Within 30 Days",
         event_date=event_29_days_ago,
         state="RJ",
-        city="Rio de Janeiro"
+        city="Rio de Janeiro",
+        victim_count=1,
     )
     event_outside = UniqueEvent(
         title="Event Outside 30 Days",
         event_date=event_30_days_1h_ago,
         state="SP",
-        city="São Paulo"
+        city="São Paulo",
+        victim_count=1,
     )
     
     async_session.add(event_within)
