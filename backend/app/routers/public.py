@@ -20,46 +20,32 @@ router = APIRouter(prefix="/public", tags=["public"])
 # Rolling window shared by the map, export, and temporal-scope note.
 PUBLIC_MAP_DAYS = 365
 
-EXPORT_FIELD_NAMES = [
+# Public data-dictionary fields only (matches UI export groups minus internal pipeline fields).
+PUBLIC_EXPORT_FIELD_NAMES = [
     "id",
     "homicide_type",
     "method_of_death",
     "event_date",
-    "date_precision",
     "time_of_day",
     "country",
     "state",
     "city",
     "neighborhood",
     "street",
-    "establishment",
-    "full_location_description",
     "latitude",
     "longitude",
-    "plus_code",
-    "place_id",
-    "formatted_address",
     "location_precision",
-    "geocoding_source",
-    "geocoding_confidence",
     "victim_count",
-    "identified_victim_count",
-    "victims_summary",
     "perpetrator_count",
-    "identified_perpetrator_count",
     "security_force_involved",
     "title",
     "chronological_description",
-    "additional_context",
-    "merged_data",
     "source_count",
-    "confirmed",
-    "needs_enrichment",
-    "last_enriched_at",
-    "enrichment_model",
     "created_at",
     "updated_at",
 ]
+
+EXPORT_MAX_ROWS = 50_000
 
 
 def _map_window(days: int = PUBLIC_MAP_DAYS) -> tuple[datetime, datetime]:
@@ -113,6 +99,123 @@ def _expand_period_filters(periods: list[str]) -> list[str]:
         else:
             expanded.add(period)
     return list(expanded)
+
+
+def _event_to_export_row(event: UniqueEvent, fieldnames: list[str]) -> dict[str, object | None]:
+    """Build a single export row restricted to the requested public columns."""
+    full_row = {
+        "id": event.id,
+        "homicide_type": event.homicide_type,
+        "method_of_death": event.method_of_death,
+        "event_date": event.event_date.isoformat() if event.event_date else None,
+        "time_of_day": event.time_of_day,
+        "country": event.country,
+        "state": event.state,
+        "city": event.city,
+        "neighborhood": event.neighborhood,
+        "street": event.street,
+        "latitude": float(event.latitude) if event.latitude else None,
+        "longitude": float(event.longitude) if event.longitude else None,
+        "location_precision": event.location_precision,
+        "victim_count": event.victim_count,
+        "perpetrator_count": event.perpetrator_count,
+        "security_force_involved": event.security_force_involved,
+        "title": event.title,
+        "chronological_description": event.chronological_description,
+        "source_count": event.source_count,
+        "created_at": event.created_at.isoformat(),
+        "updated_at": event.updated_at.isoformat(),
+    }
+    return {key: full_row[key] for key in fieldnames}
+
+
+def _build_export_query(
+    *,
+    cutoff: datetime | None,
+    end: datetime,
+    state: str | None,
+    type: str | None,
+    types: list[str] | None,
+    methods: list[str] | None,
+    periods: list[str] | None,
+):
+    """Build the filtered export query (unordered; caller adds order/limit)."""
+    query = select(UniqueEvent).where(
+        UniqueEvent.event_date.isnot(None),
+        UniqueEvent.latitude.isnot(None),
+        UniqueEvent.longitude.isnot(None),
+    )
+    if cutoff is not None:
+        query = query.where(UniqueEvent.event_date >= cutoff)
+    query = query.where(UniqueEvent.event_date <= end)
+
+    if state:
+        query = query.where(UniqueEvent.state == state)
+
+    type_filters = list(types or [])
+    if type:
+        type_filters.append(type)
+    if type_filters:
+        query = query.where(UniqueEvent.homicide_type.in_(type_filters))
+
+    if methods:
+        query = query.where(UniqueEvent.method_of_death.in_(methods))
+
+    if periods:
+        query = query.where(UniqueEvent.time_of_day.in_(_expand_period_filters(periods)))
+
+    return query.order_by(UniqueEvent.event_date.desc().nullslast())
+
+
+def _resolve_export_columns(columns: list[str] | None) -> list[str]:
+    """Validate and resolve requested export columns against the public allowlist."""
+    allowed_columns = set(PUBLIC_EXPORT_FIELD_NAMES)
+    if not columns:
+        return list(PUBLIC_EXPORT_FIELD_NAMES)
+
+    selected_columns = [column for column in columns if column in allowed_columns]
+    if not selected_columns:
+        raise HTTPException(status_code=400, detail="Nenhuma coluna válida selecionada")
+    return selected_columns
+
+
+def _stream_export_csv(
+    session: AsyncSession,
+    query,
+    fieldnames: list[str],
+):
+    """Return an async CSV byte generator for the export query."""
+    async def generate():
+        header_buffer = io.StringIO()
+        writer = csv.DictWriter(header_buffer, fieldnames=fieldnames)
+        writer.writeheader()
+        yield header_buffer.getvalue()
+
+        limited_query = query.limit(EXPORT_MAX_ROWS)
+        stream = await session.stream_scalars(limited_query)
+        async for event in stream:
+            row_buffer = io.StringIO()
+            row_writer = csv.DictWriter(row_buffer, fieldnames=fieldnames)
+            row_writer.writerow(_event_to_export_row(event, fieldnames))
+            yield row_buffer.getvalue()
+
+    return generate()
+
+
+async def _load_export_rows(
+    session: AsyncSession,
+    query,
+    fieldnames: list[str],
+) -> tuple[list[dict[str, object | None]], bool]:
+    """Load export rows for JSON responses, respecting the row cap."""
+    limited_query = query.limit(EXPORT_MAX_ROWS + 1)
+    result = await session.execute(limited_query)
+    events = result.scalars().all()
+    truncated = len(events) > EXPORT_MAX_ROWS
+    if truncated:
+        events = events[:EXPORT_MAX_ROWS]
+    rows = [_event_to_export_row(event, fieldnames) for event in events]
+    return rows, truncated
 
 
 @router.get("/stats")
@@ -680,6 +783,7 @@ async def get_public_events(
 
 @router.get("/events/export")
 async def export_events(
+    request: Request,
     session: AsyncSession = Depends(get_session),
     format: str = Query("csv", pattern="^(csv|json)$"),
     state: str | None = None,
@@ -693,110 +797,37 @@ async def export_events(
     end_date: str | None = Query(None, description="End date (YYYY-MM-DD, inclusive)"),
 ):
     """Export geocoded events as CSV, optionally filtered (matches map data window)."""
+    from app.services.geocode_protection import enforce_export_rate_limit, get_client_ip
+
+    client_ip = get_client_ip(request)
+    await enforce_export_rate_limit(client_ip)
+
     cutoff, end = _export_date_window(days=days, start_date=start_date, end_date=end_date)
-    query = select(UniqueEvent).where(
-        UniqueEvent.event_date.isnot(None),
-        UniqueEvent.latitude.isnot(None),
-        UniqueEvent.longitude.isnot(None),
+    query = _build_export_query(
+        cutoff=cutoff,
+        end=end,
+        state=state,
+        type=type,
+        types=types,
+        methods=methods,
+        periods=periods,
     )
-    if cutoff is not None:
-        query = query.where(UniqueEvent.event_date >= cutoff)
-    query = query.where(UniqueEvent.event_date <= end)
-
-    if state:
-        query = query.where(UniqueEvent.state == state)
-
-    type_filters = list(types or [])
-    if type:
-        type_filters.append(type)
-    if type_filters:
-        query = query.where(UniqueEvent.homicide_type.in_(type_filters))
-
-    if methods:
-        query = query.where(UniqueEvent.method_of_death.in_(methods))
-
-    if periods:
-        query = query.where(UniqueEvent.time_of_day.in_(_expand_period_filters(periods)))
-
-    query = query.order_by(UniqueEvent.event_date.desc().nullslast())
-
-    result = await session.execute(query)
-    events = result.scalars().all()
-
-    allowed_columns = set(EXPORT_FIELD_NAMES)
-    selected_columns: list[str] | None = None
-    if columns:
-        selected_columns = [column for column in columns if column in allowed_columns]
-        if not selected_columns:
-            raise HTTPException(status_code=400, detail="Nenhuma coluna válida selecionada")
-
-    data = []
-    for event in events:
-        merged_data_str = None
-        if event.merged_data:
-            merged_data_str = json.dumps(event.merged_data, ensure_ascii=False)
-
-        row = {
-            "id": event.id,
-            "homicide_type": event.homicide_type,
-            "method_of_death": event.method_of_death,
-            "event_date": event.event_date.isoformat() if event.event_date else None,
-            "date_precision": event.date_precision,
-            "time_of_day": event.time_of_day,
-            "country": event.country,
-            "state": event.state,
-            "city": event.city,
-            "neighborhood": event.neighborhood,
-            "street": event.street,
-            "establishment": event.establishment,
-            "full_location_description": event.full_location_description,
-            "latitude": float(event.latitude) if event.latitude else None,
-            "longitude": float(event.longitude) if event.longitude else None,
-            "plus_code": event.plus_code,
-            "place_id": event.place_id,
-            "formatted_address": event.formatted_address,
-            "location_precision": event.location_precision,
-            "geocoding_source": event.geocoding_source,
-            "geocoding_confidence": event.geocoding_confidence,
-            "victim_count": event.victim_count,
-            "identified_victim_count": event.identified_victim_count,
-            "victims_summary": event.victims_summary,
-            "perpetrator_count": event.perpetrator_count,
-            "identified_perpetrator_count": event.identified_perpetrator_count,
-            "security_force_involved": event.security_force_involved,
-            "title": event.title,
-            "chronological_description": event.chronological_description,
-            "additional_context": event.additional_context,
-            "merged_data": merged_data_str,
-            "source_count": event.source_count,
-            "confirmed": event.confirmed,
-            "needs_enrichment": event.needs_enrichment,
-            "last_enriched_at": event.last_enriched_at.isoformat() if event.last_enriched_at else None,
-            "enrichment_model": event.enrichment_model,
-            "created_at": event.created_at.isoformat(),
-            "updated_at": event.updated_at.isoformat(),
-        }
-        if selected_columns:
-            row = {key: row[key] for key in selected_columns}
-        data.append(row)
-
-    fieldnames = selected_columns or (list(data[0].keys()) if data else EXPORT_FIELD_NAMES)
+    fieldnames = _resolve_export_columns(columns)
 
     if format == "json":
+        rows, truncated = await _load_export_rows(session, query, fieldnames)
+        headers = {"Content-Disposition": "attachment; filename=eventos.json"}
+        if truncated:
+            headers["X-Export-Truncated"] = "true"
         return Response(
-            content=json.dumps(data, ensure_ascii=False),
+            content=json.dumps(rows, ensure_ascii=False),
             media_type="application/json",
-            headers={"Content-Disposition": "attachment; filename=eventos.json"},
+            headers=headers,
         )
 
-    output = io.StringIO()
-    if data:
-        writer = csv.DictWriter(output, fieldnames=fieldnames)
-        writer.writeheader()
-        writer.writerows(data)
-
-    return Response(
-        content=output.getvalue(),
+    generator = _stream_export_csv(session, query, fieldnames)
+    return StreamingResponse(
+        generator,
         media_type="text/csv",
         headers={"Content-Disposition": "attachment; filename=eventos.csv"},
     )

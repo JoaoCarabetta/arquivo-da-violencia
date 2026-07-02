@@ -16,6 +16,9 @@ GEOCODE_RATE_LIMIT = 30
 GEOCODE_RATE_WINDOW_SECONDS = 60
 GEOCODE_CACHE_TTL_SECONDS = 24 * 60 * 60
 
+EXPORT_RATE_LIMIT = 5
+EXPORT_RATE_WINDOW_SECONDS = 60 * 60
+
 
 def normalize_geocode_query(query: str) -> str:
     """Normalize a geocode query for cache keys (case + whitespace)."""
@@ -74,26 +77,59 @@ async def cache_geocode_response(normalized_query: str, payload: dict[str, Any])
         await client.aclose()
 
 
-async def enforce_geocode_rate_limit(client_ip: str) -> None:
-    """Increment per-IP counter and raise 429 when over the limit."""
+async def _enforce_rate_limit(
+    *,
+    client_ip: str,
+    key_prefix: str,
+    limit: int,
+    window_seconds: int,
+    log_label: str,
+    detail_message: str,
+) -> None:
+    """Increment a per-IP Redis counter and raise 429 when over the limit."""
     client = await _get_redis()
     if client is None:
         return
     try:
-        key = f"geocode:rate:{client_ip}"
+        key = f"{key_prefix}:{client_ip}"
         count = await client.incr(key)
         if count == 1:
-            await client.expire(key, GEOCODE_RATE_WINDOW_SECONDS)
-        if count > GEOCODE_RATE_LIMIT:
+            await client.expire(key, window_seconds)
+        if count > limit:
             logger.warning(
-                f"Geocode rate limit exceeded for {client_ip}: {count} requests in window"
+                f"{log_label} rate limit exceeded for {client_ip}: {count} requests in window"
             )
-            raise HTTPException(
-                status_code=429,
-                detail="Limite de consultas de geocodificação excedido. Tente novamente em alguns minutos.",
-            )
+            raise HTTPException(status_code=429, detail=detail_message)
     finally:
         await client.aclose()
+
+
+async def enforce_geocode_rate_limit(client_ip: str) -> None:
+    """Increment per-IP counter and raise 429 when over the limit."""
+    await _enforce_rate_limit(
+        client_ip=client_ip,
+        key_prefix="geocode:rate",
+        limit=GEOCODE_RATE_LIMIT,
+        window_seconds=GEOCODE_RATE_WINDOW_SECONDS,
+        log_label="Geocode",
+        detail_message=(
+            "Limite de consultas de geocodificação excedido. Tente novamente em alguns minutos."
+        ),
+    )
+
+
+async def enforce_export_rate_limit(client_ip: str) -> None:
+    """Limit CSV/JSON export downloads to a small number per IP per hour."""
+    await _enforce_rate_limit(
+        client_ip=client_ip,
+        key_prefix="export:rate",
+        limit=EXPORT_RATE_LIMIT,
+        window_seconds=EXPORT_RATE_WINDOW_SECONDS,
+        log_label="Export",
+        detail_message=(
+            "Limite de exportações excedido. Tente novamente em cerca de uma hora."
+        ),
+    )
 
 
 def log_geocode_request(
