@@ -1,7 +1,7 @@
 """Classification service - classifies headlines to filter violent death news."""
 
 from datetime import datetime
-from typing import Literal
+from typing import Literal, Optional
 
 import instructor
 from loguru import logger
@@ -52,11 +52,38 @@ class ViolentDeathClassification(BaseModel):
         description="Brief explanation (1-2 sentences) of why this classification was made."
     )
 
+    is_single_incident: bool = Field(
+        ...,
+        description="""
+        TRUE if the headline describes ONE specific violent-death incident (or a single
+        clearly bounded event such as one shootout with N victims).
+
+        FALSE for aggregate statistics, year-end crime reports, multi-city roundups,
+        foreign disasters, suicides, animal cruelty, policy/analysis pieces, or any
+        headline that is not about a discrete incident.
+        """
+    )
+
+    content_class_hint: Optional[
+        Literal[
+            "incident",
+            "aggregate_statistics",
+            "foreign",
+            "non_incident",
+            "suicide",
+            "accident_disaster",
+        ]
+    ] = Field(
+        None,
+        description="Optional hint about why the headline is or is not a single incident.",
+    )
+
 
 # System prompt for classification
 CLASSIFICATION_SYSTEM_PROMPT = """
-Você é um classificador de manchetes de notícias. Sua única tarefa é determinar se uma manchete 
-indica notícia sobre uma ou mais MORTES VIOLENTAS (homicídios, assassinatos, execuções).
+Você é um classificador de manchetes de notícias. Sua tarefa é determinar:
+1. Se a manchete indica MORTE(S) VIOLENTA(S) (homicídios, assassinatos, execuções).
+2. Se descreve UM ÚNICO INCIDENTE específico (is_single_incident), ou conteúdo agregado/fora de escopo.
 
 CLASSIFIQUE COMO MORTE VIOLENTA (is_violent_death = true):
 - Manchetes que mencionam morte por arma de fogo
@@ -72,6 +99,22 @@ NÃO CLASSIFIQUE COMO MORTE VIOLENTA (is_violent_death = false):
 - Manchetes sobre políticas de segurança
 - Manchetes sobre apreensões de drogas/armas
 - Manchetes que não mencionam morte explicitamente
+
+INCIDENTE ÚNICO (is_single_incident = true):
+- Um homicídio ou tiroteio específico em local e data identificáveis
+- "Tiroteio deixa dois mortos na Zona Norte" (um evento)
+- "Homem é morto a tiros em operação policial"
+
+NÃO É INCIDENTE ÚNICO (is_single_incident = false) — descarte mesmo se mencionar mortes:
+- Estatísticas agregadas: balanço anual, CVLI, "X mortes em 2025", "no estado", painéis estatísticos
+- Notícias estrangeiras: terremotos, guerras, desastres fora do Brasil
+- Suicídios (mesmo violentos)
+- Crueldade contra animais
+- Resumos com múltiplos incidentes não relacionados
+- Análises/políticas públicas sobre violência sem um caso específico
+
+Use content_class_hint quando aplicável: incident, aggregate_statistics, foreign,
+non_incident, suicide, accident_disaster.
 
 Baseie-se APENAS no texto da manchete fornecida.
 """
@@ -190,7 +233,14 @@ async def classify_source(source_id: int) -> bool:
         return False
 
     # Step 3: persist the result in a fresh short-lived session.
-    new_status = "ready_for_download" if classification.is_violent_death else "discarded"
+    passes_gate = classification.is_violent_death and classification.is_single_incident
+    new_status = "ready_for_download" if passes_gate else "discarded"
+
+    reasoning = classification.reasoning
+    if classification.is_violent_death and not classification.is_single_incident:
+        hint = classification.content_class_hint or "non-incident"
+        reasoning = f"{reasoning} [single_incident=false, hint={hint}]"
+
     async with async_session_maker() as session:
         await session.execute(
             text("""
@@ -207,17 +257,17 @@ async def classify_source(source_id: int) -> bool:
                 "status": new_status,
                 "is_violent_death": 1 if classification.is_violent_death else 0,
                 "confidence": classification.confidence,
-                "reasoning": classification.reasoning,
+                "reasoning": reasoning,
             }
         )
         await session.commit()
 
-    if classification.is_violent_death:
+    if passes_gate:
         logger.info(f"Source {source_id}: VIOLENT DEATH ({classification.confidence})")
     else:
         logger.info(f"Source {source_id}: DISCARDED ({classification.confidence})")
 
-    return classification.is_violent_death
+    return passes_gate
 
 
 async def classify_pending_sources(limit: int = 50, concurrency: int = 10) -> dict:

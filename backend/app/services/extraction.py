@@ -16,6 +16,30 @@ from app.services import diagnostics
 from app.services.extraction_schemas import ViolentDeathEvent
 
 
+def derive_security_force_involved(event: ViolentDeathEvent) -> bool | None:
+    """Return True if any party is flagged as security force, False if explicitly not, else None."""
+    flags: list[bool | None] = []
+
+    for victim in event.victims.identifiable_victims:
+        flags.append(victim.is_security_force)
+    if event.victims.unidentified_groups:
+        for group in event.victims.unidentified_groups:
+            flags.append(group.is_security_force)
+
+    if event.perpetrators:
+        for perpetrator in event.perpetrators.identifiable_perpetrators:
+            flags.append(perpetrator.is_security_force)
+        if event.perpetrators.unidentified_groups:
+            for group in event.perpetrators.unidentified_groups:
+                flags.append(group.is_security_force)
+
+    if any(flag is True for flag in flags):
+        return True
+    if flags and all(flag is False for flag in flags):
+        return False
+    return None
+
+
 # System prompt for extraction
 EXTRACTION_SYSTEM_PROMPT = """
 Você é um assistente especializado em extrair informações de notícias sobre mortes violentas 
@@ -271,8 +295,40 @@ async def extract_source(source_id: int) -> RawEvent | None:
         duration_ms = int((time.monotonic() - started) * 1000)
         reason = diagnostics.classify_extraction_exception(e)
         logger.error(f"Extraction failed for source {source_id} ({reason}): {e}")
+
+        if reason == diagnostics.VALIDATION_ERROR:
+            async with async_session_maker() as session:
+                await session.execute(
+                    text("""
+                        UPDATE source_google_news
+                        SET status = 'discarded',
+                            classification_reasoning = :reasoning,
+                            updated_at = CURRENT_TIMESTAMP
+                        WHERE id = :id
+                    """),
+                    {
+                        "id": source_id,
+                        "reasoning": f"Extraction validation failed: {str(e)[:500]}",
+                    },
+                )
+                await session.commit()
+            await diagnostics.record_attempt(
+                stage=diagnostics.STAGE_EXTRACTION,
+                outcome=diagnostics.OUTCOME_FAILURE,
+                source_google_news_id=source_id,
+                failure_reason=reason,
+                failure_detail=str(e),
+                model=model_name,
+                content_length=original_length,
+                duration_ms=duration_ms,
+                attempt_number=attempt_number,
+            )
+            return None
+
         await _mark_failed(reason, str(e), duration_ms)
         return None
+
+    security_force_involved = derive_security_force_involved(event)
 
     event_data = event.model_dump()
 
@@ -299,6 +355,7 @@ async def extract_source(source_id: int) -> RawEvent | None:
             victim_count=event.victims.number_of_victims,
             identified_victim_count=event.victims.number_of_identifiable_victims,
             perpetrator_count=event.perpetrators.number_of_perpetrators if event.perpetrators else None,
+            security_force_involved=security_force_involved,
             homicide_type=event.homicide_dynamic.homicide_type,
             method_of_death=event.homicide_dynamic.method,
             title=event.homicide_dynamic.title,
