@@ -68,6 +68,8 @@ export interface Strings {
   reportedBy: string;
   newsSource: string;
   newsSources: string;
+  sourcesSection: string;
+  sourceFallback: string;
   victim: string;
   victimsLower: string;
   loadingEvent: string;
@@ -140,6 +142,8 @@ const PT: Strings = {
   reportedBy: 'Reportado por ',
   newsSource: ' fonte jornalística',
   newsSources: ' fontes jornalísticas',
+  sourcesSection: 'Fontes jornalísticas',
+  sourceFallback: 'Matéria jornalística',
   victim: 'vítima',
   victimsLower: 'vítimas',
   loadingEvent: 'Carregando evento',
@@ -215,6 +219,8 @@ const EN: Strings = {
   reportedBy: 'Reported by ',
   newsSource: ' news source',
   newsSources: ' news sources',
+  sourcesSection: 'News sources',
+  sourceFallback: 'News article',
   victim: 'victim',
   victimsLower: 'victims',
   loadingEvent: 'Loading event',
