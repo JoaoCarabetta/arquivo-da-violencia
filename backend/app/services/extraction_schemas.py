@@ -192,8 +192,40 @@ class Victims(BaseModel):
         None, description="Número de vítimas não identificadas"
     )
     number_of_victims: int = Field(
-        ..., description="Número total de vítimas de morte violenta mencionadas na notícia"
+        ...,
+        ge=1,
+        le=20,
+        description="Número total de vítimas de morte violenta mencionadas na notícia",
     )
+
+    @model_validator(mode="after")
+    def validate_victim_counts(self):
+        """Ensure victim totals are internally consistent."""
+        identifiable = self.number_of_identifiable_victims
+        if identifiable != len(self.identifiable_victims):
+            raise ValueError(
+                f"number_of_identifiable_victims ({identifiable}) must match "
+                f"identifiable_victims list length ({len(self.identifiable_victims)})"
+            )
+
+        group_total = 0
+        if self.unidentified_groups:
+            group_total = sum(group.count for group in self.unidentified_groups)
+            if self.number_of_unidentified_victims is not None:
+                if self.number_of_unidentified_victims != group_total:
+                    raise ValueError(
+                        f"number_of_unidentified_victims ({self.number_of_unidentified_victims}) "
+                        f"must match sum of unidentified group counts ({group_total})"
+                    )
+
+        expected_total = identifiable + group_total
+        if abs(self.number_of_victims - expected_total) > 1:
+            raise ValueError(
+                f"number_of_victims ({self.number_of_victims}) inconsistent with "
+                f"identifiable ({identifiable}) + unidentified ({group_total})"
+            )
+
+        return self
 
 
 class DateVerification(BaseModel):
