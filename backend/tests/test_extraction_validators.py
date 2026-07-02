@@ -33,12 +33,13 @@ def _date_time(**kwargs) -> DateTime:
 
 
 def _minimal_event(**victim_kwargs) -> ViolentDeathEvent:
-    victims = Victims(
-        identifiable_victims=[IdentifiableVictim(name="João")],
-        number_of_identifiable_victims=1,
-        number_of_victims=1,
-        **victim_kwargs,
-    )
+    victim_defaults = {
+        "identifiable_victims": [IdentifiableVictim(name="João")],
+        "number_of_identifiable_victims": 1,
+        "number_of_victims": 1,
+    }
+    victim_defaults.update(victim_kwargs)
+    victims = Victims(**victim_defaults)
     return ViolentDeathEvent(
         location_info=Location(city="Rio de Janeiro", state="RJ"),
         date_time=_date_time(),
