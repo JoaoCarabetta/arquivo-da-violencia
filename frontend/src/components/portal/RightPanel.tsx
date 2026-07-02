@@ -1,6 +1,6 @@
 import { memo, useMemo, useState, useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { ChevronLeft, RotateCcw, SlidersHorizontal, MapPin, Clock, FileText, Download } from 'lucide-react';
+import { ChevronLeft, RotateCcw, SlidersHorizontal, MapPin, Clock, FileText, Download, ExternalLink } from 'lucide-react';
 import { useI18n } from '@/contexts/I18nContext';
 import { fetchPublicEventById, getExportUrl, type MapPoint } from '@/lib/api';
 import { cn } from '@/lib/utils';
@@ -719,6 +719,7 @@ function DetailView({ id, onClose }: { id: number; onClose: () => void }) {
   const cityLine = [event.city, ufName(event.state)].filter(Boolean).join(' · ');
   const srcCount = event.source_count ?? 0;
   const sourceWord = srcCount > 1 ? t.newsSources : t.newsSource;
+  const displayableSources = (event.sources ?? []).filter((source) => source.url);
 
   return (
     <div className="av-fade px-5 pb-7 pt-[18px]">
@@ -794,10 +795,51 @@ function DetailView({ id, onClose }: { id: number; onClose: () => void }) {
         </>
       )}
 
+      {displayableSources.length > 0 && (
+        <>
+          <div className="mb-[7px] font-mono text-[9.5px] uppercase tracking-[.1em]" style={{ color: 'var(--color-text-subtle)' }}>
+            {t.sourcesSection}
+          </div>
+          <ul className="mb-[18px] flex flex-col overflow-hidden rounded-[10px]" style={{ border: '1px solid var(--stone-200)' }}>
+            {displayableSources.map((source) => {
+              const title = source.headline || source.publisher_name || t.sourceFallback;
+              const showPublisher = Boolean(source.publisher_name && source.headline);
+              return (
+                <li key={source.id} style={{ borderBottom: '1px solid var(--stone-100)' }} className="last:border-b-0">
+                  <a
+                    href={source.url!}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-start gap-2.5 px-[13px] py-[11px] no-underline transition-colors hover:bg-[var(--stone-50)]"
+                  >
+                    <ExternalLink className="mt-0.5 h-4 w-4 flex-none" style={{ color: 'var(--blue-600)' }} />
+                    <div className="min-w-0 flex-1">
+                      <div style={{ fontSize: 13.5, fontWeight: 500, color: 'var(--blue-600)', lineHeight: 1.35 }}>
+                        {title}
+                      </div>
+                      {showPublisher && (
+                        <div style={{ fontSize: 12, color: 'var(--color-text-muted)' }}>{source.publisher_name}</div>
+                      )}
+                      {source.published_at && (
+                        <div style={{ fontSize: 11.5, color: 'var(--color-text-subtle)' }}>
+                          {fmtDateShort(source.published_at, lang)}
+                        </div>
+                      )}
+                    </div>
+                  </a>
+                </li>
+              );
+            })}
+          </ul>
+        </>
+      )}
+
+      {srcCount > 0 && (
       <div className="flex items-center gap-2 pt-3.5" style={{ borderTop: '1px solid var(--stone-100)', fontSize: 12, color: 'var(--color-text-muted)' }}>
         <FileText className="h-[15px] w-[15px]" />
         {`${t.reportedBy}${srcCount}${sourceWord} · #${event.id}`}
       </div>
+      )}
     </div>
   );
 }

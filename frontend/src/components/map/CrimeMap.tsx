@@ -311,7 +311,8 @@ export function CrimeMap({
                 .join('\n'),
             };
           }
-          const count = (object as { points?: unknown[] }).points?.length ?? 0;
+          const cell = object as { count?: number; points?: unknown[] };
+          const count = cell.count ?? cell.points?.length ?? 0;
           return { text: `${count} ${count === 1 ? 'evento' : 'eventos'}` };
         }}
       >
