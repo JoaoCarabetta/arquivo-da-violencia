@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { ChevronLeft, RotateCcw, SlidersHorizontal, MapPin, Clock, FileText, Download } from 'lucide-react';
 import { useI18n } from '@/contexts/I18nContext';
 import { fetchPublicEventById, getExportUrl, type MapPoint } from '@/lib/api';
+import { cn } from '@/lib/utils';
 import {
   fmtNumber,
   fmtDateShort,
@@ -51,6 +52,9 @@ interface RightPanelProps {
   onCloseDetail: () => void;
   canReset: boolean;
   onResetView: () => void;
+  /** When true, panel fills its container (e.g. mobile sheet) instead of fixed 392px sidebar. */
+  embedded?: boolean;
+  className?: string;
 }
 
 const EYEBROW =
@@ -75,11 +79,15 @@ function sortPeriods(values: string[]): string[] {
 }
 
 export const RightPanel = memo(function RightPanel(props: RightPanelProps) {
-  const { selectedId } = props;
+  const { selectedId, embedded = false, className } = props;
   return (
     <aside
-      className="av-scroll z-[1250] flex w-[392px] flex-none flex-col overflow-y-auto overflow-x-hidden"
-      style={{ background: 'var(--color-surface)', borderLeft: '1px solid var(--color-border)' }}
+      className={cn(
+        'av-scroll z-[1250] flex flex-col overflow-y-auto overflow-x-hidden',
+        embedded ? 'h-full w-full' : 'w-[392px] flex-none',
+        className
+      )}
+      style={{ background: 'var(--color-surface)', borderLeft: embedded ? undefined : '1px solid var(--color-border)' }}
     >
       {selectedId != null ? (
         <DetailView id={selectedId} onClose={props.onCloseDetail} />

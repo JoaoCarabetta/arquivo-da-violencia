@@ -12,6 +12,7 @@ import {
 import 'maplibre-gl/dist/maplibre-gl.css';
 import type { MapPoint } from '@/lib/api';
 import { capPoints, pointsInBounds } from '@/components/portal/types';
+import { useIsMobile } from '@/hooks/useMediaQuery';
 
 export interface MapViewState {
   longitude: number;
@@ -109,6 +110,18 @@ function viewStateKey(vs: MapViewState): string {
   return `${vs.longitude},${vs.latitude},${vs.zoom},${vs.transitionDuration ?? 0}`;
 }
 
+function prefersReducedGpu(): boolean {
+  if (typeof window === 'undefined') return false;
+  if (window.matchMedia('(max-width: 767px)').matches) return true;
+  if (window.matchMedia('(pointer: coarse)').matches) return true;
+  try {
+    const canvas = document.createElement('canvas');
+    return !canvas.getContext('webgl2');
+  } catch {
+    return true;
+  }
+}
+
 export function CrimeMap({
   points,
   viewState: viewStateProp,
@@ -118,8 +131,10 @@ export function CrimeMap({
   selectedId,
   searchedLocation,
 }: CrimeMapProps) {
+  const isMobile = useIsMobile();
   const containerRef = useRef<HTMLDivElement>(null);
   const sizeRef = useRef<{ width: number; height: number }>({ width: 0, height: 0 });
+  const [hasSize, setHasSize] = useState(false);
   const settleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const onViewportSettledRef = useRef(onViewportSettled);
   const onPointClickRef = useRef(onPointClick);
@@ -171,7 +186,10 @@ export function CrimeMap({
     const el = containerRef.current;
     if (!el) return;
     const update = () => {
-      sizeRef.current = { width: el.clientWidth, height: el.clientHeight };
+      const width = el.clientWidth;
+      const height = el.clientHeight;
+      sizeRef.current = { width, height };
+      setHasSize(width > 0 && height > 0);
       emitViewportSettled(localViewState);
     };
     update();
@@ -194,6 +212,11 @@ export function CrimeMap({
     if (!showScatter) return [];
     return capPoints(cullPointsToBounds(points, renderBounds));
   }, [points, showScatter, renderBounds, gridZoom]);
+
+  const useGpuAggregation = useMemo(
+    () => !isMobile && !prefersReducedGpu(),
+    [isMobile]
+  );
 
   const layers = useMemo(() => {
     const result: Layer[] = [];
@@ -236,7 +259,7 @@ export function CrimeMap({
           extruded: false,
           pickable: true,
           opacity: 0.78,
-          gpuAggregation: true,
+          gpuAggregation: useGpuAggregation,
           onClick: (info: PickingInfo) => {
             if (info.coordinate) onCellClickRef.current?.(info.coordinate as [number, number]);
             return true;
@@ -264,10 +287,11 @@ export function CrimeMap({
     }
 
     return result;
-  }, [gridData, scatterData, showScatter, gridZoom, searchedLocation, selectedId]);
+  }, [gridData, scatterData, showScatter, gridZoom, searchedLocation, selectedId, useGpuAggregation]);
 
   return (
     <div ref={containerRef} className="absolute inset-0">
+      {!hasSize ? null : (
       <DeckGL
         viewState={localViewState as unknown as DeckViewState}
         controller={true}
@@ -293,6 +317,7 @@ export function CrimeMap({
       >
         <Map mapStyle={MAP_STYLE} />
       </DeckGL>
+      )}
     </div>
   );
 }
