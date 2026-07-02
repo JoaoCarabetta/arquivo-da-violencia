@@ -104,8 +104,8 @@ jobs:
             # Restart frontend container (instant, no downtime concerns)
             docker compose -p staging -f docker-compose.yml -f docker-compose.staging.yml up -d frontend
             
-            # Clean up old images
-            docker image prune -f
+            # Clean up old images (non-fatal — concurrent prune on VPS can race)
+            docker image prune -f || true
             
             echo "✅ Staging frontend deployed successfully"
 
@@ -134,8 +134,8 @@ jobs:
             # Restart frontend container (instant, no downtime concerns)
             docker compose -p prod up -d frontend
             
-            # Clean up old images
-            docker image prune -f
+            # Clean up old images (non-fatal — concurrent prune on VPS can race)
+            docker image prune -f || true
             
             echo "✅ Production frontend deployed successfully"
 

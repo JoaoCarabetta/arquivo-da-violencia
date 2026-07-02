@@ -141,8 +141,8 @@ jobs:
               sleep 2
             done
             
-            # Clean up old images
-            docker image prune -f
+            # Clean up old images (non-fatal — concurrent prune on VPS can race)
+            docker image prune -f || true
             
             echo "✅ Staging backend deployed successfully"
 
@@ -224,8 +224,8 @@ jobs:
               sleep 2
             done
             
-            # Clean up old images
-            docker image prune -f
+            # Clean up old images (non-fatal — concurrent prune on VPS can race)
+            docker image prune -f || true
             
             echo "✅ Production backend deployed successfully"
 

@@ -6,12 +6,15 @@ import { Loader2 } from 'lucide-react';
 import { fetchMapPoints, fetchPublicStats } from '@/lib/api';
 import { useI18n } from '@/contexts/I18nContext';
 import { CrimeMap, type MapViewState, type MapBounds, type ViewportSnapshot } from '@/components/map/CrimeMap';
+import { MapErrorBoundary } from '@/components/map/MapErrorBoundary';
 import { LeftRail } from '@/components/portal/LeftRail';
 import { SearchCard, type LocatedPlace } from '@/components/portal/SearchCard';
 import { RightPanel } from '@/components/portal/RightPanel';
 import { AboutModal } from '@/components/portal/AboutModal';
 import { MethodologyPanel } from '@/components/portal/MethodologyPanel';
 import { DensityLegend } from '@/components/portal/DensityLegend';
+import { Sheet, SheetContent } from '@/components/ui/sheet';
+import { useIsMobile } from '@/hooks/useMediaQuery';
 import {
   EMPTY_FILTERS,
   applyFilters,
@@ -56,6 +59,7 @@ export function MapExplorer({
   const location = useLocation();
   const { id } = useParams();
   const { t } = useI18n();
+  const isMobile = useIsMobile();
 
   const selectedId = id ? Number(id) : null;
   const mode = initialMode;
@@ -68,6 +72,7 @@ export function MapExplorer({
   const [searchedLocation, setSearchedLocation] = useState<{ lat: number; lng: number } | null>(null);
   const [aboutOpen, setAboutOpen] = useState(initialAbout);
   const [methodologyOpen, setMethodologyOpen] = useState(initialMethodology);
+  const [mobilePanelOpen, setMobilePanelOpen] = useState(false);
 
   const { data, isLoading } = useQuery({
     queryKey: ['map-points', MAP_DAYS],
@@ -119,8 +124,11 @@ export function MapExplorer({
   const onMode = useCallback(
     (next: PortalMode) => {
       navigate(PATH_FOR[next]);
+      if (isMobile) {
+        setMobilePanelOpen(true);
+      }
     },
-    [navigate]
+    [navigate, isMobile]
   );
 
   const flyTo = useCallback((lat: number, lng: number, zoom: number) => {
@@ -147,9 +155,12 @@ export function MapExplorer({
           transitionInterpolator: new FlyToInterpolator({ speed: 1.4 }),
         }));
       }
+      if (isMobile) {
+        setMobilePanelOpen(true);
+      }
       navigate(`/eventos/${eventId}`);
     },
-    [allPoints, navigate]
+    [allPoints, navigate, isMobile]
   );
 
   const onCloseDetail = useCallback(() => {
@@ -215,23 +226,51 @@ export function MapExplorer({
     setMethodologyOpen(initialMethodology);
   }, [initialMethodology]);
 
+  useEffect(() => {
+    if (isMobile && selectedId != null) {
+      setMobilePanelOpen(true);
+    }
+  }, [isMobile, selectedId]);
+
+  const panelProps = {
+    mode,
+    sinceDate,
+    pointsInView,
+    viewportReady,
+    filteredCount: filteredPoints.length,
+    filters,
+    availableTypes,
+    availableMethods,
+    availablePeriods,
+    onToggleFilter: toggleFilter,
+    onClearFilters: clearFilters,
+    hasFilters: filtersActive,
+    selectedId,
+    onSelect,
+    onCloseDetail,
+    canReset,
+    onResetView,
+  };
+
   return (
     <div
-      className="fixed inset-0 flex overflow-hidden"
+      className="fixed inset-0 flex overflow-hidden max-md:flex-col"
       style={{ background: 'var(--stone-100)', color: 'var(--color-text)' }}
     >
       <LeftRail mode={mode} onMode={onMode} onAbout={openAbout} onMethodology={openMethodology} />
 
-      <div className="relative min-w-0 flex-1">
-        <CrimeMap
-          points={filteredPoints}
-          viewState={viewState}
-          onViewportSettled={handleViewportSettled}
-          onPointClick={onSelect}
-          onCellClick={onCellClick}
-          selectedId={selectedId}
-          searchedLocation={searchedLocation}
-        />
+      <div className="relative min-h-0 min-w-0 flex-1 max-md:pb-[calc(60px+env(safe-area-inset-bottom,0px))]">
+        <MapErrorBoundary>
+          <CrimeMap
+            points={filteredPoints}
+            viewState={viewState}
+            onViewportSettled={handleViewportSettled}
+            onPointClick={onSelect}
+            onCellClick={onCellClick}
+            selectedId={selectedId}
+            searchedLocation={searchedLocation}
+          />
+        </MapErrorBoundary>
 
         {isLoading && (
           <div
@@ -249,25 +288,18 @@ export function MapExplorer({
         <DensityLegend />
       </div>
 
-      <RightPanel
-        mode={mode}
-        sinceDate={sinceDate}
-        pointsInView={pointsInView}
-        viewportReady={viewportReady}
-        filteredCount={filteredPoints.length}
-        filters={filters}
-        availableTypes={availableTypes}
-        availableMethods={availableMethods}
-        availablePeriods={availablePeriods}
-        onToggleFilter={toggleFilter}
-        onClearFilters={clearFilters}
-        hasFilters={filtersActive}
-        selectedId={selectedId}
-        onSelect={onSelect}
-        onCloseDetail={onCloseDetail}
-        canReset={canReset}
-        onResetView={onResetView}
-      />
+      <RightPanel {...panelProps} className="hidden md:flex" />
+
+      {isMobile && (
+        <Sheet open={mobilePanelOpen} onOpenChange={setMobilePanelOpen}>
+          <SheetContent
+            side="bottom"
+            className="h-[min(85vh,720px)] gap-0 overflow-hidden p-0 sm:max-w-none [&>button]:z-10"
+          >
+            <RightPanel {...panelProps} embedded />
+          </SheetContent>
+        </Sheet>
+      )}
 
       <AboutModal open={aboutOpen} onClose={closeAbout} onOpenMethodology={openMethodology} />
       <MethodologyPanel open={methodologyOpen} onClose={closeMethodology} />

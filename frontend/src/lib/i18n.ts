@@ -52,6 +52,13 @@ export interface Strings {
   dictionary: string;
   dataNote: string;
   allEvents: string;
+  selectColumns: string;
+  selectAllColumns: string;
+  clearColumnSelection: string;
+  exportStartDate: string;
+  exportEndDate: string;
+  exportDateRangeInvalid: string;
+  exportDateRangeOptional: string;
   statistics: string;
   inThisView: string;
   mapLoadingStats: string;
@@ -117,6 +124,13 @@ const PT: Strings = {
   dictionary: 'Dicionário de dados',
   dataNote: 'O download inclui eventos geocodados dos últimos 365 dias com os filtros ativos (não limitado à área visível do mapa).',
   allEvents: 'Todos os eventos geocodados do recorte de 365 dias.',
+  selectColumns: 'Selecionar colunas',
+  selectAllColumns: 'Selecionar todas',
+  clearColumnSelection: 'Limpar seleção',
+  exportStartDate: 'Data inicial',
+  exportEndDate: 'Data final',
+  exportDateRangeInvalid: 'A data inicial não pode ser posterior à data final.',
+  exportDateRangeOptional: 'Opcional — deixe em branco para usar o recorte padrão de 365 dias.',
   statistics: 'Estatísticas',
   inThisView: 'Nesta área',
   mapLoadingStats: 'Aguardando área do mapa…',
@@ -185,6 +199,13 @@ const EN: Strings = {
   dictionary: 'Data dictionary',
   dataNote: 'Download includes geocoded events from the last 365 days matching active filters (not limited to the visible map area).',
   allEvents: 'All geocoded events in the 365-day window.',
+  selectColumns: 'Select columns',
+  selectAllColumns: 'Select all',
+  clearColumnSelection: 'Clear selection',
+  exportStartDate: 'Start date',
+  exportEndDate: 'End date',
+  exportDateRangeInvalid: 'Start date cannot be after end date.',
+  exportDateRangeOptional: 'Optional — leave blank to use the default 365-day window.',
   statistics: 'Statistics',
   inThisView: 'In this view',
   mapLoadingStats: 'Waiting for map area…',

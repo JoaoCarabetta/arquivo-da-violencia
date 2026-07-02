@@ -5,7 +5,7 @@ export const DensityLegend = memo(function DensityLegend() {
   const { t } = useI18n();
 
   return (
-    <div className="absolute bottom-5 left-[18px] z-[1100] flex flex-col gap-[9px]">
+    <div className="absolute bottom-5 left-[18px] z-[1100] flex flex-col gap-[9px] max-md:bottom-[calc(72px+env(safe-area-inset-bottom,0px))]">
       <div
         className="rounded-[11px] px-[13px] py-2.5"
         style={{

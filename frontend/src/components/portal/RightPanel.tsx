@@ -1,8 +1,9 @@
-import { memo, useMemo } from 'react';
+import { memo, useMemo, useState, useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { ChevronLeft, RotateCcw, SlidersHorizontal, MapPin, Clock, FileText, Download } from 'lucide-react';
 import { useI18n } from '@/contexts/I18nContext';
 import { fetchPublicEventById, getExportUrl, type MapPoint } from '@/lib/api';
+import { cn } from '@/lib/utils';
 import {
   fmtNumber,
   fmtDateShort,
@@ -16,6 +17,14 @@ import {
   dictionaryRows,
 } from '@/lib/i18n';
 import { TemporalScopeNote } from './TemporalScopeNote';
+import {
+  DEFAULT_SELECTED_COLUMN_IDS,
+  EXPORT_COLUMN_GROUPS,
+  countSelectedFields,
+  loadSelectedColumnIds,
+  saveSelectedColumnIds,
+  selectedExportFields,
+} from '@/lib/exportColumns';
 import {
   computeStats,
   buildTrendMonths,
@@ -43,6 +52,9 @@ interface RightPanelProps {
   onCloseDetail: () => void;
   canReset: boolean;
   onResetView: () => void;
+  /** When true, panel fills its container (e.g. mobile sheet) instead of fixed 392px sidebar. */
+  embedded?: boolean;
+  className?: string;
 }
 
 const EYEBROW =
@@ -67,11 +79,15 @@ function sortPeriods(values: string[]): string[] {
 }
 
 export const RightPanel = memo(function RightPanel(props: RightPanelProps) {
-  const { selectedId } = props;
+  const { selectedId, embedded = false, className } = props;
   return (
     <aside
-      className="av-scroll z-[1250] flex w-[392px] flex-none flex-col overflow-y-auto overflow-x-hidden"
-      style={{ background: 'var(--color-surface)', borderLeft: '1px solid var(--color-border)' }}
+      className={cn(
+        'av-scroll z-[1250] flex flex-col overflow-y-auto overflow-x-hidden',
+        embedded ? 'h-full w-full' : 'w-[392px] flex-none',
+        className
+      )}
+      style={{ background: 'var(--color-surface)', borderLeft: embedded ? undefined : '1px solid var(--color-border)' }}
     >
       {selectedId != null ? (
         <DetailView id={selectedId} onClose={props.onCloseDetail} />
@@ -474,15 +490,49 @@ function FeedMode(props: RightPanelProps) {
 function DataMode(props: RightPanelProps) {
   const { t, lang } = useI18n();
   const dict = dictionaryRows(lang);
+  const [selectedColumnIds, setSelectedColumnIds] = useState<string[]>(loadSelectedColumnIds);
+  const [startDate, setStartDate] = useState('');
+  const [endDate, setEndDate] = useState('');
+  const dateRangeInvalid = Boolean(
+    startDate && endDate && startDate > endDate
+  );
+
+  useEffect(() => {
+    saveSelectedColumnIds(selectedColumnIds);
+  }, [selectedColumnIds]);
+
+  const selectedDictionaryFields = useMemo(
+    () => new Set(
+      EXPORT_COLUMN_GROUPS
+        .filter((group) => selectedColumnIds.includes(group.id))
+        .map((group) => group.dictionaryField)
+    ),
+    [selectedColumnIds]
+  );
+  const visibleDict = useMemo(
+    () => dict.filter((row) => selectedDictionaryFields.has(row.field)),
+    [dict, selectedDictionaryFields]
+  );
   const exportFilters = useMemo(
     () => ({
       types: props.filters.types,
       methods: props.filters.methods,
       periods: props.filters.periods,
       days: 365,
+      columns: selectedExportFields(selectedColumnIds),
+      startDate: startDate || undefined,
+      endDate: endDate || undefined,
     }),
-    [props.filters]
+    [props.filters, selectedColumnIds, startDate, endDate]
   );
+
+  const toggleColumn = (id: string) => {
+    setSelectedColumnIds((current) =>
+      current.includes(id)
+        ? current.filter((value) => value !== id)
+        : [...current, id]
+    );
+  };
 
   return (
     <div className="px-5 pb-[30px] pt-[18px]">
@@ -493,6 +543,36 @@ function DataMode(props: RightPanelProps) {
       <FiltersSection {...props} />
 
       <div className="mb-[18px] rounded-xl p-4" style={{ border: '1px solid var(--stone-200)', background: 'var(--stone-50)' }}>
+        <div className="mb-3 grid grid-cols-2 gap-3">
+          <label className="flex flex-col gap-1">
+            <span style={{ fontSize: 11.5, color: 'var(--color-text-muted)' }}>{t.exportStartDate}</span>
+            <input
+              type="date"
+              value={startDate}
+              onChange={(event) => setStartDate(event.target.value)}
+              className="rounded-md px-2 py-1.5"
+              style={{ border: '1px solid var(--stone-200)', fontSize: 13 }}
+            />
+          </label>
+          <label className="flex flex-col gap-1">
+            <span style={{ fontSize: 11.5, color: 'var(--color-text-muted)' }}>{t.exportEndDate}</span>
+            <input
+              type="date"
+              value={endDate}
+              onChange={(event) => setEndDate(event.target.value)}
+              className="rounded-md px-2 py-1.5"
+              style={{ border: '1px solid var(--stone-200)', fontSize: 13 }}
+            />
+          </label>
+        </div>
+        <div className="mb-3" style={{ fontSize: 11, color: 'var(--color-text-subtle)' }}>
+          {t.exportDateRangeOptional}
+        </div>
+        {dateRangeInvalid && (
+          <div className="mb-3 rounded-md px-2 py-1.5" style={{ fontSize: 12, color: '#b45309', background: '#fffbeb' }}>
+            {t.exportDateRangeInvalid}
+          </div>
+        )}
         <div className="mb-[13px] flex justify-between">
           <div>
             <div className="leading-none" style={{ fontSize: 26, fontWeight: 600, color: 'var(--stone-900)', fontVariantNumeric: 'tabular-nums' }}>
@@ -504,39 +584,103 @@ function DataMode(props: RightPanelProps) {
           </div>
           <div className="text-right">
             <div className="leading-none" style={{ fontSize: 26, fontWeight: 600, color: 'var(--stone-900)', fontVariantNumeric: 'tabular-nums' }}>
-              {dict.length}
+              {countSelectedFields(selectedColumnIds)}
             </div>
             <div className="mt-1" style={{ fontSize: 11.5, color: 'var(--color-text-muted)' }}>
               {t.columns}
             </div>
           </div>
         </div>
-        <a
-          href={getExportUrl(exportFilters)}
-          download="eventos.csv"
-          className="flex w-full items-center justify-center gap-2 rounded-[10px] p-3 transition-colors"
-          style={{ background: 'var(--blue-500)', color: '#fff', fontSize: 14, fontWeight: 500 }}
-          onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--blue-600)')}
-          onMouseLeave={(e) => (e.currentTarget.style.background = 'var(--blue-500)')}
-        >
-          <Download className="h-[17px] w-[17px]" />
-          {t.downloadCsv}
-        </a>
+        {dateRangeInvalid ? (
+          <button
+            type="button"
+            disabled
+            className="flex w-full cursor-not-allowed items-center justify-center gap-2 rounded-[10px] p-3"
+            style={{ background: 'var(--stone-300)', color: '#fff', fontSize: 14, fontWeight: 500 }}
+          >
+            <Download className="h-[17px] w-[17px]" />
+            {t.downloadCsv}
+          </button>
+        ) : (
+          <a
+            href={getExportUrl(exportFilters)}
+            download="eventos.csv"
+            className="flex w-full items-center justify-center gap-2 rounded-[10px] p-3 transition-colors"
+            style={{ background: 'var(--blue-500)', color: '#fff', fontSize: 14, fontWeight: 500 }}
+            onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--blue-600)')}
+            onMouseLeave={(e) => (e.currentTarget.style.background = 'var(--blue-500)')}
+          >
+            <Download className="h-[17px] w-[17px]" />
+            {t.downloadCsv}
+          </a>
+        )}
         <div className="mt-2 text-center" style={{ fontSize: 11, color: 'var(--color-text-subtle)' }}>
           {props.hasFilters ? t.dataNote : t.allEvents}
         </div>
       </div>
 
+      <SectionLabel>{t.selectColumns}</SectionLabel>
+      <div className="mb-[18px] overflow-hidden rounded-[10px] p-3" style={{ border: '1px solid var(--stone-200)' }}>
+        <div className="mb-2 flex gap-2">
+          <button
+            type="button"
+            className="rounded-md px-2 py-1"
+            style={{ fontSize: 11, color: 'var(--blue-700)', background: 'var(--stone-100)' }}
+            onClick={() => setSelectedColumnIds(DEFAULT_SELECTED_COLUMN_IDS)}
+          >
+            {t.selectAllColumns}
+          </button>
+          <button
+            type="button"
+            className="rounded-md px-2 py-1"
+            style={{ fontSize: 11, color: 'var(--stone-600)', background: 'var(--stone-100)' }}
+            onClick={() => setSelectedColumnIds([])}
+          >
+            {t.clearColumnSelection}
+          </button>
+        </div>
+        <div className="grid gap-2">
+          {EXPORT_COLUMN_GROUPS.map((group) => {
+            const row = dict.find((entry) => entry.field === group.dictionaryField);
+            return (
+              <label
+                key={group.id}
+                className="flex cursor-pointer items-start gap-2 rounded-md px-1 py-0.5"
+              >
+                <input
+                  type="checkbox"
+                  checked={selectedColumnIds.includes(group.id)}
+                  onChange={() => toggleColumn(group.id)}
+                  className="mt-0.5"
+                />
+                <span style={{ fontSize: 12, color: 'var(--stone-700)', lineHeight: 1.35 }}>
+                  <span className="font-mono" style={{ color: 'var(--blue-700)' }}>
+                    {group.dictionaryField}
+                  </span>
+                  {row ? ` — ${row.desc}` : ''}
+                </span>
+              </label>
+            );
+          })}
+        </div>
+      </div>
+
       <SectionLabel>{t.dictionary}</SectionLabel>
       <div className="overflow-hidden rounded-[10px]" style={{ border: '1px solid var(--stone-200)' }}>
-        {dict.map((d) => (
-          <div key={d.field} className="flex gap-2.5 px-3 py-[9px]" style={{ borderBottom: '1px solid var(--stone-100)' }}>
-            <span className="w-[128px] flex-none break-all font-mono" style={{ fontSize: 11, color: 'var(--blue-700)' }}>
-              {d.field}
-            </span>
-            <span style={{ fontSize: 12, color: 'var(--stone-600)', lineHeight: 1.35 }}>{d.desc}</span>
+        {visibleDict.length === 0 ? (
+          <div className="px-3 py-4 text-center" style={{ fontSize: 12, color: 'var(--color-text-muted)' }}>
+            {t.clearColumnSelection}
           </div>
-        ))}
+        ) : (
+          visibleDict.map((d) => (
+            <div key={d.field} className="flex gap-2.5 px-3 py-[9px]" style={{ borderBottom: '1px solid var(--stone-100)' }}>
+              <span className="w-[128px] flex-none break-all font-mono" style={{ fontSize: 11, color: 'var(--blue-700)' }}>
+                {d.field}
+              </span>
+              <span style={{ fontSize: 12, color: 'var(--stone-600)', lineHeight: 1.35 }}>{d.desc}</span>
+            </div>
+          ))
+        )}
       </div>
     </div>
   );
