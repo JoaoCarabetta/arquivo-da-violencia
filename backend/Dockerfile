@@ -48,6 +48,7 @@ ENV PATH="/app/.venv/bin:$PATH"
 COPY alembic.ini ./
 COPY alembic/ ./alembic/
 COPY app/ ./app/
+COPY scripts/ ./scripts/
 
 # Create instance directory for SQLite
 RUN mkdir -p /app/instance && chmod 777 /app/instance
