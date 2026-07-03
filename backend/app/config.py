@@ -36,10 +36,14 @@ class Settings(BaseSettings):
     # Redis (for ARQ task queue)
     redis_url: str = "redis://localhost:6379"
     
-    # LLM (Gemini)
-    gemini_api_key: str | None = None
-    extraction_model: str = "gemini-2.5-flash"
-    selection_model: str = "gemini-2.5-flash-lite"  # Lightweight model for classification
+    # LLM (via OpenRouter) - per-stage models validated by the eval harness (backend/eval/)
+    # Model slugs are OpenRouter IDs: "<vendor>/<model>".
+    openrouter_api_key: str | None = None
+    extraction_model: str = "deepseek/deepseek-v4-flash"  # Structured event extraction
+    selection_model: str = "openai/gpt-oss-120b"  # Headline classification
+    content_gate_model: str = "google/gemini-2.5-flash-lite"  # Article-body content gate
+    dedup_model: str = "google/gemini-3.1-flash-lite"  # Dedup match + cluster
+    enrichment_model: str = "deepseek/deepseek-v4-flash"  # Multi-source synthesis
 
     # Google Maps Geocoding (optional - geocoding no-ops when unset)
     google_maps_api_key: str | None = None

@@ -1,0 +1,4 @@
+# Cheap-model bench via OpenRouter.
+model: openai/gpt-5-nano
+selection_model: openai/gpt-5-nano
+extraction_model: openai/gpt-5-nano

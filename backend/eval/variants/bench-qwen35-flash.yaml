@@ -1,0 +1,4 @@
+# Cheap-model bench via OpenRouter.
+model: qwen/qwen3.5-flash-02-23
+selection_model: qwen/qwen3.5-flash-02-23
+extraction_model: qwen/qwen3.5-flash-02-23

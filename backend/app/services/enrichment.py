@@ -17,6 +17,7 @@ from difflib import SequenceMatcher
 
 import instructor
 from loguru import logger
+from pydantic import BaseModel
 from sqlalchemy import text
 from unidecode import unidecode
 
@@ -459,18 +460,114 @@ async def find_candidate_unique_events(raw_event: RawEvent) -> list[UniqueEvent]
 # =============================================================================
 
 
-def get_instructor_client():
-    """Get instructor client with Gemini provider."""
+def get_instructor_client(*, model: str | None = None):
+    """Get instructor client via OpenRouter."""
     settings = get_settings()
-    api_key = settings.gemini_api_key
+    api_key = settings.openrouter_api_key
     
     if not api_key:
-        raise ValueError("GEMINI_API_KEY not configured")
+        raise ValueError("OPENROUTER_API_KEY not configured")
     
+    # JSON mode: OpenRouter tool-calling with Gemini intermittently hangs the
+    # response stream and breaks on parallel function calls.
     return instructor.from_provider(
-        f"google/{settings.extraction_model}",
+        f"openrouter/{model or settings.extraction_model}",
         api_key=api_key,
+        mode=instructor.Mode.JSON,
     )
+
+
+MATCH_SYSTEM_PROMPT = """Analise se a extração fornecida se refere ao mesmo evento real que algum dos eventos candidatos.
+
+REGRAS DE MATCHING (em ordem de importância):
+
+1. **VÍTIMA** (peso MÁXIMO): Se a extração e um candidato mencionam a MESMA VÍTIMA (mesmo nome ou nome muito similar), são o MESMO evento, MESMO QUE outros detalhes difiram.
+   - Exemplo: "João Silva" e "Joao da Silva" = MESMA pessoa
+   - Exemplo: fontes diferentes podem focar em aspectos diferentes do mesmo crime
+
+2. **TÍTULO** (peso alto): Manchetes/títulos muito similares sobre o mesmo crime indicam o MESMO evento,
+   mesmo com pequenas diferenças de data (±3 dias) ou redação entre fontes.
+
+3. **DATA + LOCAL** (peso alto): Mesmo dia + mesmo bairro/local sugere mesmo evento, especialmente se não há vítimas identificadas.
+
+4. **DESCRIÇÃO** (peso médio): Descrições similares do crime ajudam a confirmar, mas fontes diferentes podem descrever o mesmo evento de formas diferentes.
+   - "Homem baleado no Complexo da Maré" e "Tiroteio deixa um morto na Maré" podem ser o MESMO evento
+
+IMPORTANTE: Prefira match quando há evidência convergente (vítima, título ou local+data).
+Se a evidência for fraca ou ambígua, responda que NÃO há match.
+
+Responda com:
+- match: true/false
+- unique_event_id: número do ID que combina, ou null
+- confidence: 0.0-1.0
+- reasoning: explicação breve"""
+
+
+CLUSTER_SYSTEM_PROMPT = """Analise as extrações fornecidas e determine quais se referem ao MESMO evento real.
+
+REGRAS DE MATCHING (em ordem de importância):
+
+1. **VÍTIMA** (peso MÁXIMO): Se duas extrações mencionam a mesma vítima, são o MESMO evento.
+
+2. **DATA + LOCAL** (peso alto): Mesmo dia + mesmo bairro/local sugere mesmo evento.
+
+3. **DESCRIÇÃO** (peso médio): Descrições similares do crime ajudam a confirmar.
+
+IMPORTANTE:
+- Diferentes fontes podem descrever o mesmo evento de formas diferentes
+- "Homem baleado na Maré" e "Tiroteio deixa um morto na Maré" podem ser o MESMO evento
+- Se há dúvida, considere como eventos DIFERENTES
+
+Responda com:
+- clusters: lista de clusters, onde cada cluster é a lista dos números (1-indexados) das extrações que são o mesmo evento. Exemplo: [[1, 3], [2]] significa que as extrações 1 e 3 são o mesmo evento e a 2 é um evento diferente. TODA extração deve aparecer em exatamente um cluster.
+- reasoning: explicação breve"""
+
+
+ENRICHMENT_SYSTEM_PROMPT = """Você é um especialista em sintetizar informações sobre eventos de morte violenta a partir de múltiplas fontes.
+
+Sua tarefa é sintetizar a informação mais COMPLETA e PRECISA possível, combinando todas as fontes.
+
+REGRAS:
+1. Use informações de TODAS as fontes para criar a descrição mais completa
+2. Se fontes conflitam, prefira a informação mais detalhada e consistente
+3. Extraia informações de localização estruturadas quando possível
+4. NÃO invente informações - use apenas o que está nas fontes
+5. Mantenha linguagem técnica e objetiva
+
+Retorne:
+- title: título técnico descritivo
+- event_date: YYYY-MM-DD ou null
+- city: cidade
+- state: estado (sigla)
+- neighborhood: bairro ou null
+- street: rua/endereço ou null
+- victims_summary: informação completa sobre vítimas
+- victim_count: número ou null
+- chronological_description: descrição cronológica completa e detalhada"""
+
+
+class MatchResult(BaseModel):
+    match: bool
+    unique_event_id: int | None
+    confidence: float
+    reasoning: str
+
+
+class ClusterResult(BaseModel):
+    clusters: list[list[int]]
+    reasoning: str
+
+
+class EnrichmentResult(BaseModel):
+    title: str | None
+    event_date: str | None
+    city: str | None
+    state: str | None
+    neighborhood: str | None
+    street: str | None
+    victims_summary: str | None
+    victim_count: int | None
+    chronological_description: str | None
 
 
 def format_raw_event_for_prompt(raw_event: RawEvent) -> str:
@@ -519,9 +616,26 @@ def format_unique_event_for_prompt(unique_event: UniqueEvent) -> str:
 - Fontes: {unique_event.source_count}"""
 
 
+def build_match_user_prompt(raw_event: RawEvent, candidates: list[UniqueEvent]) -> str:
+    """Build the user message for the dedup match LLM call."""
+    raw_event_str = format_raw_event_for_prompt(raw_event)
+    candidates_str = "\n\n".join([
+        f"{i+1}. UniqueEvent:\n{format_unique_event_for_prompt(c)}"
+        for i, c in enumerate(candidates)
+    ])
+    return f"""EXTRAÇÃO (RawEvent):
+{raw_event_str}
+
+EVENTOS CANDIDATOS (UniqueEvents):
+{candidates_str}"""
+
+
 def llm_match_to_unique_event(
     raw_event: RawEvent,
-    candidates: list[UniqueEvent]
+    candidates: list[UniqueEvent],
+    *,
+    model: str | None = None,
+    system_prompt: str | None = None,
 ) -> tuple[UniqueEvent | None, float, str]:
     """
     Use LLM to determine if RawEvent matches any candidate UniqueEvent.
@@ -533,65 +647,16 @@ def llm_match_to_unique_event(
     
     logger.debug(f"[LLM Match] Checking {len(candidates)} candidate(s) for RawEvent {raw_event.id}")
     
-    # Build prompt
-    raw_event_str = format_raw_event_for_prompt(raw_event)
-    candidates_str = "\n\n".join([
-        f"{i+1}. UniqueEvent:\n{format_unique_event_for_prompt(c)}"
-        for i, c in enumerate(candidates)
-    ])
-    
-    prompt = f"""Analise se a extração abaixo se refere ao mesmo evento real que algum dos eventos candidatos.
-
-EXTRAÇÃO (RawEvent):
-{raw_event_str}
-
-EVENTOS CANDIDATOS (UniqueEvents):
-{candidates_str}
-
-REGRAS DE MATCHING (em ordem de importância):
-
-1. **VÍTIMA** (peso MÁXIMO): Se a extração e um candidato mencionam a MESMA VÍTIMA (mesmo nome ou nome muito similar), são o MESMO evento, MESMO QUE outros detalhes difiram.
-   - Exemplo: "João Silva" e "Joao da Silva" = MESMA pessoa
-   - Exemplo: fontes diferentes podem focar em aspectos diferentes do mesmo crime
-
-2. **TÍTULO** (peso alto): Manchetes/títulos muito similares sobre o mesmo crime indicam o MESMO evento,
-   mesmo com pequenas diferenças de data (±3 dias) ou redação entre fontes.
-
-3. **DATA + LOCAL** (peso alto): Mesmo dia + mesmo bairro/local sugere mesmo evento, especialmente se não há vítimas identificadas.
-
-4. **DESCRIÇÃO** (peso médio): Descrições similares do crime ajudam a confirmar, mas fontes diferentes podem descrever o mesmo evento de formas diferentes.
-   - "Homem baleado no Complexo da Maré" e "Tiroteio deixa um morto na Maré" podem ser o MESMO evento
-
-IMPORTANTE: Prefira match quando há evidência convergente (vítima, título ou local+data).
-Se a evidência for fraca ou ambígua, responda que NÃO há match.
-
-Responda APENAS com JSON válido:
-{{
-  "match": true/false,
-  "unique_event_id": número_do_id_que_combina_ou_null,
-  "confidence": 0.0-1.0,
-  "reasoning": "explicação breve"
-}}"""
+    user_prompt = build_match_user_prompt(raw_event, candidates)
 
     try:
-        settings = get_settings()
-        client = instructor.from_provider(
-            f"google/{settings.extraction_model}",
-            api_key=settings.gemini_api_key,
-        )
-        
-        from pydantic import BaseModel
-        
-        class MatchResult(BaseModel):
-            match: bool
-            unique_event_id: int | None
-            confidence: float
-            reasoning: str
+        client = get_instructor_client(model=model or get_settings().dedup_model)
         
         result = client.create(
             response_model=MatchResult,
             messages=[
-                {"role": "user", "content": prompt}
+                {"role": "system", "content": system_prompt or MATCH_SYSTEM_PROMPT},
+                {"role": "user", "content": user_prompt},
             ],
             max_retries=2,
             timeout=90,
@@ -761,7 +826,22 @@ def pre_cluster_by_victim_name(raw_events: list[RawEvent]) -> list[list[RawEvent
     return result
 
 
-def llm_cluster_events(raw_events: list[RawEvent]) -> list[list[RawEvent]]:
+def build_cluster_user_prompt(raw_events: list[RawEvent]) -> str:
+    """Build the user message for the dedup cluster LLM call."""
+    events_str = "\n\n".join([
+        f"{i+1}. Extração:\n{format_raw_event_for_prompt(e)}"
+        for i, e in enumerate(raw_events)
+    ])
+    return f"""EXTRAÇÕES:
+{events_str}"""
+
+
+def llm_cluster_events(
+    raw_events: list[RawEvent],
+    *,
+    model: str | None = None,
+    system_prompt: str | None = None,
+) -> list[list[RawEvent]]:
     """
     Use LLM to cluster events that couldn't be matched by victim name.
     
@@ -772,56 +852,16 @@ def llm_cluster_events(raw_events: list[RawEvent]) -> list[list[RawEvent]]:
     
     logger.debug(f"[LLM Cluster] Clustering {len(raw_events)} events...")
     
-    # Build prompt
-    events_str = "\n\n".join([
-        f"{i+1}. Extração:\n{format_raw_event_for_prompt(e)}"
-        for i, e in enumerate(raw_events)
-    ])
-    
-    prompt = f"""Analise as extrações abaixo e determine quais se referem ao MESMO evento real.
-
-REGRAS DE MATCHING (em ordem de importância):
-
-1. **VÍTIMA** (peso MÁXIMO): Se duas extrações mencionam a mesma vítima, são o MESMO evento.
-
-2. **DATA + LOCAL** (peso alto): Mesmo dia + mesmo bairro/local sugere mesmo evento.
-
-3. **DESCRIÇÃO** (peso médio): Descrições similares do crime ajudam a confirmar.
-
-IMPORTANTE:
-- Diferentes fontes podem descrever o mesmo evento de formas diferentes
-- "Homem baleado na Maré" e "Tiroteio deixa um morto na Maré" podem ser o MESMO evento
-- Se há dúvida, considere como eventos DIFERENTES
-
-EXTRAÇÕES:
-{events_str}
-
-Responda com JSON válido:
-{{
-  "clusters": [
-    [1, 3],  // extrações 1 e 3 são o mesmo evento
-    [2],     // extração 2 é evento diferente
-  ],
-  "reasoning": "explicação breve"
-}}"""
+    user_prompt = build_cluster_user_prompt(raw_events)
 
     try:
-        settings = get_settings()
-        client = instructor.from_provider(
-            f"google/{settings.extraction_model}",
-            api_key=settings.gemini_api_key,
-        )
-        
-        from pydantic import BaseModel
-        
-        class ClusterResult(BaseModel):
-            clusters: list[list[int]]
-            reasoning: str
+        client = get_instructor_client(model=model or get_settings().dedup_model)
         
         result = client.create(
             response_model=ClusterResult,
             messages=[
-                {"role": "user", "content": prompt}
+                {"role": "system", "content": system_prompt or CLUSTER_SYSTEM_PROMPT},
+                {"role": "user", "content": user_prompt},
             ],
             max_retries=2,
             timeout=90,
@@ -1292,6 +1332,56 @@ async def run_pending_enrichments(limit: int = 50, concurrency: int = 5) -> dict
     }
 
 
+def build_enrichment_user_prompt(current_state: dict, sources_info: list[dict]) -> str:
+    """Build the user message for the enrichment synthesis LLM call."""
+    sources_str = ""
+    for i, source in enumerate(sources_info, 1):
+        sources_str += f"""
+{i}. Fonte: {source.get('publisher') or 'Desconhecida'}
+   Manchete: {source.get('headline') or 'N/A'}
+   URL: {source.get('url') or 'N/A'}
+   Conteúdo: {(source.get('content') or '')[:1000]}...
+"""
+
+    return f"""ESTADO ATUAL DO EVENTO:
+- Título: {current_state.get('title')}
+- Data: {current_state.get('event_date')}
+- Cidade: {current_state.get('city')}
+- Estado: {current_state.get('state')}
+- Bairro: {current_state.get('neighborhood')}
+- Rua: {current_state.get('street')}
+- Vítimas: {current_state.get('victims_summary')}
+- Descrição: {current_state.get('chronological_description')}
+
+FONTES DE NOTÍCIAS ({len(sources_info)} fontes):
+{sources_str}"""
+
+
+def synthesize_unique_event(
+    current_state: dict,
+    sources_info: list[dict],
+    *,
+    model: str | None = None,
+    system_prompt: str | None = None,
+) -> EnrichmentResult:
+    """
+    Pure LLM synthesis of a UniqueEvent from its current state and sources.
+
+    No DB access - callable from the eval harness with plain dicts.
+    """
+    client = get_instructor_client(model=model or get_settings().enrichment_model)
+
+    return client.create(
+        response_model=EnrichmentResult,
+        messages=[
+            {"role": "system", "content": system_prompt or ENRICHMENT_SYSTEM_PROMPT},
+            {"role": "user", "content": build_enrichment_user_prompt(current_state, sources_info)},
+        ],
+        max_retries=2,
+        timeout=120,
+    )
+
+
 async def enrich_unique_event(unique_event_id: int) -> bool:
     """
     Synthesize best information from all linked sources.
@@ -1374,80 +1464,9 @@ async def enrich_unique_event(unique_event_id: int) -> bool:
         "chronological_description": unique_row.chronological_description,
     }
     
-    sources_str = ""
-    for i, source in enumerate(sources_info, 1):
-        sources_str += f"""
-{i}. Fonte: {source['publisher'] or 'Desconhecida'}
-   Manchete: {source['headline'] or 'N/A'}
-   URL: {source['url'] or 'N/A'}
-   Conteúdo: {source['content'][:1000]}...
-"""
-    
-    prompt = f"""Você é um especialista em sintetizar informações sobre eventos de morte violenta a partir de múltiplas fontes.
-
-ESTADO ATUAL DO EVENTO:
-- Título: {current_state['title']}
-- Data: {current_state['event_date']}
-- Cidade: {current_state['city']}
-- Estado: {current_state['state']}
-- Bairro: {current_state['neighborhood']}
-- Rua: {current_state['street']}
-- Vítimas: {current_state['victims_summary']}
-- Descrição: {current_state['chronological_description']}
-
-FONTES DE NOTÍCIAS ({len(sources_info)} fontes):
-{sources_str}
-
-Sua tarefa é sintetizar a informação mais COMPLETA e PRECISA possível, combinando todas as fontes.
-
-REGRAS:
-1. Use informações de TODAS as fontes para criar a descrição mais completa
-2. Se fontes conflitam, prefira a informação mais detalhada e consistente
-3. Extraia informações de localização estruturadas quando possível
-4. NÃO invente informações - use apenas o que está nas fontes
-5. Mantenha linguagem técnica e objetiva
-
-Retorne APENAS JSON válido:
-{{
-  "title": "título técnico descritivo",
-  "event_date": "YYYY-MM-DD ou null",
-  "city": "cidade",
-  "state": "estado (sigla)",
-  "neighborhood": "bairro ou null",
-  "street": "rua/endereço ou null",
-  "victims_summary": "informação completa sobre vítimas",
-  "victim_count": número ou null,
-  "chronological_description": "descrição cronológica completa e detalhada"
-}}"""
-
     try:
         settings = get_settings()
-        client = instructor.from_provider(
-            f"google/{settings.extraction_model}",
-            api_key=settings.gemini_api_key,
-        )
-        
-        from pydantic import BaseModel
-        
-        class EnrichmentResult(BaseModel):
-            title: str | None
-            event_date: str | None
-            city: str | None
-            state: str | None
-            neighborhood: str | None
-            street: str | None
-            victims_summary: str | None
-            victim_count: int | None
-            chronological_description: str | None
-        
-        result = client.create(
-            response_model=EnrichmentResult,
-            messages=[
-                {"role": "user", "content": prompt}
-            ],
-            max_retries=2,
-            timeout=90,
-        )
+        result = synthesize_unique_event(current_state, sources_info)
         
         # Update UniqueEvent with enriched data
         async with async_session_maker() as session:
@@ -1478,7 +1497,7 @@ Retorne APENAS JSON válido:
                     "victims_summary": result.victims_summary,
                     "victim_count": result.victim_count,
                     "chronological_description": result.chronological_description,
-                    "enrichment_model": settings.extraction_model,
+                    "enrichment_model": settings.enrichment_model,
                 }
             )
             await session.commit()

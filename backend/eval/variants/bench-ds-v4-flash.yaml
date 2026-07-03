@@ -1,0 +1,4 @@
+# Cheap-model bench via OpenRouter.
+model: deepseek/deepseek-v4-flash
+selection_model: deepseek/deepseek-v4-flash
+extraction_model: deepseek/deepseek-v4-flash

@@ -1,0 +1,4 @@
+# Cheap-model bench via OpenRouter.
+model: openai/gpt-oss-120b
+selection_model: openai/gpt-oss-120b
+extraction_model: openai/gpt-oss-120b

@@ -1,4 +1,8 @@
-"""Run extraction eval against a labeled fixture."""
+"""Run dedup-cluster eval against a labeled fixture.
+
+Calls the production `llm_cluster_events` with RawEvent objects built from
+fixture data (no DB access) and scores the returned partition.
+"""
 
 from __future__ import annotations
 
@@ -8,81 +12,80 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
-from eval.schemas_extraction import (
-    ExtractionCaseResult,
-    ExtractionFixture,
-    ExtractionRunMeta,
-    ExtractionRunReport,
+from eval.schemas_dedup import (
+    DedupClusterCaseResult,
+    DedupClusterFixture,
+    DedupClusterRunMeta,
+    DedupClusterRunReport,
     utc_now_iso,
 )
-from eval.stages.extraction.score import event_to_dict, score_case, score_extraction_results
-from eval.stages.extraction.validate import labeled_cases, validate_fixture
-from eval.variants import ExtractionVariant, load_extraction_variant
+from eval.stages.dedup_cluster.score import score_case_results, score_clusters
+from eval.stages.dedup_cluster.validate import labeled_cases, validate_fixture
+from eval.stages.dedup_match.run import raw_event_from_data
+from eval.variants import StageVariant, load_stage_variant
+
+MODEL_KEYS = ("dedup_model", "extraction_model")
 
 
-def _resolve_model(variant: ExtractionVariant) -> str:
+def _resolve_model(variant: StageVariant) -> str:
     from app.config import get_settings
 
-    if variant.extraction_model:
-        return variant.extraction_model
-    return get_settings().extraction_model
+    return variant.model or get_settings().dedup_model
 
 
-def _run_one_case(case, variant: ExtractionVariant) -> ExtractionCaseResult:
-    from app.config import get_settings
-    from app.services.extraction import extract_event_from_content
+def _run_one_case(case, variant: StageVariant) -> DedupClusterCaseResult:
+    from app.services.enrichment import llm_cluster_events
 
-    settings = get_settings()
-    content = case.input.content
-    if len(content) > settings.extraction_max_chars:
-        content = content[: settings.extraction_max_chars]
+    events = [raw_event_from_data(e) for e in case.input.events]
+    id_to_index = {e.id: i + 1 for i, e in enumerate(events)}
 
-    metadata = case.input.metadata.model_dump(exclude_none=True)
     start = time.perf_counter()
     try:
-        event = extract_event_from_content(
-            content,
-            metadata,
-            model_id=variant.extraction_model,
+        clusters = llm_cluster_events(
+            events,
+            model=variant.model,
             system_prompt=variant.system_prompt,
         )
-        actual = event_to_dict(event)
-        passed, score, field_results, diff = score_case(case, actual)
         latency_ms = int((time.perf_counter() - start) * 1000)
-        return ExtractionCaseResult(
+
+        actual = [sorted(id_to_index[e.id] for e in cluster) for cluster in clusters]
+        expected = [sorted(c) for c in case.expected.clusters]
+
+        exact, precision, recall, f1 = score_clusters(expected, actual)
+        return DedupClusterCaseResult(
             id=case.id,
-            passed=passed,
-            score=score,
-            field_results=field_results,
-            diff=diff,
+            passed=exact,
+            pairwise_precision=precision,
+            pairwise_recall=recall,
+            pairwise_f1=f1,
+            expected_clusters=expected,
+            actual_clusters=actual,
             tags=case.tags,
-            headline=case.input.metadata.headline,
             latency_ms=latency_ms,
         )
     except Exception as e:
         latency_ms = int((time.perf_counter() - start) * 1000)
-        return ExtractionCaseResult(
+        return DedupClusterCaseResult(
             id=case.id,
             passed=False,
-            score=0.0,
+            expected_clusters=case.expected.clusters if case.expected else [],
             tags=case.tags,
-            headline=case.input.metadata.headline,
             latency_ms=latency_ms,
             error=str(e),
         )
 
 
-async def run_extraction_eval(
-    fixture: ExtractionFixture,
+async def run_dedup_cluster_eval(
+    fixture: DedupClusterFixture,
     *,
     variant_name: str = "baseline",
-    concurrency: int = 3,
+    concurrency: int = 4,
     limit: int | None = None,
     case_ids: set[str] | None = None,
     fail_fast: bool = False,
     dry_run: bool = False,
     fixture_path: str = "",
-) -> ExtractionRunReport:
+) -> DedupClusterRunReport:
     validation = validate_fixture(fixture)
     if not validation.valid:
         raise ValueError("Fixture validation failed; fix issues before running eval")
@@ -93,14 +96,14 @@ async def run_extraction_eval(
     if limit is not None:
         cases = cases[:limit]
 
-    variant = load_extraction_variant(variant_name)
+    variant = load_stage_variant(variant_name, model_keys=MODEL_KEYS)
     model = _resolve_model(variant)
 
     if dry_run:
-        summary = score_extraction_results([])
+        summary = score_case_results([])
         summary.total = len(cases)
-        return ExtractionRunReport(
-            meta=ExtractionRunMeta(
+        return DedupClusterRunReport(
+            meta=DedupClusterRunMeta(
                 variant=variant_name,
                 model=model,
                 fixture=fixture_path,
@@ -133,9 +136,9 @@ async def run_extraction_eval(
     else:
         results = list(await asyncio.gather(*tasks))
 
-    summary = score_extraction_results(results)
-    return ExtractionRunReport(
-        meta=ExtractionRunMeta(
+    summary = score_case_results(results)
+    return DedupClusterRunReport(
+        meta=DedupClusterRunMeta(
             variant=variant_name,
             model=model,
             fixture=fixture_path,
@@ -146,42 +149,43 @@ async def run_extraction_eval(
     )
 
 
-def write_report(report: ExtractionRunReport, output_path: Path) -> None:
+def write_report(report: DedupClusterRunReport, output_path: Path) -> None:
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(json.dumps(report.model_dump(mode="json"), ensure_ascii=False, indent=2))
 
 
 def default_output_path(variant: str) -> Path:
     ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    return Path(__file__).resolve().parents[2] / "results" / f"extraction-{variant}-{ts}.json"
+    return Path(__file__).resolve().parents[2] / "results" / f"dedup-cluster-{variant}-{ts}.json"
 
 
-def print_report(report: ExtractionRunReport) -> None:
+def print_report(report: DedupClusterRunReport) -> None:
     s = report.summary
-    print(f"\n=== RUN: extraction ({report.meta.variant}) ===")
+    print(f"\n=== RUN: dedup_cluster ({report.meta.variant}) ===")
     print(f"  model: {report.meta.model}")
     print(f"  fixture: {report.meta.fixture}")
     if report.meta.dry_run:
         print(f"  dry-run: {s.total} labeled cases would run")
         return
 
-    print(f"  passed: {s.passed}/{s.total} ({_pct(s.mean_score)})")
+    print(f"  exact partition: {s.passed}/{s.total} ({_pct(s.exact_match_rate)})")
+    print(f"  mean pairwise f1: {_pct(s.mean_pairwise_f1)}")
     if s.errors:
         print(f"  errors: {s.errors}")
 
-    if s.by_field:
-        print("  by field:")
-        for field_path, stats in s.by_field.items():
-            print(f"    {field_path}: {stats['passed']}/{stats['total']} ({_pct(stats['accuracy'])})")
+    if s.by_tag:
+        print("  by tag:")
+        for tag, stats in s.by_tag.items():
+            print(f"    {tag}: {stats['passed']}/{stats['total']} ({_pct(stats['accuracy'])})")
 
     failures = [r for r in report.cases if not r.passed and r.error is None]
     if failures:
-        print(f"\n  field failures ({len(failures)}):")
-        for r in failures[:8]:
-            headline = (r.headline or "")[:60]
-            print(f"    - {r.id} score={r.score:.2f} \"{headline}\"")
-            for field_path, detail in list(r.diff.items())[:3]:
-                print(f"        {field_path}: expected={detail.get('expected')!r} actual={detail.get('actual')!r}")
+        print(f"\n  failures ({len(failures)}):")
+        for r in failures[:10]:
+            print(
+                f"    - {r.id} f1={r.pairwise_f1:.2f}: "
+                f"expected={r.expected_clusters} actual={r.actual_clusters}"
+            )
 
     if s.errors:
         print(f"\n  case errors ({s.errors}):")

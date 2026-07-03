@@ -1,0 +1,4 @@
+# Cheap-model bench via OpenRouter.
+model: amazon/nova-lite-v1
+selection_model: amazon/nova-lite-v1
+extraction_model: amazon/nova-lite-v1

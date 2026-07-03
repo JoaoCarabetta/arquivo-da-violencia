@@ -15,7 +15,7 @@ Run from the backend/ directory (so `app` is importable):
     # cheap, no LLM:
     python scripts/run_failure_test_set.py --stages download
 
-    # include extraction (needs GEMINI_API_KEY, costs tokens):
+    # include extraction (needs OPENROUTER_API_KEY, costs tokens):
     python scripts/run_failure_test_set.py --stages download,extraction
 """
 
@@ -163,8 +163,8 @@ async def main() -> None:
     if "download" in stages:
         await run_download(data.get("download", []), args.download_concurrency)
     if "extraction" in stages:
-        if not get_settings().gemini_api_key:
-            print("\n[skip] extraction stage requires GEMINI_API_KEY")
+        if not get_settings().openrouter_api_key:
+            print("\n[skip] extraction stage requires OPENROUTER_API_KEY")
         else:
             await run_extraction(data.get("extraction", []), args.extraction_concurrency)
 

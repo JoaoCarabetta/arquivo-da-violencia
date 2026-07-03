@@ -1,0 +1,4 @@
+# Cheap-model bench via OpenRouter.
+model: inclusionai/ling-2.6-flash
+selection_model: inclusionai/ling-2.6-flash
+extraction_model: inclusionai/ling-2.6-flash

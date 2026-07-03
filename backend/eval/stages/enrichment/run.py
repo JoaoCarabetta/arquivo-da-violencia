@@ -1,4 +1,7 @@
-"""Run extraction eval against a labeled fixture."""
+"""Run enrichment-synthesis eval against a labeled fixture.
+
+Calls the production `synthesize_unique_event` with plain dicts (no DB access).
+"""
 
 from __future__ import annotations
 
@@ -8,81 +11,73 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
-from eval.schemas_extraction import (
-    ExtractionCaseResult,
-    ExtractionFixture,
-    ExtractionRunMeta,
-    ExtractionRunReport,
+from eval.schemas_enrichment import (
+    EnrichmentCaseResult,
+    EnrichmentFixture,
+    EnrichmentRunMeta,
+    EnrichmentRunReport,
     utc_now_iso,
 )
-from eval.stages.extraction.score import event_to_dict, score_case, score_extraction_results
-from eval.stages.extraction.validate import labeled_cases, validate_fixture
-from eval.variants import ExtractionVariant, load_extraction_variant
+from eval.stages.enrichment.score import score_case, score_enrichment_results
+from eval.stages.enrichment.validate import labeled_cases, validate_fixture
+from eval.variants import StageVariant, load_stage_variant
+
+MODEL_KEYS = ("enrichment_model", "extraction_model")
 
 
-def _resolve_model(variant: ExtractionVariant) -> str:
+def _resolve_model(variant: StageVariant) -> str:
     from app.config import get_settings
 
-    if variant.extraction_model:
-        return variant.extraction_model
-    return get_settings().extraction_model
+    return variant.model or get_settings().enrichment_model
 
 
-def _run_one_case(case, variant: ExtractionVariant) -> ExtractionCaseResult:
-    from app.config import get_settings
-    from app.services.extraction import extract_event_from_content
+def _run_one_case(case, variant: StageVariant) -> EnrichmentCaseResult:
+    from app.services.enrichment import synthesize_unique_event
 
-    settings = get_settings()
-    content = case.input.content
-    if len(content) > settings.extraction_max_chars:
-        content = content[: settings.extraction_max_chars]
-
-    metadata = case.input.metadata.model_dump(exclude_none=True)
+    sources_info = [s.model_dump() for s in case.input.sources]
     start = time.perf_counter()
     try:
-        event = extract_event_from_content(
-            content,
-            metadata,
-            model_id=variant.extraction_model,
+        result = synthesize_unique_event(
+            case.input.current_state,
+            sources_info,
+            model=variant.model,
             system_prompt=variant.system_prompt,
         )
-        actual = event_to_dict(event)
-        passed, score, field_results, diff = score_case(case, actual)
         latency_ms = int((time.perf_counter() - start) * 1000)
-        return ExtractionCaseResult(
+        actual = result.model_dump(mode="json")
+        passed, score, field_results, diff = score_case(case, actual)
+        return EnrichmentCaseResult(
             id=case.id,
             passed=passed,
             score=score,
             field_results=field_results,
             diff=diff,
             tags=case.tags,
-            headline=case.input.metadata.headline,
             latency_ms=latency_ms,
         )
     except Exception as e:
         latency_ms = int((time.perf_counter() - start) * 1000)
-        return ExtractionCaseResult(
+        return EnrichmentCaseResult(
             id=case.id,
             passed=False,
             score=0.0,
             tags=case.tags,
-            headline=case.input.metadata.headline,
             latency_ms=latency_ms,
             error=str(e),
         )
 
 
-async def run_extraction_eval(
-    fixture: ExtractionFixture,
+async def run_enrichment_eval(
+    fixture: EnrichmentFixture,
     *,
     variant_name: str = "baseline",
-    concurrency: int = 3,
+    concurrency: int = 4,
     limit: int | None = None,
     case_ids: set[str] | None = None,
     fail_fast: bool = False,
     dry_run: bool = False,
     fixture_path: str = "",
-) -> ExtractionRunReport:
+) -> EnrichmentRunReport:
     validation = validate_fixture(fixture)
     if not validation.valid:
         raise ValueError("Fixture validation failed; fix issues before running eval")
@@ -93,14 +88,14 @@ async def run_extraction_eval(
     if limit is not None:
         cases = cases[:limit]
 
-    variant = load_extraction_variant(variant_name)
+    variant = load_stage_variant(variant_name, model_keys=MODEL_KEYS)
     model = _resolve_model(variant)
 
     if dry_run:
-        summary = score_extraction_results([])
+        summary = score_enrichment_results([])
         summary.total = len(cases)
-        return ExtractionRunReport(
-            meta=ExtractionRunMeta(
+        return EnrichmentRunReport(
+            meta=EnrichmentRunMeta(
                 variant=variant_name,
                 model=model,
                 fixture=fixture_path,
@@ -133,9 +128,9 @@ async def run_extraction_eval(
     else:
         results = list(await asyncio.gather(*tasks))
 
-    summary = score_extraction_results(results)
-    return ExtractionRunReport(
-        meta=ExtractionRunMeta(
+    summary = score_enrichment_results(results)
+    return EnrichmentRunReport(
+        meta=EnrichmentRunMeta(
             variant=variant_name,
             model=model,
             fixture=fixture_path,
@@ -146,42 +141,41 @@ async def run_extraction_eval(
     )
 
 
-def write_report(report: ExtractionRunReport, output_path: Path) -> None:
+def write_report(report: EnrichmentRunReport, output_path: Path) -> None:
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(json.dumps(report.model_dump(mode="json"), ensure_ascii=False, indent=2))
 
 
 def default_output_path(variant: str) -> Path:
     ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    return Path(__file__).resolve().parents[2] / "results" / f"extraction-{variant}-{ts}.json"
+    return Path(__file__).resolve().parents[2] / "results" / f"enrichment-{variant}-{ts}.json"
 
 
-def print_report(report: ExtractionRunReport) -> None:
+def print_report(report: EnrichmentRunReport) -> None:
     s = report.summary
-    print(f"\n=== RUN: extraction ({report.meta.variant}) ===")
+    print(f"\n=== RUN: enrichment ({report.meta.variant}) ===")
     print(f"  model: {report.meta.model}")
     print(f"  fixture: {report.meta.fixture}")
     if report.meta.dry_run:
         print(f"  dry-run: {s.total} labeled cases would run")
         return
 
-    print(f"  passed: {s.passed}/{s.total} ({_pct(s.mean_score)})")
+    print(f"  passed: {s.passed}/{s.total} (mean score {_pct(s.mean_score)})")
     if s.errors:
         print(f"  errors: {s.errors}")
 
     if s.by_field:
         print("  by field:")
-        for field_path, stats in s.by_field.items():
-            print(f"    {field_path}: {stats['passed']}/{stats['total']} ({_pct(stats['accuracy'])})")
+        for field, stats in s.by_field.items():
+            print(f"    {field}: {stats['passed']}/{stats['total']} ({_pct(stats['accuracy'])})")
 
     failures = [r for r in report.cases if not r.passed and r.error is None]
     if failures:
         print(f"\n  field failures ({len(failures)}):")
         for r in failures[:8]:
-            headline = (r.headline or "")[:60]
-            print(f"    - {r.id} score={r.score:.2f} \"{headline}\"")
-            for field_path, detail in list(r.diff.items())[:3]:
-                print(f"        {field_path}: expected={detail.get('expected')!r} actual={detail.get('actual')!r}")
+            print(f"    - {r.id} score={r.score:.2f}")
+            for field, detail in list(r.diff.items())[:3]:
+                print(f"        {field}: expected={detail.get('expected')!r} actual={detail.get('actual')!r}")
 
     if s.errors:
         print(f"\n  case errors ({s.errors}):")

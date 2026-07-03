@@ -73,3 +73,35 @@ def load_extraction_variant(name: str) -> ExtractionVariant:
         extraction_model=raw.get("extraction_model"),
         system_prompt=_load_system_prompt(path, raw),
     )
+
+
+@dataclass
+class StageVariant:
+    """Generic variant for the content-gate / dedup / enrichment stages."""
+
+    name: str
+    model: str | None = None
+    system_prompt: str | None = None
+
+
+def load_stage_variant(name: str, *, model_keys: tuple[str, ...]) -> StageVariant:
+    """
+    Load a generic stage variant from eval/variants/{name}.yaml.
+
+    model_keys are checked in order; the first non-empty value wins. This lets
+    one variant YAML drive several stages (e.g. "model" plus per-stage keys).
+    """
+    if name == "baseline":
+        return StageVariant(name="baseline")
+
+    path, raw = _load_variant_yaml(name)
+    model = None
+    for key in ("model", *model_keys):
+        if raw.get(key):
+            model = raw[key]
+            break
+    return StageVariant(
+        name=name,
+        model=model,
+        system_prompt=_load_system_prompt(path, raw),
+    )
