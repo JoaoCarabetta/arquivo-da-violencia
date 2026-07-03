@@ -19,7 +19,7 @@ DEFAULT_OUT = (
     / "classification_hard.json"
 )
 
-GENERATOR_MODEL = "gemini-3.1-pro-preview"
+GENERATOR_MODEL = "google/gemini-3.1-pro-preview"
 
 GENERATOR_SYSTEM_PROMPT = """
 Você cria casos de teste adversariais para um classificador de manchetes de notícias
@@ -81,12 +81,12 @@ class GeneratedHardSet(BaseModel):
 
 def generate_hard_cases(model: str = GENERATOR_MODEL) -> GeneratedHardSet:
     settings = get_settings()
-    if not settings.gemini_api_key:
-        raise ValueError("GEMINI_API_KEY not configured")
+    if not settings.openrouter_api_key:
+        raise ValueError("OPENROUTER_API_KEY not configured")
 
     client = instructor.from_provider(
-        f"google/{model}",
-        api_key=settings.gemini_api_key,
+        f"openrouter/{model}",
+        api_key=settings.openrouter_api_key,
     )
 
     return client.create(

@@ -1,0 +1,3 @@
+# Proposed content-gate prompt: explicit survivor rule, cultural-works rule,
+# and buried-incident-in-statistics rule. Model unchanged (baseline).
+system_prompt_file: proposed_content_gate_prompt.txt

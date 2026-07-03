@@ -1,0 +1,395 @@
+{
+  "meta": {
+    "stage": "content_gate",
+    "version": 1,
+    "source_db": null,
+    "seed": null,
+    "labeled_count": 20,
+    "pending_count": 0,
+    "generator_model": "gemini-2.5-pro"
+  },
+  "cases": [
+    {
+      "id": "cg-hard-001",
+      "tags": [
+        "hard_true"
+      ],
+      "label_status": "labeled",
+      "input": {
+        "headline": "Discussão em bar na Zona Leste termina em tragédia",
+        "content": "Uma briga de bar na madrugada deste sábado (14) na Vila Matilde, Zona Leste de São Paulo, terminou com um homem de 32 anos morto a facadas. Segundo o Boletim de Ocorrência, o desentendimento teria começado por volta das 2h da manhã, após uma discussão banal entre a vítima e outro frequentador do estabelecimento.\\n\\nTestemunhas afirmam que, após trocas de ofensas, os dois homens entraram em luta corporal. O agressor teria sacado uma faca e atingido a vítima no abdômen. O homem, identificado como Carlos Alberto de Souza, chegou a ser socorrido por populares e levado ao Hospital Municipal do Tatuapé, mas não resistiu ao ferimento e veio a óbito.\\n\\nO autor do crime fugiu do local e ainda não foi identificado pela polícia. A Secretaria de Segurança Pública informou que o caso foi registrado como homicídio qualificado por motivo fútil no 21º DP (Vila Matilde) e que diligências estão em andamento para localizar o suspeito. Imagens de câmeras de segurança do bar e de comércios vizinhos serão analisadas."
+      },
+      "expected": {
+        "is_violent_death": true,
+        "is_single_incident": true
+      },
+      "metadata": {
+        "source_id": null,
+        "notes": "A manchete usa eufemismos (\"termina em tragédia\") que podem ser ambíguos, mas o corpo descreve um homicídio claro."
+      }
+    },
+    {
+      "id": "cg-hard-002",
+      "tags": [
+        "aggregate_statistics"
+      ],
+      "label_status": "labeled",
+      "input": {
+        "headline": "Mortes violentas caem 8% na capital, mas latrocínios sobem 15%",
+        "content": "A Secretaria de Segurança Pública (SSP) do estado de São Paulo divulgou nesta sexta-feira o balanço da criminalidade para o último trimestre. Os dados mostram uma queda de 8% nos homicídios dolosos na capital em comparação com o mesmo período do ano anterior, mas um aumento preocupante de 15% nos latrocínios (roubo seguido de morte).\\n\\nO relatório detalha que a maioria das mortes violentas continua concentrada nas periferias da cidade. Cidades da Grande São Paulo, como Guarulhos e Osasco, também apresentaram alta nos índices. Segundo o secretário, novas estratégias de policiamento ostensivo serão implementadas nas áreas mais críticas para tentar reverter a tendência de alta dos crimes contra o patrimônio que resultam em morte.\\n\\nEssa análise de dados é fundamental para o planejamento de ações das polícias Civil e Militar. Nenhum incidente específico de morte foi detalhado no relatório, que foca na compilação e comparação das estatísticas criminais para orientar políticas públicas."
+      },
+      "expected": {
+        "is_violent_death": true,
+        "is_single_incident": false
+      },
+      "metadata": {
+        "source_id": null,
+        "notes": "A manchete parece um agregador, mas o corpo poderia detalhar um caso. O texto, no entanto, confirma que se trata apenas de um relatório estatístico."
+      }
+    },
+    {
+      "id": "cg-hard-003",
+      "tags": [
+        "hard_true"
+      ],
+      "label_status": "labeled",
+      "input": {
+        "headline": "Corpo com marcas de tiros é encontrado em terreno baldio no DF",
+        "content": "Um homem foi encontrado morto na manhã desta terça-feira (11) em um terreno baldio em Samambaia, no Distrito Federal. A Polícia Militar foi acionada por volta das 7h por moradores que avistaram o corpo. A vítima, ainda não identificada, apresentava múltiplas perfurações por arma de fogo na região do tórax e da cabeça.\\n\\nA área foi isolada para o trabalho da perícia da Polícia Civil. Próximo ao corpo, foram encontradas diversas cápsulas de pistola calibre .40, de uso restrito. A principal linha de investigação é de execução, motivada por um possível acerto de contas relacionado ao tráfico de drogas na região, uma vez que o local é conhecido como ponto de venda de entorpecentes.\\n\\nO caso foi registrado na 26ª Delegacia de Polícia (Samambaia Norte). Até o momento, nenhum suspeito foi preso. A polícia busca por testemunhas e imagens de câmeras de segurança que possam ajudar a elucidar o crime e identificar a autoria."
+      },
+      "expected": {
+        "is_violent_death": true,
+        "is_single_incident": true
+      },
+      "metadata": {
+        "source_id": null,
+        "notes": "Apesar de ser um caso claro de morte violenta, a linguagem (\"encontrado morto\") pode ser associada a outras causas, mas o corpo confirma as perfurações."
+      }
+    },
+    {
+      "id": "cg-hard-004",
+      "tags": [
+        "foreign"
+      ],
+      "label_status": "labeled",
+      "input": {
+        "headline": "Tiroteio em Belém deixa dois mortos e causa pânico",
+        "content": "A cidade de Belém, no Texas (EUA), viveu momentos de terror na manhã de hoje. Um atirador abriu fogo em uma loja de conveniência, matando duas pessoas e ferindo outras três antes de ser neutralizado pela polícia local. O nome da cidade, idêntico à capital paraense, gerou confusão e preocupação nas redes sociais brasileiras.\\n\\nAutoridades americanas informaram que o atirador era um ex-funcionário do estabelecimento, demitido na semana passada. As vítimas fatais foram um cliente e um caixa. O xerife do condado de Harrison lamentou o ocorrido e afirmou que se trata de um \"ato de violência sem sentido\".\\n\\nO Itamaraty, através do consulado brasileiro em Houston, informou que não há, até o momento, registro de cidadãos brasileiros entre as vítimas do ataque. Notícias sobre o incidente foram rapidamente esclarecidas para evitar pânico entre os moradores da Belém do Pará."
+      },
+      "expected": {
+        "is_violent_death": false,
+        "is_single_incident": true
+      },
+      "metadata": {
+        "source_id": null,
+        "notes": "A manchete usa um nome de cidade comum no Brasil (Belém), mas o corpo revela que o incidente ocorreu nos Estados Unidos."
+      }
+    },
+    {
+      "id": "cg-hard-005",
+      "tags": [
+        "survivor"
+      ],
+      "label_status": "labeled",
+      "input": {
+        "headline": "Comerciante reage a assalto, é baleado mas sobrevive no Morumbi",
+        "content": "Uma tentativa de assalto a um comerciante no bairro do Morumbi, Zona Sul de São Paulo, resultou em uma troca de tiros na noite de ontem. O homem, de 54 anos, saía de seu carro quando foi abordado por dois criminosos em uma moto. Ele reagiu e foi atingido por um disparo na altura do ombro.\\n\\nMesmo ferido, o comerciante conseguiu balear um dos assaltantes, que caiu da moto. O segundo criminoso conseguiu fugir a pé, abandonando o comparsa no local. A polícia foi acionada e prendeu o suspeito ferido, que foi levado para o Hospital do Campo Limpo sob escolta.\\n\\nA vítima também foi socorrida e encaminhada ao Hospital Albert Einstein. Segundo a assessoria da unidade, seu estado de saúde é estável e ele não corre risco de morrer. O caso foi registrado no 89º DP (Jardim Taboão)."
+      },
+      "expected": {
+        "is_violent_death": false,
+        "is_single_incident": true
+      },
+      "metadata": {
+        "source_id": null,
+        "notes": "A manchete menciona um tiroteio e uma pessoa baleada, mas o corpo deixa claro que a vítima sobreviveu."
+      }
+    },
+    {
+      "id": "cg-hard-006",
+      "tags": [
+        "roundup"
+      ],
+      "label_status": "labeled",
+      "input": {
+        "headline": "Fim de semana sangrento na Baixada Fluminense com mortos em Caxias e Nova Iguaçu",
+        "content": "A Baixada Fluminense registrou um fim de semana de alta violência, com múltiplos homicídios em diferentes cidades. Em Duque de Caxias, um homem foi executado com mais de dez tiros no bairro Jardim Gramacho na noite de sábado. A polícia suspeita de ligação com a milícia local.\\n\\nEm Belford Roxo, um jovem de 19 anos foi morto durante uma suposta troca de tiros com a Polícia Militar no Complexo do Roseiral. Já em Nova Iguaçu, o corpo de uma mulher, ainda não identificada, foi encontrado com sinais de estrangulamento em um rio que corta o bairro de Austin.\\n\\nA Delegacia de Homicídios da Baixada Fluminense (DHBF) investiga os três casos, que a princípio não possuem ligação entre si. A multiplicidade de ocorrências em um curto período de tempo sobrecarrega as equipes e gera um clima de insegurança entre os moradores da região."
+      },
+      "expected": {
+        "is_violent_death": true,
+        "is_single_incident": false
+      },
+      "metadata": {
+        "source_id": null,
+        "notes": "A manchete sugere um evento único ou conectado, mas o corpo descreve múltiplos incidentes de homicídio sem relação direta entre si."
+      }
+    },
+    {
+      "id": "cg-hard-007",
+      "tags": [
+        "legal_process"
+      ],
+      "label_status": "labeled",
+      "input": {
+        "headline": "Acusado de feminicídio que chocou Contagem é condenado a 22 anos",
+        "content": "O Tribunal do Júri de Contagem, na Região Metropolitana de Belo Horizonte, condenou a 22 anos de prisão o homem acusado de matar a ex-companheira em 2021. O crime, que teve grande repercussão na época, foi qualificado como feminicídio, com agravantes de motivo torpe e uso de meio cruel.\\n\\nDurante o julgamento, que durou dois dias, a acusação sustentou a tese de que o réu não aceitava o fim do relacionamento. A defesa alegou que ele teria agido sob forte emoção, o que não foi aceito pelos jurados. O réu, que já estava preso preventivamente, não poderá recorrer da sentença em liberdade.\\n\\nA família da vítima celebrou a decisão como \"um alívio e um sinal de que a justiça foi feita\". A matéria foca exclusivamente nos desdobramentos legais do caso, sem relatar nenhum novo óbito ou ato de violência."
+      },
+      "expected": {
+        "is_violent_death": false,
+        "is_single_incident": false
+      },
+      "metadata": {
+        "source_id": null,
+        "notes": "A manchete remete a uma morte violenta, mas o corpo trata apenas do processo legal (julgamento e condenação) de um crime ocorrido no passado."
+      }
+    },
+    {
+      "id": "cg-hard-008",
+      "tags": [
+        "suicide"
+      ],
+      "label_status": "labeled",
+      "input": {
+        "headline": "Jovem de 21 anos é encontrado morto em apartamento em Copacabana",
+        "content": "Um jovem de 21 anos foi encontrado morto por familiares dentro de sua casa, no bairro de Copacabana, Zona Sul do Rio. A Polícia Militar foi chamada ao local e isolou a área para a perícia. Inicialmente, o caso foi tratado como \"morte a esclarecer\".\\n\\nNo entanto, após os primeiros levantamentos da Polícia Civil e a oitiva de parentes próximos, a principal linha de investigação passou a ser suicídio. Ao lado do corpo foi encontrada uma carta de despedida. Fontes da delegacia afirmam que a vítima passava por um quadro grave de depressão.\\n\\nO corpo foi removido para o Instituto Médico Legal (IML) no centro do Rio. A família pediu privacidade neste momento de dor. O caso foi registrado na 12ª DP (Copacabana) e, confirmada a hipótese principal, o inquérito deverá ser arquivado."
+      },
+      "expected": {
+        "is_violent_death": false,
+        "is_single_incident": true
+      },
+      "metadata": {
+        "source_id": null,
+        "notes": "A manchete é ambígua (\"encontrado morto\"), mas o corpo do artigo revela que a principal linha de investigação, com fortes evidências, é suicídio."
+      }
+    },
+    {
+      "id": "cg-hard-009",
+      "tags": [
+        "buried_incident",
+        "aggregate_statistics"
+      ],
+      "label_status": "labeled",
+      "input": {
+        "headline": "Ceará tem queda na violência, mas interior ainda sofre com execuções",
+        "content": "O Ceará registrou uma queda de 12% no número de Crimes Violentos Letais Intencionais (CVLI) em 2023, segundo dados da Secretaria da Segurança Pública e Defesa Social (SSPDS). Apesar da melhora no índice geral, a violência em cidades do interior ainda preocupa. Um exemplo trágico manchou os números positivos desta semana.\\n\\nNa última terça-feira, um duplo homicídio chocou a pequena cidade de Quixadá, no sertão central. Dois jovens, de 19 e 22 anos, foram executados a tiros em uma praça pública durante a noite. Testemunhas relatam que os assassinos chegaram em uma moto e dispararam diversas vezes contra as vítimas, que não tiveram chance de defesa.\\n\\nA Polícia Civil local investiga o caso e suspeita que o crime tenha relação com disputas entre facções criminosas que atuam na região. A prefeitura da cidade emitiu nota de pesar e pediu reforço no policiamento."
+      },
+      "expected": {
+        "is_violent_death": true,
+        "is_single_incident": true
+      },
+      "metadata": {
+        "source_id": null,
+        "notes": "A manchete sugere uma matéria puramente estatística, mas o corpo do texto ancora a discussão em um único e específico incidente de duplo homicídio."
+      }
+    },
+    {
+      "id": "cg-hard-010",
+      "tags": [
+        "hard_true"
+      ],
+      "label_status": "labeled",
+      "input": {
+        "headline": "Homem baleado em Santo André não resiste e morre no hospital",
+        "content": "Um homem de 45 anos não resistiu aos ferimentos após ser baleado durante uma tentativa de assalto em Santo André, no ABC Paulista, na noite de quinta-feira. A vítima, identificada como M.A.S., estava chegando em casa quando foi abordada por dois indivíduos.\\n\\nSegundo a Polícia Militar, ele teria se assustado e feito um movimento brusco, o que levou um dos criminosos a atirar. O disparo atingiu o abdômen da vítima. Os ladrões fugiram levando o carro e a carteira do homem. Ele foi socorrido por vizinhos e levado à UPA Central, mas veio a óbito durante o atendimento de emergência.\\n\\nO veículo foi encontrado abandonado horas depois no bairro vizinho. O caso está sendo investigado pelo 6° DP de Santo André como latrocínio. A polícia analisa câmeras da rua para tentar identificar os autores do crime."
+      },
+      "expected": {
+        "is_violent_death": true,
+        "is_single_incident": true
+      },
+      "metadata": {
+        "source_id": null,
+        "notes": "A linguagem é indireta (\"não resistiu\", \"veio a óbito\"), o que pode confundir um classificador, mas descreve um latrocínio claro."
+      }
+    },
+    {
+      "id": "cg-hard-011",
+      "tags": [
+        "buried_incident"
+      ],
+      "label_status": "labeled",
+      "input": {
+        "headline": "Análise: Estratégia de confronto no Rio aumenta apreensões e letalidade",
+        "content": "O aumento no número de operações policiais na região metropolitana do Rio de Janeiro tem gerado debates sobre a letalidade. Embora as apreensões de armas e drogas tenham aumentado, o número de mortes em confrontos também cresceu. Um caso recente na Maré ilustra a complexidade do cenário.\\n\\nNa última segunda-feira, uma incursão do Batalhão de Operações Policiais Especiais (BOPE) em uma comunidade local resultou em um intenso tiroteio. Ao final da operação, um morador, atingido por uma bala perdida dentro de casa, foi declarado morto. Ele foi identificado como João da Silva, de 38 anos, pedreiro.\\n\\nO comando da PM lamentou o ocorrido e afirmou que abrirá um inquérito para apurar as circunstâncias da morte. Moradores protestaram, alegando que não havia confronto no momento em que a vítima foi atingida. O caso expõe o drama de quem vive em áreas de conflito."
+      },
+      "expected": {
+        "is_violent_death": true,
+        "is_single_incident": true
+      },
+      "metadata": {
+        "source_id": null,
+        "notes": "A manchete indica uma matéria de análise ou opinião, mas o corpo se aprofunda em um único incidente fatal específico para embasar o argumento."
+      }
+    },
+    {
+      "id": "cg-hard-012",
+      "tags": [
+        "hard_true"
+      ],
+      "label_status": "labeled",
+      "input": {
+        "headline": "Operação da PM em Cordovil termina com um suspeito morto",
+        "content": "Uma ocorrência envolvendo policiais militares do 16º BPM (Olaria) e criminosos na comunidade da Cidade Alta, em Cordovil, terminou com um suspeito morto na manhã de hoje. Segundo a assessoria da PM, as equipes realizavam patrulhamento na região quando foram atacadas a tiros por um grupo de homens armados.\\n\\nHouve confronto e, após o tiroteio, um homem foi encontrado caído com uma pistola ao lado. Os policiais o socorreram e o levaram para o Hospital Estadual Getúlio Vargas, na Penha, mas ele não resistiu. Com ele, além da arma, foram apreendidos um rádio transmissor e uma carga de drogas.\\n\\nA Delegacia de Homicídios da Capital foi acionada e realizou a perícia no local. A Corregedoria da Polícia Militar também acompanha o caso, como é de praxe em ações com resultado de morte. Nenhum policial ficou ferido na ação."
+      },
+      "expected": {
+        "is_violent_death": true,
+        "is_single_incident": true
+      },
+      "metadata": {
+        "source_id": null,
+        "notes": "O uso de jargão policial como \"ocorrência\" e a descrição de uma morte em confronto podem ser um desafio, mas é um incidente único e violento."
+      }
+    },
+    {
+      "id": "cg-hard-013",
+      "tags": [
+        "survivor"
+      ],
+      "label_status": "labeled",
+      "input": {
+        "headline": "Mulher é esfaqueada por ex-companheiro na frente do filho em Uberlândia",
+        "content": "Uma mulher de 29 anos foi vítima de uma brutal tentativa de feminicídio em Uberlândia, no Triângulo Mineiro. Ela foi atacada com múltiplos golpes de faca pelo ex-companheiro, que não aceitava o fim do relacionamento. O crime ocorreu na frente do filho do casal, uma criança de 5 anos.\\n\\nApesar da gravidade dos ferimentos no pescoço e no abdômen, a mulher foi socorrida a tempo por vizinhos que ouviram os gritos. Ela foi levada em estado grave para o Hospital de Clínicas da UFU, onde passou por uma cirurgia de emergência.\\n\\nO último boletim médico informa que a paciente está internada na UTI, sedada, mas seu quadro é considerado estável, com boas chances de recuperação. O agressor fugiu após o crime, mas foi preso em flagrante pela Polícia Militar horas depois, na casa de um parente."
+      },
+      "expected": {
+        "is_violent_death": false,
+        "is_single_incident": true
+      },
+      "metadata": {
+        "source_id": null,
+        "notes": "A manchete descreve um ato violento que frequentemente resulta em morte (esfaqueamento), mas o corpo confirma que a vítima sobreviveu."
+      }
+    },
+    {
+      "id": "cg-hard-014",
+      "tags": [
+        "roundup"
+      ],
+      "label_status": "labeled",
+      "input": {
+        "headline": "Guerra de facções, ônibus queimado e corpo encontrado marcam dia de terror em Salvador",
+        "content": "A manhã foi de tensão na cidade de Salvador, na Bahia, após uma série de eventos violentos em diferentes pontos da capital. No bairro de Pernambués, uma troca de tiros entre facções rivais deixou os moradores assustados. Não há registro de feridos, mas o comércio local fechou as portas.\\n\\nNa Avenida Paralela, um ônibus foi incendiado. A polícia suspeita que o ato tenha sido uma retaliação a uma operação policial ocorrida mais cedo no bairro da Paz, onde um homem suspeito de tráfico morreu em confronto com a PM. Separadamente, no subúrbio, o corpo de um homem foi encontrado amarrado, vítima de um aparente \"tribunal do crime\".\\n\\nAs autoridades afirmam que estão investigando a conexão entre os eventos, mas, por enquanto, eles são tratados como ocorrências distintas que contribuíram para um clima de guerra na cidade."
+      },
+      "expected": {
+        "is_violent_death": true,
+        "is_single_incident": false
+      },
+      "metadata": {
+        "source_id": null,
+        "notes": "Apesar de relatar mortes violentas, o artigo é um resumo de múltiplos incidentes (morte em confronto, corpo encontrado) que não são parte de um único evento."
+      }
+    },
+    {
+      "id": "cg-hard-015",
+      "tags": [
+        "legal_process"
+      ],
+      "label_status": "labeled",
+      "input": {
+        "headline": "Mandante de assassinato de líder rural no Pará é preso pela PF no Mato Grosso",
+        "content": "A justiça determinou a prisão preventiva do fazendeiro suspeito de ser o mandante da morte de um líder sem-terra em Eldorado do Carajás, no Pará. O crime, ocorrido em 2022, foi motivado por disputas de terra na região. O acusado era considerado foragido desde o ano passado.\\n\\nA prisão foi efetuada pela Polícia Federal em uma cidade no estado do Mato Grosso, onde ele vivia com nome falso. Segundo o delegado responsável pelo caso, a investigação conseguiu reunir provas robustas que ligam o fazendeiro ao assassinato, incluindo o depoimento dos executores, já presos.\\n\\nO acusado foi transferido para um presídio de segurança máxima no Pará, onde aguardará o julgamento. Movimentos sociais celebraram a prisão como um passo importante no combate à impunidade de crimes no campo. O artigo não reporta nenhuma nova morte."
+      },
+      "expected": {
+        "is_violent_death": false,
+        "is_single_incident": false
+      },
+      "metadata": {
+        "source_id": null,
+        "notes": "A manchete refere-se a um assassinato, mas o corpo da notícia trata exclusivamente da prisão de um suspeito de um crime antigo."
+      }
+    },
+    {
+      "id": "cg-hard-016",
+      "tags": [
+        "foreign"
+      ],
+      "label_status": "labeled",
+      "input": {
+        "headline": "Ataque no Jardim da Paz deixa mais de 15 mortos em meio a negociações",
+        "content": "A situação na Faixa de Gaza continua a se deteriorar, com novos bombardeios israelenses atingindo a cidade de Rafah. Equipes de resgate palestinas relataram ter encontrado dezenas de corpos nos escombros de edifícios residenciais. O ataque ocorre em um momento delicado das negociações por um cessar-fogo.\\n\\nUm dos ataques atingiu um prédio próximo ao Hospital do Kuwait, matando pelo menos 15 pessoas, incluindo mulheres e crianças. O Ministério da Saúde local, controlado pelo Hamas, afirma que o número de mortos em toda a Faixa de Gaza desde o início do conflito ultrapassa 35 mil pessoas.\\n\\nA comunidade internacional pressiona por uma solução diplomática, mas a violência persiste. O nome \"Jardim da Paz\", de um dos bairros atingidos, gerou momentânea confusão com localidades homônimas no Brasil, mas o contexto do artigo deixa clara a localização no Oriente Médio."
+      },
+      "expected": {
+        "is_violent_death": false,
+        "is_single_incident": true
+      },
+      "metadata": {
+        "source_id": null,
+        "notes": "O nome de um bairro (\"Jardim da Paz\") é comum no Brasil, mas o corpo da notícia esclarece que o evento ocorreu na Faixa de Gaza."
+      }
+    },
+    {
+      "id": "cg-hard-017",
+      "tags": [
+        "suicide"
+      ],
+      "label_status": "labeled",
+      "input": {
+        "headline": "Homem morre após cair de prédio na Zona Norte de SP",
+        "content": "Uma fatalidade chocou os moradores do bairro do Limão, na Zona Norte de São Paulo. Um homem de 48 anos morreu ao cair do 10º andar do prédio onde morava. O corpo foi encontrado na área comum do condomínio por um vizinho, que acionou o porteiro e a polícia.\\n\\nEquipes do Corpo de Bombeiros e do SAMU chegaram rapidamente ao local, mas apenas puderam constatar o óbito. A Polícia Civil iniciou a investigação e, segundo o delegado responsável, a principal hipótese é suicídio. Testemunhas e familiares que foram ouvidos relataram que a vítima enfrentava problemas financeiros e depressão.\\n\\nA polícia descartou, a princípio, a possibilidade de homicídio ou acidente, já que a porta do apartamento estava trancada por dentro e não havia sinais de luta no local. O caso segue em investigação no 40° DP (Vila Santa Maria)."
+      },
+      "expected": {
+        "is_violent_death": false,
+        "is_single_incident": true
+      },
+      "metadata": {
+        "source_id": null,
+        "notes": "A manchete descreve uma morte que poderia ser um acidente ou homicídio, mas o corpo informa que a investigação policial aponta para suicídio como hipótese principal."
+      }
+    },
+    {
+      "id": "cg-hard-018",
+      "tags": [
+        "buried_incident",
+        "aggregate_statistics"
+      ],
+      "label_status": "labeled",
+      "input": {
+        "headline": "Violência na Bahia cresce 7% em um ano, aponta levantamento oficial",
+        "content": "A Secretaria de Segurança Pública da Bahia apresentou dados alarmantes sobre a violência no estado. De acordo com o balanço, o número de mortes violentas cresceu 7% no último ano, com a capital, Salvador, liderando as estatísticas. A \"guerra do tráfico\" é apontada como a principal causa.\\n\\nO relatório destaca que, apesar do aumento de apreensões de armas, as facções continuam a se fortalecer. O documento, no entanto, não entra no mérito de casos individuais, focando em apresentar os totais de homicídios, latrocínios e lesões corporais seguidas de morte por região administrativa.\\n\\nComo exemplo da situação, podemos citar a morte de um jovem de 18 anos na noite de ontem no bairro de Valéria. Ele foi alvejado com múltiplos disparos enquanto estava em uma praça. A polícia acredita que o crime foi uma execução ligada ao tráfico, já que a vítima tinha antecedentes. O caso está com o DHPP."
+      },
+      "expected": {
+        "is_violent_death": true,
+        "is_single_incident": true
+      },
+      "metadata": {
+        "source_id": null,
+        "notes": "A manchete e o início do texto indicam se tratar de estatísticas agregadas, mas o parágrafo final descreve em detalhes um incidente específico e recente."
+      }
+    },
+    {
+      "id": "cg-hard-019",
+      "tags": [
+        "buried_incident"
+      ],
+      "label_status": "labeled",
+      "input": {
+        "headline": "Protesto por segurança fecha avenida no Grajaú após noite de terror",
+        "content": "Moradores do Grajaú, na Zona Sul de São Paulo, realizaram um protesto na noite desta segunda-feira, fechando uma das principais avenidas do bairro. O ato foi uma reação à morte de um comerciante local, assassinado a tiros na noite anterior, em um crime que chocou a comunidade pela sua brutalidade.\\n\\nJoão Carlos Batista, 52 anos, dono de uma padaria, foi executado com mais de 20 tiros por homens encapuzados que invadiram seu estabelecimento no domingo. A polícia investiga a hipótese de o crime ter sido encomendado, já que nada foi levado e a ação foi muito rápida, característica de uma execução.\\n\\nCom cartazes pedindo \"Justiça por João\" e \"Mais segurança para o Grajaú\", os manifestantes cobraram uma resposta das autoridades. O protesto foi pacífico e acompanhado pela Polícia Militar. O caso da morte do comerciante segue sob investigação do DHPP."
+      },
+      "expected": {
+        "is_violent_death": true,
+        "is_single_incident": true
+      },
+      "metadata": {
+        "source_id": null,
+        "notes": "O foco da manchete é um protesto, que não é um incidente de morte, mas o corpo da matéria detalha o homicídio específico que motivou a manifestação."
+      }
+    },
+    {
+      "id": "cg-hard-020",
+      "tags": [
+        "hard_true"
+      ],
+      "label_status": "labeled",
+      "input": {
+        "headline": "Corpo em decomposição é encontrado na Represa Billings",
+        "content": "Um corpo em avançado estado de decomposição foi encontrado boiando às margens da Represa Billings, na altura do bairro de Pedreira, na Zona Sul de São Paulo. A Guarda Civil Metropolitana (GCM) foi acionada por uma pessoa que passava pelo local e avistou o corpo na água.\\n\\nDevido ao estado em que se encontrava, a identificação da vítima não foi possível no local. O Corpo de Bombeiros foi chamado para fazer a remoção e o caso foi encaminhado ao IML.\\n\\nSegundo os peritos do Instituto de Criminalística, que analisaram o corpo, foram encontradas duas perfurações na região do crânio compatíveis com disparos de arma de fogo. A Polícia Civil registrou o caso como homicídio e trabalha agora para identificar a vítima e encontrar os autores do crime."
+      },
+      "expected": {
+        "is_violent_death": true,
+        "is_single_incident": true
+      },
+      "metadata": {
+        "source_id": null,
+        "notes": "A manchete descreve o encontro de um corpo, que pode ter morrido por várias causas, mas o corpo do texto revela evidências claras de homicídio (marcas de tiro)."
+      }
+    }
+  ]
+}

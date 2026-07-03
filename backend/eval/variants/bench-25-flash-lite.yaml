@@ -1,0 +1,4 @@
+# Cheap-model bench: google/gemini-2.5-flash-lite on every stage, production prompts.
+model: google/gemini-2.5-flash-lite
+selection_model: google/gemini-2.5-flash-lite
+extraction_model: google/gemini-2.5-flash-lite

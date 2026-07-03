@@ -36,9 +36,12 @@ services:
     environment:
       - REDIS_URL=redis://redis:6379
       - DATABASE_URL=sqlite+aiosqlite:///./instance/violence.db
-      - GEMINI_API_KEY=${STAGING_GEMINI_API_KEY:-${GEMINI_API_KEY:-}}
-      - EXTRACTION_MODEL=${STAGING_EXTRACTION_MODEL:-${EXTRACTION_MODEL:-gemini-2.5-flash}}
-      - SELECTION_MODEL=${STAGING_SELECTION_MODEL:-${SELECTION_MODEL:-gemini-2.5-flash-lite}}
+      - OPENROUTER_API_KEY=${STAGING_OPENROUTER_API_KEY:-${OPENROUTER_API_KEY:-}}
+      - EXTRACTION_MODEL=${STAGING_EXTRACTION_MODEL:-${EXTRACTION_MODEL:-deepseek/deepseek-v4-flash}}
+      - SELECTION_MODEL=${STAGING_SELECTION_MODEL:-${SELECTION_MODEL:-openai/gpt-oss-120b}}
+      - CONTENT_GATE_MODEL=${STAGING_CONTENT_GATE_MODEL:-${CONTENT_GATE_MODEL:-google/gemini-2.5-flash-lite}}
+      - DEDUP_MODEL=${STAGING_DEDUP_MODEL:-${DEDUP_MODEL:-google/gemini-3.1-flash-lite}}
+      - ENRICHMENT_MODEL=${STAGING_ENRICHMENT_MODEL:-${ENRICHMENT_MODEL:-deepseek/deepseek-v4-flash}}
       - DEBUG=true
       - ENVIRONMENT=staging
       - ENABLE_AUTH=true
@@ -61,9 +64,12 @@ services:
     environment:
       - REDIS_URL=redis://redis:6379
       - DATABASE_URL=sqlite+aiosqlite:///./instance/violence.db
-      - GEMINI_API_KEY=${STAGING_GEMINI_API_KEY:-${GEMINI_API_KEY:-}}
-      - EXTRACTION_MODEL=${STAGING_EXTRACTION_MODEL:-${EXTRACTION_MODEL:-gemini-2.5-flash}}
-      - SELECTION_MODEL=${STAGING_SELECTION_MODEL:-${SELECTION_MODEL:-gemini-2.5-flash-lite}}
+      - OPENROUTER_API_KEY=${STAGING_OPENROUTER_API_KEY:-${OPENROUTER_API_KEY:-}}
+      - EXTRACTION_MODEL=${STAGING_EXTRACTION_MODEL:-${EXTRACTION_MODEL:-deepseek/deepseek-v4-flash}}
+      - SELECTION_MODEL=${STAGING_SELECTION_MODEL:-${SELECTION_MODEL:-openai/gpt-oss-120b}}
+      - CONTENT_GATE_MODEL=${STAGING_CONTENT_GATE_MODEL:-${CONTENT_GATE_MODEL:-google/gemini-2.5-flash-lite}}
+      - DEDUP_MODEL=${STAGING_DEDUP_MODEL:-${DEDUP_MODEL:-google/gemini-3.1-flash-lite}}
+      - ENRICHMENT_MODEL=${STAGING_ENRICHMENT_MODEL:-${ENRICHMENT_MODEL:-deepseek/deepseek-v4-flash}}
       - ENABLE_CRON=${STAGING_ENABLE_CRON:-false}
       - ENVIRONMENT=staging
       - ENABLE_AUTH=true

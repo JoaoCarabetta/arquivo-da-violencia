@@ -181,5 +181,12 @@ backend/tests/fixtures/eval/classification.json
 backend/tests/fixtures/eval/extraction.json
 backend/tests/fixtures/eval/extraction_seed.json
 
+# Stage eval fixtures built from prod DB (article content / prod data)
+backend/tests/fixtures/eval/content_gate.json
+backend/tests/fixtures/eval/content_gate_seed.json
+backend/tests/fixtures/eval/dedup_match_seed.json
+backend/tests/fixtures/eval/dedup_cluster_seed.json
+backend/tests/fixtures/eval/enrichment_seed.json
+
 # Eval run outputs (may include LLM reasoning)
 backend/eval/results/

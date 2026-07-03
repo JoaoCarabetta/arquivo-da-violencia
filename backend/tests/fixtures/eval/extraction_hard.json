@@ -608,7 +608,7 @@
         },
         "homicide_dynamic": {
           "homicide_type": "Homicídio Qualificado",
-          "method": "Objeto contundente"
+          "method": "Não especificado"
         }
       },
       "scoring": {
@@ -623,7 +623,7 @@
       },
       "metadata": {
         "source_id": null,
-        "notes": "Combinação de desafios: data ausente e localização parcial. O texto não dá nenhuma indicação de quando o crime ocorreu ('morte não foi recente' é vago). Menciona apenas o bairro e a cidade."
+        "notes": "Combinação de desafios: data ausente e localização parcial. O texto não dá nenhuma indicação de quando o crime ocorreu ('morte não foi recente' é vago). Menciona apenas o bairro e a cidade. | label fixed: método indeterminado pela perícia segundo o texto"
       }
     },
     {
@@ -911,7 +911,7 @@
         },
         "location_info": {
           "city": "Campina Grande",
-          "state": null,
+          "state": "PB",
           "neighborhood": null
         },
         "victims": {
@@ -934,7 +934,7 @@
       },
       "metadata": {
         "source_id": null,
-        "notes": "Testa o parsing do formato de data DD/MM/YYYY. O método é preliminar ('sinais de espancamento') e aguarda confirmação, devendo ser extraído como 'Não especificado'."
+        "notes": "Testa o parsing do formato de data DD/MM/YYYY. O método é preliminar ('sinais de espancamento') e aguarda confirmação, devendo ser extraído como 'Não especificado'. | label fixed: state=PB (Campina Grande é cidade notória da PB)"
       }
     },
     {
@@ -1014,7 +1014,7 @@
         },
         "location_info": {
           "city": "Campo Grande",
-          "state": null,
+          "state": "MS",
           "neighborhood": null
         },
         "victims": {
@@ -1037,7 +1037,7 @@
       },
       "metadata": {
         "source_id": null,
-        "notes": "Caso extremo de artigo curto e ausência de informações. Testa a robustez do modelo para extrair o mínimo (local) e preencher o resto como nulo ou não especificado sem inventar dados. Contenção contra alucinação."
+        "notes": "Caso extremo de artigo curto e ausência de informações. Testa a robustez do modelo para extrair o mínimo (local) e preencher o resto como nulo ou não especificado sem inventar dados. Contenção contra alucinação. | label fixed: publisher (Campo Grande News) desambigua para MS"
       }
     }
   ]

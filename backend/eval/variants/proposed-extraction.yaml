@@ -1,0 +1,3 @@
+# Proposed extraction prompt: adds state-inference, homicide_type discipline,
+# and crime-date vs discovery-date rules. Model unchanged (baseline).
+system_prompt_file: proposed_extraction_prompt.txt

@@ -72,21 +72,64 @@ QUANDO PODE INFERIR A DATA (has_explicit_date = TRUE):
 3. Dia da semana COM número: "sexta-feira (12)" quando você pode verificar pelo contexto
 
 QUANDO NÃO PODE INFERIR (has_explicit_date = FALSE):
-1. Termos vagos sem referência: "recentemente", "há alguns dias"
+1. Termos vagos sem referência: "recentemente", "há alguns dias", "no início da semana"
 2. Não há data de publicação fornecida E texto usa termos relativos
 3. Ambiguidade que não pode ser resolvida
+4. O texto NÃO menciona quando o crime ocorreu: a data de publicação sozinha NÃO é a
+   data do evento — ela serve apenas para resolver expressões relativas do texto.
+   Se o artigo não diz QUANDO o crime aconteceu, date = null MESMO que pareça recente.
+5. Apenas mês/ano sem dia ("em setembro de 2024") → date = null
+
+ATENÇÃO - DATA DO CRIME vs DATA DA DESCOBERTA:
+O campo date refere-se à data em que o CRIME ocorreu. Use date = null (has_explicit_date
+= FALSE) SOMENTE quando o texto indica que a morte ocorreu MUITO ANTES da descoberta:
+corpo em decomposição, ossada, "a morte não foi recente". Nesses casos a data do crime
+é desconhecida mesmo que a data da descoberta seja conhecida.
+Fora desses casos, a data em que a vítima foi morta/encontrada informada no texto É a
+data do evento — use-a normalmente, inclusive quando o corpo foi encontrado horas ou
+até um dia após o crime (ex.: "encontrada morta na noite do dia 18" → 18).
 
 O campo date_verification funciona como um VERIFICADOR:
 1. has_explicit_date = TRUE se você consegue determinar a data completa (dia/mês/ano)
 2. date_source = "explicit" se está no texto, "inferred_from_publication" se calculada
 3. verification_reasoning deve explicar como você chegou à data
 
-Se has_explicit_date = FALSE, o campo date DEVE ser null.
+Se has_explicit_date = FALSE, o campo date DEVE ser null (nunca ano ou data parcial).
 
 IMPORTANTE: 
 - Use a data de publicação para resolver datas relativas
 - Documente no verification_reasoning como você resolveu a data
 - É MELHOR deixar date como null do que inventar uma data incorreta
+
+SOBRE LOCALIZAÇÃO (location_info.state):
+- Preencha o estado (UF) quando estiver explícito no texto OU quando a cidade for
+  inequívoca: capitais e cidades notórias (Recife → PE, Manaus → AM, Belém → PA,
+  Campina Grande → PB, Londrina → PR), ou quando o contexto identifica a região
+  ("Grande Vitória" → ES, "capital de Rondônia" → Porto Velho/RO, "Baixada Fluminense" → RJ).
+- location_info.city: se o texto identifica a cidade indiretamente ("capital de
+  Rondônia", "Grande Vitória"), preencha com o nome da cidade correspondente.
+- Se o nome da cidade é ambíguo entre estados e o texto não desambigua
+  (ex.: apenas "Campo Grande", que existe em MS e como bairro no RJ), deixe state = null.
+
+SOBRE homicide_type - SEJA CONSERVADOR:
+- "Homicídio": morte violenta intencional SEM qualificadora explícita no texto. É o padrão.
+- "Homicídio Qualificado": SOMENTE quando o texto evidencia qualificadora: vítima amarrada
+  ou rendida (impossibilidade de defesa), tortura ou meio cruel (múltiplos golpes com
+  requintes de crueldade), emboscada/perseguição planejada, motivo torpe, crime na frente
+  de familiares, ocultação de cadáver, ou quando a polícia/imprensa classifica como
+  "homicídio qualificado". Mera hipótese de "execução" SEM outros indícios NÃO conta.
+- "Latrocínio": morte durante roubo/assalto (ainda que a notícia use "assassinado").
+- "Feminicídio": mulher morta por razão de gênero / violência doméstica.
+- Mortes em confronto/troca de tiros com a polícia ou intervenção policial são
+  "Homicídio" (a morte é violenta e intencional, ainda que legal).
+- "Outro": use APENAS quando o texto não estabelece nem sugere morte violenta
+  intencional (ex.: "corpo achado em terreno, causa não divulgada", sem qualquer
+  indício de crime). Se o texto trata a morte como crime sob investigação
+  (envenenamento suspeito, tiros, golpes), classifique pelo indício, não como "Outro".
+- Briga/discussão espontânea NÃO é qualificadora; legítima defesa reconhecida ou
+  absolvição não muda o tipo: registre "Homicídio" simples se não há qualificadora.
+- Não eleve a classificação por suposição: na dúvida entre "Homicídio" e
+  "Homicídio Qualificado", use "Homicídio".
 
 SOBRE TÍTULOS:
 - Se não há data completa verificada, use "DATA NÃO INFORMADA" no título
@@ -95,16 +138,19 @@ SOBRE TÍTULOS:
 
 
 def get_instructor_client():
-    """Get instructor client with Gemini provider."""
+    """Get instructor client via OpenRouter."""
     settings = get_settings()
-    api_key = settings.gemini_api_key
+    api_key = settings.openrouter_api_key
     
     if not api_key:
-        raise ValueError("GEMINI_API_KEY not configured")
+        raise ValueError("OPENROUTER_API_KEY not configured")
     
+    # JSON mode: OpenRouter tool-calling with Gemini intermittently hangs the
+    # response stream and breaks on parallel function calls.
     return instructor.from_provider(
-        f"google/{settings.extraction_model}",
+        f"openrouter/{settings.extraction_model}",
         api_key=api_key,
+        mode=instructor.Mode.JSON,
     )
 
 
@@ -128,17 +174,18 @@ def extract_event_from_content(
         ViolentDeathEvent with extracted data
     """
     settings = get_settings()
-    api_key = settings.gemini_api_key
+    api_key = settings.openrouter_api_key
 
     if not api_key:
-        raise ValueError("GEMINI_API_KEY not configured")
+        raise ValueError("OPENROUTER_API_KEY not configured")
 
     model = model_id or settings.extraction_model
     prompt = system_prompt or EXTRACTION_SYSTEM_PROMPT
 
     client = instructor.from_provider(
-        f"google/{model}",
+        f"openrouter/{model}",
         api_key=api_key,
+        mode=instructor.Mode.JSON,
     )
 
     # Build user message with metadata context
@@ -151,7 +198,8 @@ def extract_event_from_content(
             {"role": "user", "content": user_message},
         ],
         max_retries=3,
-        generation_config={"max_output_tokens": settings.extraction_max_output_tokens},
+        max_tokens=settings.extraction_max_output_tokens,
+        timeout=180,
     )
 
     return event

@@ -1,4 +1,4 @@
-"""Run classification eval against a labeled fixture."""
+"""Run content-gate eval against a labeled fixture."""
 
 from __future__ import annotations
 
@@ -8,42 +8,47 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
-from eval.schemas import CaseResult, RunMeta, RunReport, utc_now_iso
-from eval.stages.classification.score import score_case_results
-from eval.stages.classification.validate import labeled_cases, validate_fixture
-from eval.variants import ClassificationVariant, load_classification_variant
+from eval.schemas_content_gate import (
+    ContentGateCaseResult,
+    ContentGateFixture,
+    ContentGateRunMeta,
+    ContentGateRunReport,
+    utc_now_iso,
+)
+from eval.stages.content_gate.score import score_case_results
+from eval.stages.content_gate.validate import labeled_cases, validate_fixture
+from eval.variants import StageVariant, load_stage_variant
+
+MODEL_KEYS = ("content_gate_model", "selection_model")
 
 
-def _resolve_model(variant: ClassificationVariant) -> str:
+def _resolve_model(variant: StageVariant) -> str:
     from app.config import get_settings
 
-    if variant.selection_model:
-        return variant.selection_model
-    return get_settings().selection_model
+    return variant.model or get_settings().content_gate_model
 
 
-def _run_one_case(
-    case,
-    variant: ClassificationVariant,
-) -> CaseResult:
-    from app.config import get_settings
-    from app.services.classification import classify_headline
+def _run_one_case(case, variant: StageVariant) -> ContentGateCaseResult:
+    from app.services.classification import classify_article_content, passes_content_gate
 
     start = time.perf_counter()
     try:
-        result = classify_headline(
+        result = classify_article_content(
             case.input.headline,
+            case.input.content,
             system_prompt=variant.system_prompt,
-            model=variant.selection_model,
+            model=variant.model,
         )
         latency_ms = int((time.perf_counter() - start) * 1000)
-        expected = case.expected.is_violent_death
-        actual = result.is_violent_death
-        return CaseResult(
+        expected_gate = case.expected.passes_gate
+        actual_gate = passes_content_gate(result)
+        return ContentGateCaseResult(
             id=case.id,
-            passed=expected == actual,
-            expected=expected,
-            actual=actual,
+            passed=expected_gate == actual_gate,
+            expected_gate=expected_gate,
+            actual_gate=actual_gate,
+            actual_is_violent_death=result.is_violent_death,
+            actual_is_single_incident=result.is_single_incident,
             confidence=result.confidence,
             reasoning=result.reasoning,
             headline=case.input.headline,
@@ -52,12 +57,10 @@ def _run_one_case(
         )
     except Exception as e:
         latency_ms = int((time.perf_counter() - start) * 1000)
-        expected = case.expected.is_violent_death if case.expected else None
-        return CaseResult(
+        return ContentGateCaseResult(
             id=case.id,
             passed=False,
-            expected=expected,
-            actual=None,
+            expected_gate=case.expected.passes_gate if case.expected else None,
             headline=case.input.headline,
             tags=case.tags,
             latency_ms=latency_ms,
@@ -65,17 +68,17 @@ def _run_one_case(
         )
 
 
-async def run_classification_eval(
-    fixture,
+async def run_content_gate_eval(
+    fixture: ContentGateFixture,
     *,
     variant_name: str = "baseline",
-    concurrency: int = 5,
+    concurrency: int = 4,
     limit: int | None = None,
     case_ids: set[str] | None = None,
     fail_fast: bool = False,
     dry_run: bool = False,
     fixture_path: str = "",
-) -> RunReport:
+) -> ContentGateRunReport:
     validation = validate_fixture(fixture)
     if not validation.valid:
         raise ValueError("Fixture validation failed; fix issues before running eval")
@@ -86,14 +89,14 @@ async def run_classification_eval(
     if limit is not None:
         cases = cases[:limit]
 
-    variant = load_classification_variant(variant_name)
+    variant = load_stage_variant(variant_name, model_keys=MODEL_KEYS)
     model = _resolve_model(variant)
 
     if dry_run:
         summary = score_case_results([])
         summary.total = len(cases)
-        return RunReport(
-            meta=RunMeta(
+        return ContentGateRunReport(
+            meta=ContentGateRunMeta(
                 variant=variant_name,
                 model=model,
                 fixture=fixture_path,
@@ -127,8 +130,8 @@ async def run_classification_eval(
         results = list(await asyncio.gather(*tasks))
 
     summary = score_case_results(results)
-    return RunReport(
-        meta=RunMeta(
+    return ContentGateRunReport(
+        meta=ContentGateRunMeta(
             variant=variant_name,
             model=model,
             fixture=fixture_path,
@@ -139,19 +142,19 @@ async def run_classification_eval(
     )
 
 
-def write_report(report: RunReport, output_path: Path) -> None:
+def write_report(report: ContentGateRunReport, output_path: Path) -> None:
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(json.dumps(report.model_dump(mode="json"), ensure_ascii=False, indent=2))
 
 
 def default_output_path(variant: str) -> Path:
     ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    return Path(__file__).resolve().parents[2] / "results" / f"classification-{variant}-{ts}.json"
+    return Path(__file__).resolve().parents[2] / "results" / f"content-gate-{variant}-{ts}.json"
 
 
-def print_report(report: RunReport) -> None:
+def print_report(report: ContentGateRunReport) -> None:
     s = report.summary
-    print(f"\n=== RUN: classification ({report.meta.variant}) ===")
+    print(f"\n=== RUN: content_gate ({report.meta.variant}) ===")
     print(f"  model: {report.meta.model}")
     print(f"  fixture: {report.meta.fixture}")
     if report.meta.dry_run:
@@ -169,23 +172,23 @@ def print_report(report: RunReport) -> None:
             print(f"    {tag}: {stats['passed']}/{stats['total']} ({_pct(stats['accuracy'])})")
 
     false_positives = [
-        r for r in report.cases if r.error is None and r.expected is False and r.actual is True
+        r for r in report.cases if r.error is None and r.expected_gate is False and r.actual_gate is True
     ]
     false_negatives = [
-        r for r in report.cases if r.error is None and r.expected is True and r.actual is False
+        r for r in report.cases if r.error is None and r.expected_gate is True and r.actual_gate is False
     ]
 
     if false_positives:
         print(f"\n  false positives ({len(false_positives)}):")
         for r in false_positives[:10]:
-            print(f"    - {r.id}: \"{r.headline[:70] if r.headline else ''}\"")
+            print(f"    - {r.id}: \"{(r.headline or '')[:70]}\"")
             if r.reasoning:
                 print(f"      {r.reasoning[:120]}")
 
     if false_negatives:
         print(f"\n  false negatives ({len(false_negatives)}):")
         for r in false_negatives[:10]:
-            print(f"    - {r.id}: \"{r.headline[:70] if r.headline else ''}\"")
+            print(f"    - {r.id}: \"{(r.headline or '')[:70]}\"")
             if r.reasoning:
                 print(f"      {r.reasoning[:120]}")
 
@@ -193,7 +196,7 @@ def print_report(report: RunReport) -> None:
         print(f"\n  case errors ({s.errors}):")
         for r in report.cases:
             if r.error:
-                print(f"    - {r.id}: {r.error}")
+                print(f"    - {r.id}: {r.error[:160]}")
 
 
 def _pct(value: float | None) -> str:

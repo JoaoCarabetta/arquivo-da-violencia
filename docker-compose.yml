@@ -9,7 +9,7 @@
 #   docker compose exec api alembic upgrade head  # Run migrations
 #
 # Environment variables (create .env file):
-#   GEMINI_API_KEY=your-api-key
+#   OPENROUTER_API_KEY=your-api-key
 #   ENABLE_CRON=true  # Enable hourly ingestion
 #   TELEGRAM_BOT_TOKEN=your-bot-token  # For notifications
 #   TELEGRAM_CHAT_ID=your-chat-id
@@ -53,9 +53,12 @@ services:
     environment:
       - REDIS_URL=redis://redis:6379
       - DATABASE_URL=sqlite+aiosqlite:///./instance/violence.db
-      - GEMINI_API_KEY=${GEMINI_API_KEY:-}
-      - EXTRACTION_MODEL=${EXTRACTION_MODEL:-gemini-2.5-flash}
-      - SELECTION_MODEL=${SELECTION_MODEL:-gemini-2.5-flash-lite}
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY:-}
+      - EXTRACTION_MODEL=${EXTRACTION_MODEL:-deepseek/deepseek-v4-flash}
+      - SELECTION_MODEL=${SELECTION_MODEL:-openai/gpt-oss-120b}
+      - CONTENT_GATE_MODEL=${CONTENT_GATE_MODEL:-google/gemini-2.5-flash-lite}
+      - DEDUP_MODEL=${DEDUP_MODEL:-google/gemini-3.1-flash-lite}
+      - ENRICHMENT_MODEL=${ENRICHMENT_MODEL:-deepseek/deepseek-v4-flash}
       - GOOGLE_MAPS_API_KEY=${GOOGLE_MAPS_API_KEY:-}
       - DEBUG=${DEBUG:-false}
       - ENVIRONMENT=production
@@ -91,9 +94,12 @@ services:
     environment:
       - REDIS_URL=redis://redis:6379
       - DATABASE_URL=sqlite+aiosqlite:///./instance/violence.db
-      - GEMINI_API_KEY=${GEMINI_API_KEY:-}
-      - EXTRACTION_MODEL=${EXTRACTION_MODEL:-gemini-2.5-flash}
-      - SELECTION_MODEL=${SELECTION_MODEL:-gemini-2.5-flash-lite}
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY:-}
+      - EXTRACTION_MODEL=${EXTRACTION_MODEL:-deepseek/deepseek-v4-flash}
+      - SELECTION_MODEL=${SELECTION_MODEL:-openai/gpt-oss-120b}
+      - CONTENT_GATE_MODEL=${CONTENT_GATE_MODEL:-google/gemini-2.5-flash-lite}
+      - DEDUP_MODEL=${DEDUP_MODEL:-google/gemini-3.1-flash-lite}
+      - ENRICHMENT_MODEL=${ENRICHMENT_MODEL:-deepseek/deepseek-v4-flash}
       - GOOGLE_MAPS_API_KEY=${GOOGLE_MAPS_API_KEY:-}
       - ENABLE_CRON=${ENABLE_CRON:-false}
       - ENVIRONMENT=production

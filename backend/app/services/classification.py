@@ -142,18 +142,39 @@ CLASSIFIQUE COMO MORTE VIOLENTA (is_violent_death = true):
 - Morte violenta no Brasil descrita no corpo: homicídio, tiroteio, operação policial com morte
 - Corpo/restos encontrados com indícios de violência
 - Feminicídio, latrocínio, chacina, execução
+- CASO ENTERRADO em matéria estatística: se uma matéria de balanço/estatísticas descreve
+  em detalhe UM caso concreto cujo ÓBITO É RECENTE (ocorreu há horas/dias, ex.: "na noite
+  de ontem"), classifique is_violent_death = true e is_single_incident = true — o caso
+  concreto e recente prevalece sobre o enquadramento estatístico da matéria.
+
+REGRA DE PRECEDÊNCIA: o que importa é haver um ÓBITO NOVO/RECENTE noticiado. Matéria cuja
+pauta é julgamento/condenação de crime antigo = false (o óbito não é novo), mesmo com
+detalhes do caso. Matéria estatística que cita uma morte ocorrida ontem = true.
 
 NÃO CLASSIFIQUE COMO MORTE VIOLENTA (is_violent_death = false):
-- Eventos FORA DO BRASIL (desastres, guerras, crimes internacionais)
-- Vítima sobrevive ou matéria é sobre julgamento/pena sem novo óbito
+- Eventos FORA DO BRASIL (desastres, guerras, crimes internacionais) — atenção a cidades
+  homônimas: o corpo pode revelar que "Belém" é no Texas, etc.
+- VÍTIMA SOBREVIVEU: se o corpo informa que a vítima foi socorrida, está internada,
+  estável ou sobreviveu, NÃO há morte violenta — mesmo em "tentativa de feminicídio"
+  ou ataque brutal. Sem óbito, is_violent_death = false.
+- Matéria sobre PROCESSO JUDICIAL: julgamento, júri, condenação, absolvição, prisão ou
+  investigação de crime que já ocorreu no passado. A pauta é o processo, não um novo
+  óbito — mesmo que o corpo descreva os homicídios julgados, is_violent_death = false.
+- Obras culturais: séries, filmes, documentários, livros ou peças que retratam crimes
+  (mesmo crimes reais/históricos) — é pauta cultural, não um novo incidente
+- Acidentes (trânsito, afogamento, queda) sem homicídio doloso
 - Apreensões, políticas, análises sem caso específico
 
 INCIDENTE ÚNICO (is_single_incident = true):
 - Um homicídio ou tiroteio específico no Brasil, em local identificável
 - Um evento claramente delimitado ("tiroteio deixa dois mortos na Zona Norte")
+- ATENÇÃO: mesmo em matéria com tom estatístico, se o corpo DESCREVE um incidente
+  específico (vítima, local e circunstâncias identificáveis), classifique
+  is_single_incident = true — o caso concreto prevalece sobre o enquadramento da matéria.
 
 NÃO É INCIDENTE ÚNICO (is_single_incident = false) — descarte:
-- Estatísticas agregadas: balanço anual, CVLI, totais estaduais/nacionais, "X mortes em 2025"
+- Estatísticas agregadas SEM caso concreto descrito: balanço anual, CVLI, totais
+  estaduais/nacionais, "X mortes em 2025"
 - Notícias estrangeiras mesmo que a manchete pareça local
 - Suicídios, crueldade contra animais, acidentes sem homicídio doloso
 - Resumos com múltiplos incidentes não relacionados
@@ -170,13 +191,16 @@ def get_classification_client(*, model: str | None = None):
     """Get instructor client for classification using the selection model."""
     settings = get_settings()
 
-    if not settings.gemini_api_key:
-        raise ValueError("GEMINI_API_KEY not configured")
+    if not settings.openrouter_api_key:
+        raise ValueError("OPENROUTER_API_KEY not configured")
 
     model_name = model or settings.selection_model
+    # JSON mode: OpenRouter tool-calling with Gemini intermittently hangs the
+    # response stream and breaks on parallel function calls.
     return instructor.from_provider(
-        f"google/{model_name}",
-        api_key=settings.gemini_api_key,
+        f"openrouter/{model_name}",
+        api_key=settings.openrouter_api_key,
+        mode=instructor.Mode.JSON,
     )
 
 
@@ -215,6 +239,7 @@ def classify_headline(
             {"role": "user", "content": f"Classifique esta manchete:\n\n{headline}"},
         ],
         max_retries=2,  # Instructor's internal retry
+        timeout=60,
     )
 
     return result
@@ -234,7 +259,7 @@ def classify_article_content(
     model: str | None = None,
 ) -> ViolentDeathClassification:
     """Classify downloaded article body before extraction."""
-    client = get_classification_client(model=model)
+    client = get_classification_client(model=model or get_settings().content_gate_model)
     prompt = system_prompt or CONTENT_CLASSIFICATION_SYSTEM_PROMPT
     truncated = content[:CONTENT_CLASSIFICATION_MAX_CHARS]
 
@@ -251,6 +276,7 @@ def classify_article_content(
             },
         ],
         max_retries=2,
+        timeout=90,
     )
 
     return result
