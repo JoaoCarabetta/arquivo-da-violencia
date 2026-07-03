@@ -123,8 +123,6 @@ def fuzzy_title_match(
         return False
     if t1 == t2:
         return True
-    if t1 in t2 or t2 in t1:
-        return True
     return SequenceMatcher(None, t1, t2).ratio() >= threshold
 
 
@@ -596,6 +594,7 @@ Responda APENAS com JSON válido:
                 {"role": "user", "content": prompt}
             ],
             max_retries=2,
+            timeout=90,
         )
         
         if result.match and result.unique_event_id and result.confidence >= LLM_MATCH_CONFIDENCE_THRESHOLD:
@@ -825,6 +824,7 @@ Responda com JSON válido:
                 {"role": "user", "content": prompt}
             ],
             max_retries=2,
+            timeout=90,
         )
         
         # Convert 1-indexed cluster numbers to RawEvent objects
@@ -920,6 +920,17 @@ def select_best_raw_event(cluster: list[RawEvent]) -> RawEvent:
     return max(cluster, key=score)
 
 
+def _content_class_from_raw_event(raw_event: RawEvent) -> str:
+    """Resolve content_class from denormalized column or extraction JSON."""
+    if raw_event.content_class and raw_event.content_class != "incident":
+        return raw_event.content_class
+    if raw_event.extraction_data:
+        extracted = raw_event.extraction_data.get("content_class")
+        if extracted:
+            return str(extracted)
+    return raw_event.content_class or "incident"
+
+
 async def create_unique_event_from_cluster(cluster: list[RawEvent]) -> UniqueEvent:
     """
     Create UniqueEvent from a cluster of RawEvents.
@@ -934,6 +945,8 @@ async def create_unique_event_from_cluster(cluster: list[RawEvent]) -> UniqueEve
     victims_summary = None
     if victim_names:
         victims_summary = ", ".join(victim_names)
+
+    content_class = _content_class_from_raw_event(best)
     
     async with async_session_maker() as session:
         # Create UniqueEvent
@@ -945,7 +958,7 @@ async def create_unique_event_from_cluster(cluster: list[RawEvent]) -> UniqueEve
                     victim_count, identified_victim_count, victims_summary,
                     perpetrator_count, security_force_involved,
                     title, chronological_description, additional_context,
-                    merged_data, source_count, confirmed, needs_enrichment,
+                    merged_data, source_count, content_class, confirmed, needs_enrichment,
                     created_at, updated_at
                 ) VALUES (
                     :homicide_type, :method_of_death, :event_date, :date_precision, :time_of_day,
@@ -953,7 +966,7 @@ async def create_unique_event_from_cluster(cluster: list[RawEvent]) -> UniqueEve
                     :victim_count, :identified_victim_count, :victims_summary,
                     :perpetrator_count, :security_force_involved,
                     :title, :chronological_description, :additional_context,
-                    :merged_data, :source_count, 0, 1,
+                    :merged_data, :source_count, :content_class, 0, 1,
                     CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
                 )
             """),
@@ -980,6 +993,7 @@ async def create_unique_event_from_cluster(cluster: list[RawEvent]) -> UniqueEve
                 "additional_context": best.extraction_data.get("additional_context") if best.extraction_data else None,
                 "merged_data": json.dumps(best.extraction_data) if best.extraction_data else None,
                 "source_count": len(cluster),
+                "content_class": content_class,
             }
         )
         
@@ -1432,6 +1446,7 @@ Retorne APENAS JSON válido:
                 {"role": "user", "content": prompt}
             ],
             max_retries=2,
+            timeout=90,
         )
         
         # Update UniqueEvent with enriched data

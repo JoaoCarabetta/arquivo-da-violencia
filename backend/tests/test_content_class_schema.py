@@ -69,3 +69,38 @@ def test_violent_death_event_accepts_content_class():
 def test_violent_death_event_defaults_content_class_to_incident():
     event = _minimal_event()
     assert event.content_class == "incident"
+
+
+def test_raw_event_persists_content_class_from_extraction_model():
+    event = _minimal_event(content_class="aggregate_statistics")
+    raw = RawEvent(
+        title=event.homicide_dynamic.title,
+        source_google_news_id=1,
+        content_class=str(event.content_class),
+        extraction_data=event.model_dump(),
+    )
+    assert raw.content_class == "aggregate_statistics"
+
+
+def test_content_class_from_raw_event_prefers_column():
+    from app.services.enrichment import _content_class_from_raw_event
+
+    raw = RawEvent(
+        title="Test",
+        source_google_news_id=1,
+        content_class="foreign",
+        extraction_data={"content_class": "incident"},
+    )
+    assert _content_class_from_raw_event(raw) == "foreign"
+
+
+def test_content_class_from_raw_event_falls_back_to_extraction_json():
+    from app.services.enrichment import _content_class_from_raw_event
+
+    raw = RawEvent(
+        title="Test",
+        source_google_news_id=1,
+        content_class="incident",
+        extraction_data={"content_class": "aggregate_statistics"},
+    )
+    assert _content_class_from_raw_event(raw) == "aggregate_statistics"

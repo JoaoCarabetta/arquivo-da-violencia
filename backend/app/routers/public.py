@@ -165,6 +165,7 @@ def _build_export_query(
     if periods:
         query = query.where(UniqueEvent.time_of_day.in_(_expand_period_filters(periods)))
 
+    query = apply_public_incident_filter(query)
     return query.order_by(UniqueEvent.event_date.desc().nullslast())
 
 
@@ -721,8 +722,8 @@ async def get_public_events(
     """Get paginated public events."""
     
     # Base query
-    query = select(UniqueEvent)
-    count_query = select(func.count(UniqueEvent.id))
+    query = apply_public_incident_filter(select(UniqueEvent))
+    count_query = apply_public_incident_filter(select(func.count(UniqueEvent.id)))
     
     # Apply filters
     if state:
@@ -850,8 +851,13 @@ async def get_public_event_by_id(
 ):
     """Get a single public event by ID with all related sources."""
     
-    # Fetch the unique event
-    event = await session.get(UniqueEvent, event_id)
+    # Fetch the unique event (exclude rows filtered from public views)
+    result = await session.execute(
+        apply_public_incident_filter(
+            select(UniqueEvent).where(UniqueEvent.id == event_id)
+        )
+    )
+    event = result.scalar_one_or_none()
     if not event:
         from fastapi import HTTPException
         raise HTTPException(status_code=404, detail="Event not found")

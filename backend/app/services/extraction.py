@@ -364,6 +364,7 @@ async def extract_source(source_id: int) -> RawEvent | None:
             method_of_death=event.homicide_dynamic.method,
             title=event.homicide_dynamic.title,
             chronological_description=event.homicide_dynamic.chronological_description,
+            content_class=str(event.content_class),
             # Full structured data as JSON
             extraction_data=event_data,
             extraction_model=get_settings().extraction_model,
