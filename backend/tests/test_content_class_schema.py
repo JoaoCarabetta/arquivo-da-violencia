@@ -4,7 +4,42 @@ from datetime import datetime
 
 from app.models.raw_event import RawEvent
 from app.models.unique_event import UniqueEvent
-from app.services.extraction_schemas import ViolentDeathEvent
+from app.services.extraction_schemas import (
+    ContentClass,
+    DateTime,
+    DateVerification,
+    HomicideDynamic,
+    IdentifiableVictim,
+    Location,
+    Victims,
+    ViolentDeathEvent,
+)
+
+
+def _minimal_event(content_class: ContentClass = "incident") -> ViolentDeathEvent:
+    return ViolentDeathEvent(
+        content_class=content_class,
+        location_info=Location(city="Rio de Janeiro", state="RJ"),
+        date_time=DateTime(
+            date_verification=DateVerification(
+                has_explicit_date=False,
+                date_source="none",
+                year_explicitly_mentioned=False,
+                verification_reasoning="No date in text",
+            ),
+            date=None,
+        ),
+        victims=Victims(
+            identifiable_victims=[IdentifiableVictim(name="João")],
+            number_of_identifiable_victims=1,
+            number_of_victims=1,
+        ),
+        homicide_dynamic=HomicideDynamic(
+            title="HOMICÍDIO - RIO DE JANEIRO - DATA NÃO INFORMADA",
+            homicide_type="Homicídio",
+            chronological_description="Vítima foi morta a tiros.",
+        ),
+    )
 
 
 def test_unique_event_defaults_content_class_to_incident():
@@ -27,24 +62,10 @@ def test_raw_event_defaults_content_class_to_incident():
 
 
 def test_violent_death_event_accepts_content_class():
-    event = ViolentDeathEvent.model_validate(
-        {
-            "content_class": "foreign",
-            "location_info": {
-                "city": "Caracas",
-                "state": None,
-                "country": "Venezuela",
-            },
-            "date_time": {
-                "date": "2025-01-01",
-                "date_precision": "exata",
-                "date_source": "texto",
-            },
-            "victims": {"count": 1, "identified_count": 0, "list": []},
-            "homicide_dynamic": {
-                "title": "HOMICÍDIO - CARACAS - 01/01/2025",
-                "homicide_type": "Homicídio",
-            },
-        }
-    )
+    event = _minimal_event(content_class="foreign")
     assert event.content_class == "foreign"
+
+
+def test_violent_death_event_defaults_content_class_to_incident():
+    event = _minimal_event()
+    assert event.content_class == "incident"
