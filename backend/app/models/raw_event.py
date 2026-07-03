@@ -34,6 +34,14 @@ MethodOfDeath = Literal[
     "Não especificado"
 ]
 
+ContentClass = Literal[
+    "incident",
+    "aggregate_statistics",
+    "non_incident",
+    "accident_disaster",
+    "foreign",
+]
+
 
 class RawEventBase(SQLModel):
     """Base model for raw extracted events."""
@@ -43,6 +51,7 @@ class RawEventBase(SQLModel):
     # Event classification
     homicide_type: str | None = Field(default=None, max_length=50, index=True)
     method_of_death: str | None = Field(default=None, max_length=50)
+    content_class: str = Field(default="incident", max_length=30)
     
     # Date/time (extracted, may be null if not explicitly in text)
     event_date: datetime | None = Field(default=None, index=True)

@@ -33,6 +33,14 @@ MethodOfDeath = Literal[
     "Não especificado",
 ]
 
+ContentClass = Literal[
+    "incident",
+    "aggregate_statistics",
+    "non_incident",
+    "accident_disaster",
+    "foreign",
+]
+
 
 # ---- Classes for Structured Extraction ----
 
@@ -455,6 +463,14 @@ class HomicideDynamic(BaseModel):
 
 class ViolentDeathEvent(BaseModel):
     """Informações estruturadas completas sobre morte violenta extraída de notícia."""
+
+    content_class: ContentClass = Field(
+        default="incident",
+        description=(
+            "Classificação do conteúdo: incident (evento único), aggregate_statistics "
+            "(totais/estudos), non_incident (suicídio, opinião), accident_disaster, foreign."
+        ),
+    )
 
     location_info: Location = Field(
         ..., description="Informações estruturadas do local onde ocorreu a morte violenta"
