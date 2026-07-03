@@ -109,47 +109,51 @@ def get_instructor_client():
 
 
 def extract_event_from_content(
-    content: str, 
+    content: str,
     metadata: dict | None = None,
-    model_id: str | None = None
+    model_id: str | None = None,
+    *,
+    system_prompt: str | None = None,
 ) -> ViolentDeathEvent:
     """
     Extract structured event data from news content using LLM.
-    
+
     Args:
         content: News article text
         metadata: Optional source metadata (headline, published_at, publisher, url)
         model_id: Optional model ID override
-    
+        system_prompt: Optional override for the extraction system prompt
+
     Returns:
         ViolentDeathEvent with extracted data
     """
     settings = get_settings()
     api_key = settings.gemini_api_key
-    
+
     if not api_key:
         raise ValueError("GEMINI_API_KEY not configured")
-    
+
     model = model_id or settings.extraction_model
-    
+    prompt = system_prompt or EXTRACTION_SYSTEM_PROMPT
+
     client = instructor.from_provider(
         f"google/{model}",
         api_key=api_key,
     )
-    
+
     # Build user message with metadata context
     user_message = _build_extraction_prompt(content, metadata)
-    
+
     event = client.create(
         response_model=ViolentDeathEvent,
         messages=[
-            {"role": "system", "content": EXTRACTION_SYSTEM_PROMPT},
+            {"role": "system", "content": prompt},
             {"role": "user", "content": user_message},
         ],
         max_retries=3,
         generation_config={"max_output_tokens": settings.extraction_max_output_tokens},
     )
-    
+
     return event
 
 
@@ -360,6 +364,7 @@ async def extract_source(source_id: int) -> RawEvent | None:
             method_of_death=event.homicide_dynamic.method,
             title=event.homicide_dynamic.title,
             chronological_description=event.homicide_dynamic.chronological_description,
+            content_class=str(event.content_class),
             # Full structured data as JSON
             extraction_data=event_data,
             extraction_model=get_settings().extraction_model,

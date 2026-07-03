@@ -2,9 +2,19 @@
 
 from datetime import datetime
 from decimal import Decimal
+from typing import Literal
 
 from sqlmodel import Field, SQLModel, Column
 from sqlalchemy import JSON
+
+
+ContentClass = Literal[
+    "incident",
+    "aggregate_statistics",
+    "non_incident",
+    "accident_disaster",
+    "foreign",
+]
 
 
 class UniqueEventBase(SQLModel):
@@ -13,6 +23,7 @@ class UniqueEventBase(SQLModel):
     # === Event classification ===
     homicide_type: str | None = Field(default=None, max_length=50, index=True)
     method_of_death: str | None = Field(default=None, max_length=50)
+    content_class: str = Field(default="incident", max_length=30, index=True)
     
     # === Date/time ===
     event_date: datetime | None = Field(default=None, index=True)

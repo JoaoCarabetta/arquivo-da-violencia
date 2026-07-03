@@ -98,6 +98,52 @@ async def test_map_points_excludes_inflated_rows(client: AsyncClient, async_sess
 
 
 @pytest.mark.asyncio
+async def test_public_events_list_excludes_inflated_rows(client: AsyncClient, async_session):
+    valid = _make_event(title="Valid")
+    inflated = _make_event(title="Inflated", victim_count=50)
+    async_session.add(valid)
+    async_session.add(inflated)
+    await async_session.commit()
+
+    response = await client.get("/api/public/events")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["total"] == 1
+    assert data["items"][0]["title"] == "Valid"
+
+
+@pytest.mark.asyncio
+async def test_public_event_detail_returns_404_for_filtered_row(client: AsyncClient, async_session):
+    inflated = _make_event(title="Inflated", victim_count=50)
+    async_session.add(inflated)
+    await async_session.commit()
+    await async_session.refresh(inflated)
+
+    response = await client.get(f"/api/public/events/{inflated.id}")
+    assert response.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_export_excludes_inflated_rows(client: AsyncClient, async_session):
+    from unittest.mock import AsyncMock, patch
+
+    async_session.add(_make_event(title="Valid"))
+    async_session.add(_make_event(title="Inflated", victim_count=50))
+    await async_session.commit()
+
+    with patch(
+        "app.services.geocode_protection.enforce_export_rate_limit",
+        AsyncMock(return_value=None),
+    ):
+        response = await client.get("/api/public/events/export", params={"days": 3650})
+
+    assert response.status_code == 200
+    lines = [line for line in response.text.splitlines() if line.strip()]
+    assert len(lines) == 2  # header + 1 data row
+    assert "Inflated" not in response.text
+
+
+@pytest.mark.asyncio
 async def test_unique_events_stats_summary_excludes_inflated(async_session, app):
     from app.database import get_session
 

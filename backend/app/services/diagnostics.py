@@ -20,6 +20,7 @@ from app.database import async_session_maker
 
 # === Stages ===
 STAGE_DOWNLOAD = "download"
+STAGE_CONTENT_GATE = "content_gate"
 STAGE_EXTRACTION = "extraction"
 
 # === Outcomes ===
@@ -34,6 +35,12 @@ FETCH_SERVER_ERROR = "fetch_server_error"  # 5xx
 FETCH_NETWORK_ERROR = "fetch_network_error"  # DNS, connection reset, SSL, etc.
 EMPTY_CONTENT = "empty_content"  # HTTP 200 but no extractable article text
 NO_URL = "no_url"  # source has no usable URL
+
+# === Content gate failure / discard reasons ===
+AGGREGATE_CONTENT = "aggregate_content"
+FOREIGN_CONTENT = "foreign_content"
+NON_INCIDENT_CONTENT = "non_incident_content"
+LLM_CONTENT_REJECT = "llm_content_reject"
 
 # === Extraction failure reasons ===
 LLM_RATE_LIMIT = "llm_rate_limit"  # 429 / RESOURCE_EXHAUSTED (short-term)

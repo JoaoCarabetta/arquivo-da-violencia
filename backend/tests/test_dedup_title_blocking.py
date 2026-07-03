@@ -35,6 +35,13 @@ def test_fuzzy_title_match_rejects_unrelated():
     assert not fuzzy_title_match(a, b, threshold=FUZZY_TITLE_THRESHOLD)
 
 
+def test_fuzzy_title_match_rejects_short_substring_only():
+    """Unrelated headlines where one title is a short substring of another."""
+    a = "CVLI"
+    b = "CVLI: estado registra mortes violentas em 2025"
+    assert not fuzzy_title_match(a, b, threshold=FUZZY_TITLE_THRESHOLD)
+
+
 def test_tuned_constants():
     assert TITLE_DATE_TOLERANCE_DAYS == 3
     assert FUZZY_TITLE_THRESHOLD == 0.85
