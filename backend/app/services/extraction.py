@@ -16,6 +16,15 @@ from app.services import diagnostics
 from app.services.extraction_schemas import ViolentDeathEvent
 
 
+def content_class_failure_reason(content_class: str) -> str:
+    """Map extraction content_class to diagnostics failure reason."""
+    if content_class == "aggregate_statistics":
+        return diagnostics.AGGREGATE_CONTENT
+    if content_class == "foreign":
+        return diagnostics.FOREIGN_CONTENT
+    return diagnostics.NON_INCIDENT_CONTENT
+
+
 def derive_security_force_involved(event: ViolentDeathEvent) -> bool | None:
     """Return True if any party is flagged as security force, False if explicitly not, else None."""
     flags: list[bool | None] = []
@@ -119,9 +128,16 @@ SOBRE homicide_type - SEJA CONSERVADOR:
   de familiares, ocultação de cadáver, ou quando a polícia/imprensa classifica como
   "homicídio qualificado". Mera hipótese de "execução" SEM outros indícios NÃO conta.
 - "Latrocínio": morte durante roubo/assalto (ainda que a notícia use "assassinado").
-- "Feminicídio": mulher morta por razão de gênero / violência doméstica.
-- Mortes em confronto/troca de tiros com a polícia ou intervenção policial são
-  "Homicídio" (a morte é violenta e intencional, ainda que legal).
+- "Feminicídio": mulher morta por razão de gênero ou violência doméstica. Use quando o
+  texto menciona ex-marido, marido, companheiro, namorado, violência doméstica, Lei
+  Maria da Penha, agressão por parceiro íntimo, ou feminicídio explicitamente — mesmo
+  que a polícia ainda não tenha tipificado legalmente.
+- "Intervenção policial": morte durante operação policial, confronto ou troca de tiros
+  com PM/PC/Bope/PRF, ou quando a vítima é "neutralizada" pela polícia. Prefira este
+  tipo em vez de "Homicídio" genérico quando a morte ocorre no contexto de ação policial.
+- "Morte no trânsito": homicídio doloso com veículo como meio principal (atropelamento
+  intencional, emboscada com carro, perseguição fatal). NÃO use para acidentes de
+  trânsito sem dolo (esses são content_class = accident_disaster, não incident).
 - "Outro": use APENAS quando o texto não estabelece nem sugere morte violenta
   intencional (ex.: "corpo achado em terreno, causa não divulgada", sem qualquer
   indício de crime). Se o texto trata a morte como crime sob investigação
@@ -130,6 +146,27 @@ SOBRE homicide_type - SEJA CONSERVADOR:
   absolvição não muda o tipo: registre "Homicídio" simples se não há qualificadora.
 - Não eleve a classificação por suposição: na dúvida entre "Homicídio" e
   "Homicídio Qualificado", use "Homicídio".
+
+SOBRE content_class — OBRIGATÓRIO EM TODA EXTRAÇÃO:
+Defina content_class em todo JSON de saída. Valores permitidos:
+- "incident": um evento único de morte violenta no Brasil descrito na notícia (padrão
+  quando a matéria trata de um caso concreto).
+- "aggregate_statistics": balanço anual, CVLI, totais estaduais/nacionais, "X mortes em
+  2025", painéis e estudos sem caso concreto como foco principal.
+- "non_incident": suicídio, crueldade contra animais, coluna de opinião, matéria
+  jurídica sobre processo antigo sem óbito novo, ou conteúdo fora do escopo de homicídio.
+- "accident_disaster": acidente de trânsito culposo, queda, afogamento, desastre natural
+  sem homicídio doloso.
+- "foreign": evento ocorre fora do Brasil ou a matéria trata primariamente de mortes no
+  exterior (EUA, Europa, etc.).
+
+SOBRE number_of_victims — NUNCA USE TOTAIS AGREGADOS:
+- Conte APENAS as vítimas do incidente específico descrito (máximo 20).
+- NUNCA use totais anuais, CVLI, "4.241 mortes em 2025", balanço estadual ou estatísticas
+  de painel como number_of_victims — mesmo que sejam o tema da matéria.
+- Se a matéria é estatística agregada sem incidente único, use content_class =
+  "aggregate_statistics" e number_of_victims = 1 apenas se houver um caso concreto
+  embutido; caso contrário a extração será descartada downstream.
 
 SOBRE TÍTULOS:
 - Se não há data completa verificada, use "DATA NÃO INFORMADA" no título
@@ -378,6 +415,38 @@ async def extract_source(source_id: int) -> RawEvent | None:
             return None
 
         await _mark_failed(reason, str(e), duration_ms)
+        return None
+
+    if event.content_class != "incident":
+        duration_ms = int((time.monotonic() - started) * 1000)
+        failure_reason = content_class_failure_reason(event.content_class)
+        reasoning = f"Extraction content_class={event.content_class}"
+        logger.info(
+            f"Discarding source {source_id}: {reasoning} ({failure_reason})"
+        )
+        async with async_session_maker() as session:
+            await session.execute(
+                text("""
+                    UPDATE source_google_news
+                    SET status = 'discarded',
+                        classification_reasoning = :reasoning,
+                        updated_at = CURRENT_TIMESTAMP
+                    WHERE id = :id
+                """),
+                {"id": source_id, "reasoning": reasoning},
+            )
+            await session.commit()
+        await diagnostics.record_attempt(
+            stage=diagnostics.STAGE_EXTRACTION,
+            outcome=diagnostics.OUTCOME_FAILURE,
+            source_google_news_id=source_id,
+            failure_reason=failure_reason,
+            failure_detail=reasoning,
+            model=model_name,
+            content_length=original_length,
+            duration_ms=duration_ms,
+            attempt_number=attempt_number,
+        )
         return None
 
     security_force_involved = derive_security_force_involved(event)

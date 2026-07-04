@@ -15,6 +15,8 @@ HomicideType = Literal[
     "Latrocínio",
     "Feminicídio",
     "Infanticídio",
+    "Intervenção policial",
+    "Morte no trânsito",
     "Outro",
 ]
 
@@ -412,6 +414,8 @@ class HomicideDynamic(BaseModel):
         - "Latrocínio"
         - "Feminicídio"
         - "Infanticídio"
+        - "Intervenção policial"
+        - "Morte no trânsito"
         - "Outro"
         """,
     )
