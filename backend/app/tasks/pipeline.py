@@ -474,9 +474,10 @@ async def run_full_pipeline(ctx: dict, query: str | None = None, when: str = "3d
 
 @notify_on_failure("ingest_cities")
 async def ingest_cities_task(
-    ctx: dict, 
-    cities: list[str] | None = None, 
-    when: str = "1h"
+    ctx: dict,
+    cities: list[str] | None = None,
+    when: str = "1h",
+    enqueue_classify: bool = True,
 ) -> dict:
     """
     Ingest news for all configured cities with adaptive sharding.
@@ -485,12 +486,15 @@ async def ingest_cities_task(
     Cities that hit the 100-result limit will automatically switch
     to source-based sharding on subsequent runs.
     
-    After ingestion, automatically enqueues classification tasks for all new sources.
+    After ingestion, optionally enqueues classification for new sources.
+    Callers that run classify inline (e.g. ``ingest_cities_full_pipeline``)
+    must pass ``enqueue_classify=False`` to avoid duplicate concurrent jobs.
     
     Args:
         ctx: ARQ context (contains redis connection)
         cities: Optional list of cities. If None, uses CITIES from config.
         when: Time filter (default "1h" for hourly)
+        enqueue_classify: When True, enqueue ``classify_pending_task`` after ingest.
     
     Returns:
         dict with ingestion results
@@ -508,9 +512,8 @@ async def ingest_cities_task(
     total_sources = result['total_sources_created']
     logger.info(f"[INGEST_CITIES] Complete: {total_sources} new sources")
     
-    # Enqueue classification tasks for all new sources
-    if total_sources > 0 and ctx.get("redis"):
-        # Batch classify all pending sources
+    # Enqueue classification tasks for all new sources (standalone runs only).
+    if enqueue_classify and total_sources > 0 and ctx.get("redis"):
         await ctx["redis"].enqueue_job("classify_pending_task", limit=total_sources + 50)
         logger.info(f"[INGEST_CITIES] Enqueued batch classification task")
     
@@ -554,8 +557,10 @@ async def ingest_cities_full_pipeline(
     except Exception as e:
         logger.warning(f"[CITIES_PIPELINE] Maintenance step failed (continuing): {e}")
     
-    # Step 1: Ingest cities
-    ingest_result = await ingest_cities_task(ctx, cities=cities, when=when)
+    # Step 1: Ingest cities (classify runs inline in Step 2 — do not enqueue).
+    ingest_result = await ingest_cities_task(
+        ctx, cities=cities, when=when, enqueue_classify=False
+    )
     
     # Step 2: Classify pending sources
     classify_result = await classify_pending_task(ctx, limit=500)
