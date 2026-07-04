@@ -53,6 +53,8 @@ services:
     environment:
       - REDIS_URL=redis://redis:6379
       - DATABASE_URL=sqlite+aiosqlite:///./instance/violence.db
+      - DB_POOL_SIZE=5
+      - DB_POOL_OVERFLOW=5
       - OPENROUTER_API_KEY=${OPENROUTER_API_KEY:-}
       - EXTRACTION_MODEL=${EXTRACTION_MODEL:-deepseek/deepseek-v4-flash}
       - SELECTION_MODEL=${SELECTION_MODEL:-openai/gpt-oss-120b}
@@ -94,6 +96,8 @@ services:
     environment:
       - REDIS_URL=redis://redis:6379
       - DATABASE_URL=sqlite+aiosqlite:///./instance/violence.db
+      - DB_POOL_SIZE=15
+      - DB_POOL_OVERFLOW=15
       - OPENROUTER_API_KEY=${OPENROUTER_API_KEY:-}
       - EXTRACTION_MODEL=${EXTRACTION_MODEL:-deepseek/deepseek-v4-flash}
       - SELECTION_MODEL=${SELECTION_MODEL:-openai/gpt-oss-120b}

@@ -48,6 +48,8 @@ services:
     environment:
       - REDIS_URL=redis://redis:6379
       - DATABASE_URL=sqlite+aiosqlite:///./instance/violence.db
+      - DB_POOL_SIZE=5
+      - DB_POOL_OVERFLOW=5
       - OPENROUTER_API_KEY=${OPENROUTER_API_KEY:-}
       - DEBUG=true
       - ENVIRONMENT=development
@@ -77,6 +79,8 @@ services:
     environment:
       - REDIS_URL=redis://redis:6379
       - DATABASE_URL=sqlite+aiosqlite:///./instance/violence.db
+      - DB_POOL_SIZE=15
+      - DB_POOL_OVERFLOW=15
       - OPENROUTER_API_KEY=${OPENROUTER_API_KEY:-}
       - ENABLE_CRON=false
       - DEBUG=true

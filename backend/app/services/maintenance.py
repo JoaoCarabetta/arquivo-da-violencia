@@ -78,6 +78,13 @@ def pick_survivor_id(event_ids: list[dict[str, Any]]) -> int:
     return min(event_ids, key=lambda row: (-row["source_count"], row["id"]))["id"]
 
 
+async def checkpoint_wal() -> None:
+    """Best-effort passive WAL checkpoint to limit lock contention on SQLite."""
+    async with async_session_maker() as session:
+        await session.execute(text("PRAGMA wal_checkpoint(PASSIVE)"))
+        await session.commit()
+
+
 async def recover_stuck_sources(older_than_minutes: int = 15) -> dict:
     """
     Requeue sources stranded in transient processing states.
