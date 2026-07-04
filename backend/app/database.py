@@ -64,8 +64,8 @@ def get_engine() -> AsyncEngine:
             # default pool (5 + 10 overflow) is far too small for that and leads
             # to "QueuePool limit ... connection timed out" errors. Size the pool
             # generously; WAL mode + busy_timeout handle write serialization.
-            pool_size=30,
-            max_overflow=70,
+            pool_size=settings.db_pool_size,
+            max_overflow=settings.db_pool_overflow,
             pool_timeout=60,
             pool_recycle=1800,
             connect_args={

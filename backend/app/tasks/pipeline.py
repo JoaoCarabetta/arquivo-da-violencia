@@ -147,11 +147,13 @@ async def classify_task(ctx: dict, source_id: int) -> dict:
 
 
 @notify_on_failure("classify_batch")
-async def classify_pending_task(ctx: dict, limit: int = 50) -> dict:
+async def classify_pending_task(
+    ctx: dict, limit: int = 50, chain_next: bool = True
+) -> dict:
     """
     Batch task: Classify headlines for all pending sources.
     
-    After classification, automatically enqueues batch download for sources
+    After classification, optionally enqueues batch download for sources
     that passed classification (marked as ready_for_download).
     """
     logger.info(f"[CLASSIFY_BATCH] Starting for up to {limit} sources")
@@ -162,8 +164,12 @@ async def classify_pending_task(ctx: dict, limit: int = 50) -> dict:
     
     logger.info(f"[CLASSIFY_BATCH] Complete: {result}")
     
-    # Chain to download if we have sources ready
-    if result.get("violent_death", 0) > 0 and ctx.get("redis"):
+    # Chain to download if we have sources ready (standalone runs only).
+    if (
+        chain_next
+        and result.get("violent_death", 0) > 0
+        and ctx.get("redis")
+    ):
         await ctx["redis"].enqueue_job("download_classified_task", limit=result["violent_death"] + 50)
         logger.info(f"[CLASSIFY_BATCH] Enqueued batch download task")
     
@@ -298,11 +304,13 @@ async def enrich_task(ctx: dict, raw_event_id: int) -> dict:
 
 
 @notify_on_failure("download_batch")
-async def download_classified_task(ctx: dict, limit: int = 50) -> dict:
+async def download_classified_task(
+    ctx: dict, limit: int = 50, chain_next: bool = True
+) -> dict:
     """
     Batch task: Download content for all classified sources (ready for download).
     
-    After download, automatically enqueues batch extraction for sources
+    After download, optionally enqueues batch extraction for sources
     that were successfully downloaded (marked as ready_for_extraction).
     """
     logger.info(f"[DOWNLOAD_BATCH] Starting for up to {limit} sources")
@@ -313,8 +321,12 @@ async def download_classified_task(ctx: dict, limit: int = 50) -> dict:
     
     logger.info(f"[DOWNLOAD_BATCH] Complete: {result}")
     
-    # Chain to extraction if we have successful downloads
-    if result.get("successful", 0) > 0 and ctx.get("redis"):
+    # Chain to extraction if we have successful downloads (standalone runs only).
+    if (
+        chain_next
+        and result.get("successful", 0) > 0
+        and ctx.get("redis")
+    ):
         await ctx["redis"].enqueue_job("extract_ready_task", limit=result["successful"] + 10)
         logger.info(f"[DOWNLOAD_BATCH] Enqueued batch extraction task")
     
@@ -326,11 +338,13 @@ async def download_classified_task(ctx: dict, limit: int = 50) -> dict:
 
 
 @notify_on_failure("extract_batch")
-async def extract_ready_task(ctx: dict, limit: int = 10) -> dict:
+async def extract_ready_task(
+    ctx: dict, limit: int = 10, chain_next: bool = True
+) -> dict:
     """
     Batch task: Extract events from all sources ready for extraction.
     
-    After extraction, enqueues enrichment for each created RawEvent.
+    After extraction, optionally enqueues enrichment for each created RawEvent.
     """
     logger.info(f"[EXTRACT_BATCH] Starting for up to {limit} sources")
     
@@ -340,9 +354,9 @@ async def extract_ready_task(ctx: dict, limit: int = 10) -> dict:
     
     logger.info(f"[EXTRACT_BATCH] Complete: {result}")
     
-    # Enqueue enrichment tasks for each created RawEvent
+    # Enqueue per-raw-event enrichment (standalone runs only; full pipeline uses batch dedup).
     raw_event_ids = result.get("raw_event_ids", [])
-    if raw_event_ids and ctx.get("redis"):
+    if chain_next and raw_event_ids and ctx.get("redis"):
         for raw_event_id in raw_event_ids:
             await ctx["redis"].enqueue_job("enrich_task", raw_event_id)
         logger.info(f"[EXTRACT_BATCH] Enqueued {len(raw_event_ids)} enrichment tasks")
@@ -355,7 +369,9 @@ async def extract_ready_task(ctx: dict, limit: int = 10) -> dict:
 
 
 @notify_on_failure("batch_dedup")
-async def batch_dedup_task(ctx: dict, limit: int = 200) -> dict:
+async def batch_dedup_task(
+    ctx: dict, limit: int = 200, chain_next: bool = True
+) -> dict:
     """
     Periodic: Process pending RawEvents through batch clustering.
     
@@ -375,8 +391,12 @@ async def batch_dedup_task(ctx: dict, limit: int = 200) -> dict:
     
     logger.info(f"[BATCH_DEDUP] Complete: {result}")
     
-    # Enqueue enrichment for newly created UniqueEvents
-    if result.get("unique_events_created", 0) > 0 and ctx.get("redis"):
+    # Enqueue enrichment for newly created UniqueEvents (standalone runs only).
+    if (
+        chain_next
+        and result.get("unique_events_created", 0) > 0
+        and ctx.get("redis")
+    ):
         await ctx["redis"].enqueue_job("batch_enrich_task", limit=result["unique_events_created"] + 10)
         logger.info(f"[BATCH_DEDUP] Enqueued batch enrichment task")
     
@@ -387,7 +407,9 @@ async def batch_dedup_task(ctx: dict, limit: int = 200) -> dict:
 
 
 @notify_on_failure("batch_enrich")
-async def batch_enrich_task(ctx: dict, limit: int = 50) -> dict:
+async def batch_enrich_task(
+    ctx: dict, limit: int = 50, chain_next: bool = True
+) -> dict:
     """
     Periodic: Enrich UniqueEvents that need enrichment.
     
@@ -406,8 +428,8 @@ async def batch_enrich_task(ctx: dict, limit: int = 50) -> dict:
     
     logger.info(f"[BATCH_ENRICH] Complete: {result}")
     
-    # Chain to geocoding so newly enriched events get coordinates.
-    if ctx.get("redis"):
+    # Chain to geocoding (standalone runs only).
+    if chain_next and ctx.get("redis"):
         await ctx["redis"].enqueue_job("batch_geocode_task", limit=limit + 10)
         logger.info("[BATCH_ENRICH] Enqueued batch geocode task")
     
@@ -550,8 +572,13 @@ async def ingest_cities_full_pipeline(
     # Also requeue past failures whose cause was transient (timeouts, 5xx, rate
     # limits) and that still have retry budget left. This is best-effort
     # maintenance: a failure here must not abort the rest of the pipeline.
-    from app.services.maintenance import recover_stuck_sources, requeue_retryable_failures
+    from app.services.maintenance import (
+        checkpoint_wal,
+        recover_stuck_sources,
+        requeue_retryable_failures,
+    )
     try:
+        await checkpoint_wal()
         await recover_stuck_sources(older_than_minutes=15)
         await requeue_retryable_failures()
     except Exception as e:
@@ -562,22 +589,12 @@ async def ingest_cities_full_pipeline(
         ctx, cities=cities, when=when, enqueue_classify=False
     )
     
-    # Step 2: Classify pending sources
-    classify_result = await classify_pending_task(ctx, limit=500)
-    
-    # Step 3: Download classified sources
-    download_result = await download_classified_task(ctx, limit=500)
-    
-    # Step 4: Extract ready sources
-    extract_result = await extract_ready_task(ctx, limit=100)
-    
-    # Step 5: Batch deduplication (creates UniqueEvents from pending RawEvents)
-    dedup_result = await batch_dedup_task(ctx, limit=200)
-    
-    # Step 6: Batch enrichment (enriches UniqueEvents that need it)
-    enrich_result = await batch_enrich_task(ctx, limit=50)
-    
-    # Step 7: Batch geocoding (populates coordinates for new UniqueEvents)
+    # Steps 2-7 run inline — do not enqueue shadow jobs that compete for SQLite locks.
+    classify_result = await classify_pending_task(ctx, limit=500, chain_next=False)
+    download_result = await download_classified_task(ctx, limit=500, chain_next=False)
+    extract_result = await extract_ready_task(ctx, limit=100, chain_next=False)
+    dedup_result = await batch_dedup_task(ctx, limit=200, chain_next=False)
+    enrich_result = await batch_enrich_task(ctx, limit=50, chain_next=False)
     geocode_result = await batch_geocode_task(ctx, limit=200)
     
     duration = time.time() - start_time
@@ -606,6 +623,19 @@ async def ingest_cities_full_pipeline(
     }
 
 
+# ARQ function wrappers with per-job timeouts (manual enqueues inherit these).
+from arq.worker import func
+
+ingest_cities_full_pipeline_job = func(
+    ingest_cities_full_pipeline,
+    timeout=3600,
+    max_tries=1,
+)
+ingest_cities_task_job = func(
+    ingest_cities_task,
+    timeout=1800,
+)
+
 # List of all task functions for the worker
 TASK_FUNCTIONS = [
     ingest_task,
@@ -620,6 +650,6 @@ TASK_FUNCTIONS = [
     batch_enrich_task,
     batch_geocode_task,
     run_full_pipeline,
-    ingest_cities_task,
-    ingest_cities_full_pipeline,
+    ingest_cities_task_job,
+    ingest_cities_full_pipeline_job,
 ]

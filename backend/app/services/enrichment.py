@@ -1284,7 +1284,7 @@ async def process_pending_deduplication(limit: int = 200) -> dict:
     }
 
 
-async def run_pending_enrichments(limit: int = 50, concurrency: int = 5) -> dict:
+async def run_pending_enrichments(limit: int = 50, concurrency: int = 2) -> dict:
     """
     Process all UniqueEvents with needs_enrichment=True.
     
@@ -1468,10 +1468,23 @@ async def enrich_unique_event(unique_event_id: int) -> bool:
         settings = get_settings()
         result = synthesize_unique_event(current_state, sources_info)
         
-        # Update UniqueEvent with enriched data
-        async with async_session_maker() as session:
-            await session.execute(
-                text("""
+        # Update UniqueEvent with enriched data (retry transient SQLite locks).
+        import asyncio
+        from sqlalchemy.exc import OperationalError
+
+        update_params = {
+            "id": unique_event_id,
+            "title": result.title,
+            "city": result.city,
+            "state": result.state,
+            "neighborhood": result.neighborhood,
+            "street": result.street,
+            "victims_summary": result.victims_summary,
+            "victim_count": result.victim_count,
+            "chronological_description": result.chronological_description,
+            "enrichment_model": settings.enrichment_model,
+        }
+        update_sql = text("""
                     UPDATE unique_event 
                     SET title = COALESCE(:title, title),
                         city = COALESCE(:city, city),
@@ -1486,21 +1499,17 @@ async def enrich_unique_event(unique_event_id: int) -> bool:
                         enrichment_model = :enrichment_model,
                         updated_at = CURRENT_TIMESTAMP
                     WHERE id = :id
-                """),
-                {
-                    "id": unique_event_id,
-                    "title": result.title,
-                    "city": result.city,
-                    "state": result.state,
-                    "neighborhood": result.neighborhood,
-                    "street": result.street,
-                    "victims_summary": result.victims_summary,
-                    "victim_count": result.victim_count,
-                    "chronological_description": result.chronological_description,
-                    "enrichment_model": settings.enrichment_model,
-                }
-            )
-            await session.commit()
+                """)
+        for attempt in range(3):
+            try:
+                async with async_session_maker() as session:
+                    await session.execute(update_sql, update_params)
+                    await session.commit()
+                break
+            except OperationalError as exc:
+                if "database is locked" not in str(exc).lower() or attempt == 2:
+                    raise
+                await asyncio.sleep(1 + attempt)
         
         logger.info(f"[Enrich] ✅ Enriched UniqueEvent {unique_event_id}")
         return True
