@@ -76,7 +76,7 @@ def _source(**kwargs):
         "resolved_url": "https://news.example/article",
         "headline": "Homem é morto a tiros em operação policial",
         "content": "Um homem foi morto a tiros durante operação policial.",
-        "status": SourceStatus.extracting,
+        "status": SourceStatus.ready_for_extraction,
     }
     defaults.update(kwargs)
     return SourceGoogleNews(**defaults)
