@@ -405,6 +405,25 @@ async def classify_source(source_id: int) -> bool:
     return passes_gate
 
 
+async def _reset_unfinished_classifying(source_ids: list[int]) -> int:
+    """Return claimed sources still in classifying back to the queue."""
+    if not source_ids:
+        return 0
+    from sqlalchemy import text
+
+    id_list = ",".join(str(source_id) for source_id in source_ids)
+    async with async_session_maker() as session:
+        result = await session.execute(
+            text(f"""
+                UPDATE source_google_news
+                SET status = 'ready_for_classification', updated_at = CURRENT_TIMESTAMP
+                WHERE id IN ({id_list}) AND status = 'classifying'
+            """)
+        )
+        await session.commit()
+        return result.rowcount or 0
+
+
 async def classify_pending_sources(limit: int = 50, concurrency: int = 10) -> dict:
     """
     Batch classify all sources that are ready for classification (in parallel).
@@ -479,10 +498,17 @@ async def classify_pending_sources(limit: int = 50, concurrency: int = 10) -> di
     
     # Run classifications in parallel with concurrency limit
     logger.info(f"Starting parallel classification with concurrency={concurrency}")
-    results = await asyncio.gather(
-        *[classify_with_limit(sid) for sid in source_ids],
-        return_exceptions=True
-    )
+    try:
+        results = await asyncio.gather(
+            *[classify_with_limit(sid) for sid in source_ids],
+            return_exceptions=True
+        )
+    finally:
+        reset_count = await _reset_unfinished_classifying(source_ids)
+        if reset_count:
+            logger.warning(
+                f"Reset {reset_count} source(s) still in classifying back to ready_for_classification"
+            )
     
     violent_death_count = 0
     discarded_count = 0

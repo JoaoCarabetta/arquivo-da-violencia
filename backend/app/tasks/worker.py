@@ -86,7 +86,7 @@ def get_cron_jobs():
     
     Set ENABLE_CRON=true to enable scheduled jobs.
     """
-    from app.tasks.pipeline import ingest_cities_full_pipeline
+    from app.tasks.pipeline import ingest_cities_full_pipeline_job
     
     # Only enable cron if explicitly requested
     if not is_cron_enabled():
@@ -96,7 +96,7 @@ def get_cron_jobs():
         # Hourly FULL pipeline - runs at minute 5 of every hour
         # Pipeline: ingest -> classify -> download -> extract -> dedup -> enrich
         cron(
-            ingest_cities_full_pipeline,
+            ingest_cities_full_pipeline_job,
             minute=5,  # Run at :05 every hour
             timeout=3600,  # 60 minutes timeout (full pipeline takes longer)
             unique=True,  # Prevent duplicate runs

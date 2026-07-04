@@ -32,6 +32,8 @@ class Settings(BaseSettings):
 
     # Database
     database_url: str = "sqlite+aiosqlite:///./instance/violence.db"
+    db_pool_size: int = 30
+    db_pool_overflow: int = 70
     
     # Redis (for ARQ task queue)
     redis_url: str = "redis://localhost:6379"
