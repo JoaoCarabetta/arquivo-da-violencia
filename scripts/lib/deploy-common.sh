@@ -57,6 +57,30 @@ prepare_docker_for_pull() {
     docker builder prune -af || true
 }
 
+ensure_bcrypt_env_passwords() {
+    local env_file="$REPO_DIR/.env"
+    if [ ! -f "$env_file" ]; then
+        return 0
+    fi
+    echo "🔐 Ensuring admin passwords in .env are bcrypt-hashed..."
+    docker compose $COMPOSE_FILES run --rm --no-deps \
+        -v "$env_file:/work/.env:rw" \
+        -v "$REPO_DIR/scripts/hash-env-passwords.py:/tmp/hash-env-passwords.py:ro" \
+        api python /tmp/hash-env-passwords.py /work/.env
+    load_env
+}
+
+preflight_api_config() {
+    echo "🔍 Preflight: validating API auth config..."
+    if docker compose $COMPOSE_FILES run --rm --no-deps api \
+        python -c "from app.auth import validate_auth_config; validate_auth_config()"; then
+        echo "   ✅ API config is valid"
+        return 0
+    fi
+    echo "❌ API config validation failed — aborting deploy without stopping running services"
+    return 1
+}
+
 wait_for_api_health() {
     local port="$1"
     local max_attempts="${2:-90}"

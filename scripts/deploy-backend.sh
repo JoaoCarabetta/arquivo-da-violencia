@@ -47,6 +47,11 @@ if ! docker compose $COMPOSE_FILES pull api worker; then
     docker compose $COMPOSE_FILES pull api worker
 fi
 
+ensure_bcrypt_env_passwords
+if ! preflight_api_config; then
+    exit 1
+fi
+
 echo ""
 echo "⏳ Gracefully stopping API and worker (up to 120s)..."
 docker stop --timeout=120 "$WORKER_CONTAINER" "$API_CONTAINER" 2>/dev/null || true

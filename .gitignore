@@ -173,6 +173,7 @@ scripts/*
 !scripts/deploy-backend.sh
 !scripts/deploy-frontend.sh
 !scripts/sync-staging-db.sh
+!scripts/hash-env-passwords.py
 !scripts/lib/
 !scripts/lib/deploy-common.sh
 
