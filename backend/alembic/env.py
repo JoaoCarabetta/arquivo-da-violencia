@@ -15,58 +15,64 @@ from app.models import (  # noqa: F401
 )
 from app.config import get_settings
 
-# this is the Alembic Config object, which provides
-# access to the values within the .ini file in use.
 config = context.config
 
-# Interpret the config file for Python logging.
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-# Use SQLModel's metadata for autogenerate support
 target_metadata = SQLModel.metadata
 
-# Get database URL from settings
-settings = get_settings()
-# Use sync SQLite for migrations (remove async driver)
-db_url = settings.database_url
-if "aiosqlite" in db_url:
-    db_url = db_url.replace("+aiosqlite", "")
-elif db_url.startswith("sqlite:///") and "+aiosqlite" not in db_url:
-    pass  # Already sync
-config.set_main_option("sqlalchemy.url", db_url)
+
+def _migration_database_url() -> str:
+    """Return a sync SQLAlchemy URL suitable for Alembic migrations."""
+    db_url = get_settings().database_url
+    if "+aiosqlite" in db_url:
+        return db_url.replace("+aiosqlite", "")
+    if "+asyncpg" in db_url:
+        return db_url.replace("+asyncpg", "+psycopg")
+    if db_url.startswith("postgresql://"):
+        return db_url.replace("postgresql://", "postgresql+psycopg://", 1)
+    if db_url.startswith("postgres://"):
+        return db_url.replace("postgres://", "postgresql+psycopg://", 1)
+    return db_url
+
+
+config.set_main_option("sqlalchemy.url", _migration_database_url())
+
+
+def _configure_context(connection=None, *, url: str | None = None) -> None:
+    dialect_name = connection.dialect.name if connection is not None else None
+    if dialect_name is None and url:
+        if "sqlite" in url:
+            dialect_name = "sqlite"
+        elif "postgresql" in url:
+            dialect_name = "postgresql"
+
+    kwargs = {
+        "target_metadata": target_metadata,
+        "render_as_batch": dialect_name == "sqlite",
+    }
+    if connection is not None:
+        kwargs["connection"] = connection
+    else:
+        kwargs["url"] = url
+        kwargs["literal_binds"] = True
+        kwargs["dialect_opts"] = {"paramstyle": "named"}
+
+    context.configure(**kwargs)
 
 
 def run_migrations_offline() -> None:
-    """Run migrations in 'offline' mode.
-
-    This configures the context with just a URL
-    and not an Engine, though an Engine is acceptable
-    here as well.  By skipping the Engine creation
-    we don't even need a DBAPI to be available.
-
-    Calls to context.execute() here emit the given string to the
-    script output.
-    """
+    """Run migrations in 'offline' mode."""
     url = config.get_main_option("sqlalchemy.url")
-    context.configure(
-        url=url,
-        target_metadata=target_metadata,
-        literal_binds=True,
-        dialect_opts={"paramstyle": "named"},
-        render_as_batch=True,  # Required for SQLite ALTER TABLE support
-    )
+    _configure_context(url=url)
 
     with context.begin_transaction():
         context.run_migrations()
 
 
 def run_migrations_online() -> None:
-    """Run migrations in 'online' mode.
-
-    In this scenario we need to create an Engine
-    and associate a connection with the context.
-    """
+    """Run migrations in 'online' mode."""
     connectable = engine_from_config(
         config.get_section(config.config_ini_section, {}),
         prefix="sqlalchemy.",
@@ -74,11 +80,7 @@ def run_migrations_online() -> None:
     )
 
     with connectable.connect() as connection:
-        context.configure(
-            connection=connection,
-            target_metadata=target_metadata,
-            render_as_batch=True,  # Required for SQLite ALTER TABLE support
-        )
+        _configure_context(connection=connection)
 
         with context.begin_transaction():
             context.run_migrations()

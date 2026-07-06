@@ -708,7 +708,7 @@ async def link_raw_event_to_unique_event(raw_event_id: int, unique_event_id: int
             text("""
                 UPDATE unique_event 
                 SET source_count = source_count + 1,
-                    needs_enrichment = 1,
+                    needs_enrichment = true,
                     updated_at = CURRENT_TIMESTAMP
                 WHERE id = :unique_event_id
             """),
@@ -1006,9 +1006,10 @@ async def create_unique_event_from_cluster(cluster: list[RawEvent]) -> UniqueEve
                     :victim_count, :identified_victim_count, :victims_summary,
                     :perpetrator_count, :security_force_involved,
                     :title, :chronological_description, :additional_context,
-                    :merged_data, :source_count, :content_class, 0, 1,
+                    :merged_data, :source_count, :content_class, false, true,
                     CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
                 )
+                RETURNING id
             """),
             {
                 "homicide_type": best.homicide_type,
@@ -1037,9 +1038,7 @@ async def create_unique_event_from_cluster(cluster: list[RawEvent]) -> UniqueEve
             }
         )
         
-        # Get the new unique_event_id
-        result = await session.execute(text("SELECT last_insert_rowid()"))
-        unique_event_id = result.scalar()
+        unique_event_id = result.scalar_one()
         
         # Link all RawEvents in cluster
         raw_event_ids = [e.id for e in cluster]
@@ -1296,7 +1295,7 @@ async def run_pending_enrichments(limit: int = 50, concurrency: int = 2) -> dict
         result = await session.execute(
             text("""
                 SELECT id FROM unique_event 
-                WHERE needs_enrichment = 1
+                WHERE needs_enrichment = true
                 LIMIT :limit
             """),
             {"limit": limit}
@@ -1424,7 +1423,7 @@ async def enrich_unique_event(unique_event_id: int) -> bool:
             await session.execute(
                 text("""
                     UPDATE unique_event 
-                    SET needs_enrichment = 0, 
+                    SET needs_enrichment = false, 
                         last_enriched_at = CURRENT_TIMESTAMP,
                         updated_at = CURRENT_TIMESTAMP
                     WHERE id = :id
@@ -1494,7 +1493,7 @@ async def enrich_unique_event(unique_event_id: int) -> bool:
                         victims_summary = COALESCE(:victims_summary, victims_summary),
                         victim_count = COALESCE(:victim_count, victim_count),
                         chronological_description = COALESCE(:chronological_description, chronological_description),
-                        needs_enrichment = 0,
+                        needs_enrichment = false,
                         last_enriched_at = CURRENT_TIMESTAMP,
                         enrichment_model = :enrichment_model,
                         updated_at = CURRENT_TIMESTAMP

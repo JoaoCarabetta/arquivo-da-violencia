@@ -16,6 +16,27 @@
 
 services:
   # ---------------------------------------------------------------------------
+  # PostgreSQL - Development database
+  # ---------------------------------------------------------------------------
+  postgres:
+    image: postgres:16-alpine
+    container_name: arquivo-postgres-dev
+    environment:
+      POSTGRES_USER: arquivo
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-arquivo_dev}
+      POSTGRES_DB: arquivo_dev
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_dev_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U arquivo -d arquivo_dev"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------------------
   # Redis - Task queue and caching
   # ---------------------------------------------------------------------------
   redis:
@@ -43,11 +64,13 @@ services:
       - "8000:8000"
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
     depends_on:
+      postgres:
+        condition: service_healthy
       redis:
         condition: service_healthy
     environment:
       - REDIS_URL=redis://redis:6379
-      - DATABASE_URL=sqlite+aiosqlite:///./instance/violence.db
+      - DATABASE_URL=${DATABASE_URL:-postgresql+asyncpg://arquivo:${POSTGRES_PASSWORD:-arquivo_dev}@postgres:5432/arquivo_dev}
       - DB_POOL_SIZE=5
       - DB_POOL_OVERFLOW=5
       - OPENROUTER_API_KEY=${OPENROUTER_API_KEY:-}
@@ -62,7 +85,6 @@ services:
       - TELEGRAM_CHAT_ID=${TELEGRAM_CHAT_ID:-}
     volumes:
       - ./backend/app:/app/app:ro
-      - ./backend/app/instance:/app/instance
       - ./backend/alembic:/app/alembic:ro
     restart: unless-stopped
 
@@ -74,11 +96,13 @@ services:
     container_name: arquivo-worker-dev
     command: arq app.tasks.worker.WorkerSettings
     depends_on:
+      postgres:
+        condition: service_healthy
       redis:
         condition: service_healthy
     environment:
       - REDIS_URL=redis://redis:6379
-      - DATABASE_URL=sqlite+aiosqlite:///./instance/violence.db
+      - DATABASE_URL=${DATABASE_URL:-postgresql+asyncpg://arquivo:${POSTGRES_PASSWORD:-arquivo_dev}@postgres:5432/arquivo_dev}
       - DB_POOL_SIZE=15
       - DB_POOL_OVERFLOW=15
       - OPENROUTER_API_KEY=${OPENROUTER_API_KEY:-}
@@ -91,7 +115,6 @@ services:
       - TELEGRAM_CHAT_ID=${TELEGRAM_CHAT_ID:-}
     volumes:
       - ./backend/app:/app/app:ro
-      - ./backend/app/instance:/app/instance
     stop_grace_period: 120s
     restart: unless-stopped
 
@@ -121,5 +144,7 @@ services:
     restart: unless-stopped
 
 volumes:
+  postgres_dev_data:
+    name: arquivo-postgres-dev-data
   redis_dev_data:
     name: arquivo-redis-dev-data

@@ -1,6 +1,33 @@
 # Database Recovery Guide
 
-## Current Situation
+## Production (PostgreSQL)
+
+Back up regularly:
+
+```bash
+docker compose -p prod exec -T postgres \
+  pg_dump -U arquivo -Fc arquivo_prod > "/root/backups/arquivo_prod_$(date +%Y%m%d).dump"
+```
+
+Restore to a clean database:
+
+```bash
+docker compose -p prod exec -T postgres \
+  pg_restore -U arquivo --clean --if-exists --no-owner --dbname=arquivo_prod < backup.dump
+docker compose -p prod restart api worker
+```
+
+Check connectivity:
+
+```bash
+docker compose -p prod exec postgres psql -U arquivo -d arquivo_prod -c "SELECT COUNT(*) FROM source_google_news;"
+```
+
+See [postgres-migration-runbook.md](postgres-migration-runbook.md) for cutover and rollback.
+
+---
+
+## Legacy SQLite (archived deployments)
 
 Your SQLite database (`instance/violence.db`) is corrupted and showing the error:
 ```

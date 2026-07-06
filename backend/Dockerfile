@@ -50,7 +50,7 @@ COPY alembic/ ./alembic/
 COPY app/ ./app/
 COPY scripts/ ./scripts/
 
-# Create instance directory for SQLite
+# Create instance directory for SQLite legacy paths / migration tooling
 RUN mkdir -p /app/instance && chmod 777 /app/instance
 
 # Note: Health checks are defined in docker-compose.yml per service

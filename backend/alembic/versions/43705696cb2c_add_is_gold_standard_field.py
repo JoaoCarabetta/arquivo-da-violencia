@@ -21,8 +21,10 @@ depends_on: Union[str, Sequence[str], None] = None
 
 def upgrade() -> None:
     """Upgrade schema."""
+    bind = op.get_bind()
+    gold_default = sa.text("false") if bind.dialect.name == "postgresql" else "0"
     # Add is_gold_standard column with default False
-    op.add_column('raw_event', sa.Column('is_gold_standard', sa.Boolean(), nullable=False, server_default='0'))
+    op.add_column('raw_event', sa.Column('is_gold_standard', sa.Boolean(), nullable=False, server_default=gold_default))
     
     # Add index for efficient filtering
     op.create_index(op.f('ix_raw_event_is_gold_standard'), 'raw_event', ['is_gold_standard'], unique=False)
