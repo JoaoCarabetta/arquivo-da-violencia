@@ -23,12 +23,12 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     logger.info(f"Starting {settings.app_name} v{settings.app_version}")
     validate_auth_config()
     
-    # Ensure instance directory exists
-    settings.database_path.parent.mkdir(parents=True, exist_ok=True)
-    
+    if settings.is_sqlite:
+        settings.database_path.parent.mkdir(parents=True, exist_ok=True)
+
     # Initialize database (creates tables if not using alembic)
     # await init_db()
-    logger.info(f"Database ready: {settings.database_path}")
+    logger.info(f"Database ready: {settings.database_display_name}")
 
     # Background monitor that alerts (via Telegram) if the ARQ worker goes silent.
     monitor_stop = asyncio.Event()

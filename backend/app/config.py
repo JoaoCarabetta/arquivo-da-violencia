@@ -2,6 +2,7 @@
 
 from functools import lru_cache
 from pathlib import Path
+from urllib.parse import urlparse
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -83,15 +84,32 @@ class Settings(BaseSettings):
     github_repo: str | None = None  # Format: "owner/repo"
 
     @property
+    def is_sqlite(self) -> bool:
+        """True when the configured database URL targets SQLite."""
+        return "sqlite" in self.database_url.lower()
+
+    @property
     def database_path(self) -> Path:
-        """Extract the database file path from the URL."""
-        # Handle sqlite+aiosqlite:///./instance/violence.db format
+        """Extract the SQLite database file path from the URL."""
+        if not self.is_sqlite:
+            raise ValueError("database_path is only available for SQLite URLs")
         path_str = self.database_url.replace("sqlite+aiosqlite:///", "")
+        path_str = path_str.replace("sqlite:///", "")
         return Path(path_str)
+
+    @property
+    def database_display_name(self) -> str:
+        """Human-readable database target for logs (password redacted)."""
+        if self.is_sqlite:
+            return str(self.database_path)
+        parsed = urlparse(self.database_url)
+        host = parsed.hostname or "localhost"
+        port = f":{parsed.port}" if parsed.port else ""
+        db_name = (parsed.path or "").lstrip("/") or "postgres"
+        return f"{host}{port}/{db_name}"
 
 
 @lru_cache
 def get_settings() -> Settings:
     """Get cached settings instance."""
     return Settings()
-

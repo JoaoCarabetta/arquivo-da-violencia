@@ -24,6 +24,8 @@ depends_on: Union[str, Sequence[str], None] = None
 
 def upgrade() -> None:
     """Add deduplication and enrichment fields."""
+    bind = op.get_bind()
+    needs_enrichment_default = sa.text("true") if bind.dialect.name == "postgresql" else "1"
     
     # Add deduplication_status to raw_event
     with op.batch_alter_table('raw_event', schema=None) as batch_op:
@@ -40,7 +42,7 @@ def upgrade() -> None:
     # Add enrichment fields to unique_event
     with op.batch_alter_table('unique_event', schema=None) as batch_op:
         batch_op.add_column(
-            sa.Column('needs_enrichment', sa.Boolean(), nullable=False, server_default='1')
+            sa.Column('needs_enrichment', sa.Boolean(), nullable=False, server_default=needs_enrichment_default)
         )
         batch_op.add_column(
             sa.Column('last_enriched_at', sa.DateTime(), nullable=True)

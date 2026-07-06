@@ -13,36 +13,43 @@ from app.config import get_settings
 
 
 def _normalize_database_url(db_url: str) -> str:
-    """Normalize database URL to ensure async driver is used."""
-    # Ensure aiosqlite driver is used for SQLite
+    """Normalize database URL to ensure the correct async driver is used."""
     if db_url.startswith("sqlite:///"):
         db_url = db_url.replace("sqlite:///", "sqlite+aiosqlite:///", 1)
-    
-    # Handle relative paths for SQLite
+
+    if db_url.startswith("postgresql://"):
+        db_url = db_url.replace("postgresql://", "postgresql+asyncpg://", 1)
+    elif db_url.startswith("postgres://"):
+        db_url = db_url.replace("postgres://", "postgresql+asyncpg://", 1)
+
     if db_url.startswith("sqlite+aiosqlite:///"):
         path_part = db_url.split("sqlite+aiosqlite:///")[-1]
         if path_part and not path_part.startswith("/"):
-            # Relative path - convert to absolute
             abs_path = (Path.cwd() / path_part).resolve()
-            # Ensure parent directory exists
             abs_path.parent.mkdir(parents=True, exist_ok=True)
             db_url = f"sqlite+aiosqlite:///{abs_path}"
-    
+
     return db_url
+
+
+def sql_hour_bucket(column: str) -> str:
+    """SQL expression that buckets a timestamp column to the start of its hour."""
+    settings = get_settings()
+    if settings.is_sqlite:
+        return f"strftime('%Y-%m-%d %H:00:00', {column})"
+    return (
+        f"to_char(date_trunc('hour', {column} AT TIME ZONE 'UTC'), "
+        f"'YYYY-MM-DD HH24:00:00')"
+    )
 
 
 def _set_sqlite_pragmas(dbapi_connection, connection_record):
     """Set SQLite pragmas for better concurrency and performance."""
     cursor = dbapi_connection.cursor()
-    # Enable WAL mode for concurrent reads/writes
     cursor.execute("PRAGMA journal_mode=WAL")
-    # Wait up to 60 seconds for locks
     cursor.execute("PRAGMA busy_timeout=60000")
-    # Synchronous NORMAL is safe with WAL
     cursor.execute("PRAGMA synchronous=NORMAL")
-    # Enable foreign keys
     cursor.execute("PRAGMA foreign_keys=ON")
-    # Temp store in memory
     cursor.execute("PRAGMA temp_store=MEMORY")
     cursor.close()
 
@@ -52,36 +59,29 @@ def get_engine() -> AsyncEngine:
     """Get cached async engine instance."""
     settings = get_settings()
     db_url = _normalize_database_url(settings.database_url)
-    
-    # For SQLite, configure for better concurrency
+
+    common_kwargs = {
+        "echo": settings.debug,
+        "future": True,
+        "pool_size": settings.db_pool_size,
+        "max_overflow": settings.db_pool_overflow,
+        "pool_timeout": 60,
+        "pool_recycle": 1800,
+    }
+
     if "sqlite" in db_url:
         engine = create_async_engine(
             db_url,
-            echo=settings.debug,
-            future=True,
-            # The ARQ worker can run several batch jobs at once (max_jobs=10),
-            # each fanning out up to ~15 concurrent source-level coroutines. The
-            # default pool (5 + 10 overflow) is far too small for that and leads
-            # to "QueuePool limit ... connection timed out" errors. Size the pool
-            # generously; WAL mode + busy_timeout handle write serialization.
-            pool_size=settings.db_pool_size,
-            max_overflow=settings.db_pool_overflow,
-            pool_timeout=60,
-            pool_recycle=1800,
             connect_args={
                 "check_same_thread": False,
                 "timeout": 60,
             },
+            **common_kwargs,
         )
-        # Set pragmas on each new connection
         event.listen(engine.sync_engine, "connect", _set_sqlite_pragmas)
         return engine
-    
-    return create_async_engine(
-        db_url,
-        echo=settings.debug,
-        future=True,
-    )
+
+    return create_async_engine(db_url, **common_kwargs)
 
 
 async def init_db() -> None:
@@ -100,11 +100,11 @@ async def get_session() -> AsyncGenerator[AsyncSession, None]:
 
 class AsyncSessionMaker:
     """Context manager for creating async sessions outside of FastAPI dependencies."""
-    
+
     async def __aenter__(self) -> AsyncSession:
         self.session = AsyncSession(get_engine())
         return self.session
-    
+
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         await self.session.close()
 
