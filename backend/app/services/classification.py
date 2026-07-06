@@ -338,12 +338,12 @@ async def classify_source(source_id: int) -> bool:
                 text("""
                     UPDATE source_google_news 
                     SET status = 'discarded', 
-                        is_violent_death = 0,
+                        is_violent_death = :is_violent_death,
                         classification_reasoning = 'No headline available',
                         updated_at = CURRENT_TIMESTAMP
                     WHERE id = :id
                 """),
-                {"id": source_id}
+                {"id": source_id, "is_violent_death": False},
             )
             await session.commit()
             return False
@@ -390,7 +390,7 @@ async def classify_source(source_id: int) -> bool:
             {
                 "id": source_id,
                 "status": new_status,
-                "is_violent_death": 1 if classification.is_violent_death else 0,
+                "is_violent_death": classification.is_violent_death,
                 "confidence": classification.confidence,
                 "reasoning": reasoning,
             }
