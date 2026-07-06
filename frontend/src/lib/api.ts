@@ -2,6 +2,12 @@
  * API client for the Arquivo da Violência backend
  */
 
+import {
+  MOCK_PORTAL_ENABLED,
+  mockMapPoints,
+  mockPublicEventById,
+} from '@/dev/mockPortalData';
+
 const API_BASE = '/api';
 
 // =============================================================================
@@ -76,6 +82,8 @@ export interface RawEvent {
   city: string | null;
   neighborhood: string | null;
   homicide_type: string | null;
+  event_family: string | null;
+  event_subtype: string | null;
   method_of_death: string | null;
   victim_count: number | null;
   identified_victim_count: number | null;
@@ -95,6 +103,8 @@ export interface RawEvent {
 export interface UniqueEvent {
   id: number;
   homicide_type: string | null;
+  event_family: string | null;
+  event_subtype: string | null;
   method_of_death: string | null;
   event_date: string | null;
   date_precision: string | null;
@@ -150,6 +160,8 @@ export interface PublicEvent {
   city: string | null;
   neighborhood: string | null;
   homicide_type: string | null;
+  event_family: string | null;
+  event_subtype: string | null;
   method_of_death: string | null;
   victim_count: number | null;
   victims_summary: string | null;
@@ -205,6 +217,8 @@ export interface NearbyEvent {
   city: string | null;
   neighborhood: string | null;
   homicide_type: string | null;
+  event_family: string | null;
+  event_subtype: string | null;
   method_of_death: string | null;
   victim_count: number | null;
   victims_summary: string | null;
@@ -226,6 +240,11 @@ export interface MapPoint {
   id: number;
   lat: number;
   lng: number;
+  /** event_family */
+  f?: string | null;
+  /** event_subtype */
+  su?: string | null;
+  /** legacy homicide_type label */
   t: string | null;
   m: string | null;
   d: string | null;
@@ -428,6 +447,11 @@ export async function fetchPublicEvents(
 }
 
 export async function fetchPublicEventById(id: number): Promise<PublicEvent> {
+  if (MOCK_PORTAL_ENABLED) {
+    const event = mockPublicEventById(id);
+    if (!event) throw new Error('Event not found');
+    return event;
+  }
   return fetchJson<PublicEvent>(`${API_BASE}/public/events/${id}`);
 }
 
@@ -463,6 +487,9 @@ export async function fetchMapPoints(filters?: {
   maxLng?: number;
   maxLat?: number;
 }): Promise<MapPointsResponse> {
+  if (MOCK_PORTAL_ENABLED) {
+    return Promise.resolve(mockMapPoints());
+  }
   const qs = new URLSearchParams();
   if (filters?.days != null) qs.set('days', filters.days.toString());
   if (filters?.type) qs.set('type', filters.type);

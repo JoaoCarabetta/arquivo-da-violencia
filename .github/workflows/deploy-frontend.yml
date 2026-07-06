@@ -18,6 +18,10 @@ on:
     paths:
       - 'frontend/**'
       - '.github/workflows/deploy-frontend.yml'
+      - 'docker-compose.yml'
+      - 'docker-compose.staging.yml'
+      - 'scripts/deploy-frontend.sh'
+      - 'scripts/lib/**'
   workflow_dispatch:
     inputs:
       environment:
@@ -93,21 +97,13 @@ jobs:
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
           script: |
+            set -e
             cd /root/arquivo-da-violencia
-            
-            # Logout from GHCR to avoid stale auth (packages are public)
+            git fetch origin develop
+            git checkout develop
+            git reset --hard origin/develop
             docker logout ghcr.io 2>/dev/null || true
-            
-            # Pull the new image
-            docker compose -p staging -f docker-compose.yml -f docker-compose.staging.yml pull frontend
-            
-            # Restart frontend container (instant, no downtime concerns)
-            docker compose -p staging -f docker-compose.yml -f docker-compose.staging.yml up -d frontend
-            
-            # Clean up old images (non-fatal — concurrent prune on VPS can race)
-            docker image prune -f || true
-            
-            echo "✅ Staging frontend deployed successfully"
+            bash scripts/deploy-frontend.sh staging
 
   deploy-production:
     name: Deploy to Production
@@ -123,19 +119,11 @@ jobs:
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
           script: |
+            set -e
             cd /root/arquivo-da-violencia
-            
-            # Logout from GHCR to avoid stale auth (packages are public)
+            git fetch origin master
+            git checkout master
+            git reset --hard origin/master
             docker logout ghcr.io 2>/dev/null || true
-            
-            # Pull the new image
-            docker compose -p prod pull frontend
-            
-            # Restart frontend container (instant, no downtime concerns)
-            docker compose -p prod up -d frontend
-            
-            # Clean up old images (non-fatal — concurrent prune on VPS can race)
-            docker image prune -f || true
-            
-            echo "✅ Production frontend deployed successfully"
+            bash scripts/deploy-frontend.sh production
 

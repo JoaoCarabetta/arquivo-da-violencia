@@ -25,6 +25,7 @@ import {
   type PortalFilters,
   type PortalMode,
 } from '@/components/portal/types';
+import { distinctSubtypes } from '@/lib/taxonomy';
 
 /** Default map data window — keeps initial payload bounded. */
 const MAP_DAYS = 365;
@@ -80,7 +81,7 @@ export function MapExplorer() {
 
   const allPoints = useMemo(() => data?.points ?? [], [data]);
 
-  const availableTypes = useMemo(() => distinctValues(allPoints, 't'), [allPoints]);
+  const availableTypes = useMemo(() => distinctSubtypes(allPoints), [allPoints]);
   const availableMethods = useMemo(() => distinctValues(allPoints, 'm'), [allPoints]);
   const availablePeriods = useMemo(() => distinctValues(allPoints, 'p'), [allPoints]);
 

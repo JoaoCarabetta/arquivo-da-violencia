@@ -13,6 +13,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { fetchRawEvents, type RawEvent } from '@/lib/api';
+import { adminTypeLabel } from '@/lib/taxonomy';
 import { 
   Loader2, ChevronLeft, ChevronRight
 } from 'lucide-react';
@@ -94,9 +95,9 @@ export function RawEvents() {
                         {event.title || '—'}
                       </TableCell>
                       <TableCell>
-                        {event.homicide_type ? (
+                        {adminTypeLabel(event) ? (
                           <Badge variant="outline" className="text-xs">
-                            {event.homicide_type.replace('Homicídio ', '').replace('Tentativa de ', 'Tent. ')}
+                            {adminTypeLabel(event)}
                           </Badge>
                         ) : (
                           '—'

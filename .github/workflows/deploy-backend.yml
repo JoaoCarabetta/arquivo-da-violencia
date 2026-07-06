@@ -1,11 +1,9 @@
 # =============================================================================
 # Backend Deployment Workflow
 # =============================================================================
-# Triggers on changes to backend/ directory on main or develop branches.
-# - main branch: deploys to production, then syncs DB to staging
-# - develop branch: deploys to staging only
-#
-# Uses graceful worker shutdown to avoid interrupting running jobs.
+# Triggers on backend or deploy-infra changes on master/develop.
+# - master: production deploy, then prod → staging DB sync
+# - develop: staging deploy only
 # =============================================================================
 
 name: Deploy Backend
@@ -18,6 +16,13 @@ on:
     paths:
       - 'backend/**'
       - '.github/workflows/deploy-backend.yml'
+      - 'docker-compose.yml'
+      - 'docker-compose.staging.yml'
+      - 'scripts/deploy-backend.sh'
+      - 'scripts/sync-staging-db.sh'
+      - 'scripts/lib/**'
+      - 'infra/postgres/**'
+      - 'infra/nginx/**'
   workflow_dispatch:
     inputs:
       environment:
@@ -84,9 +89,6 @@ jobs:
     if: github.ref == 'refs/heads/develop' || (github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'staging')
 
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
       - name: Deploy to staging server
         uses: appleboy/ssh-action@v1.0.3
         with:
@@ -97,54 +99,11 @@ jobs:
           script: |
             set -e
             cd /root/arquivo-da-violencia
-            
-            echo "🚀 Starting staging backend deployment..."
-            
-            # Logout from GHCR to avoid stale auth (packages are public)
+            git fetch origin develop
+            git checkout develop
+            git reset --hard origin/develop
             docker logout ghcr.io 2>/dev/null || true
-            
-            # Pull new images
-            echo "📥 Pulling new images..."
-            docker compose -p staging -f docker-compose.yml -f docker-compose.staging.yml pull api worker
-            
-            # Graceful worker shutdown (wait for current job to finish, up to 120s)
-            echo "⏳ Gracefully stopping staging containers..."
-            docker stop --time=120 staging-arquivo-worker staging-arquivo-api || true
-            
-            # Remove old containers to avoid naming conflicts
-            echo "🗑️ Removing old containers..."
-            docker rm -f staging-arquivo-api staging-arquivo-worker 2>/dev/null || true
-            
-            # Ensure Postgres and Redis are running (but don't recreate them)
-            echo "📦 Ensuring Postgres and Redis are running..."
-            docker compose -p staging -f docker-compose.yml -f docker-compose.staging.yml up -d --no-recreate postgres redis
-            
-            # Run database migrations (--no-deps to avoid recreating redis)
-            echo "🔄 Running database migrations..."
-            docker compose -p staging -f docker-compose.yml -f docker-compose.staging.yml run --rm --no-deps api alembic upgrade head
-            
-            # Start new API and Worker containers only
-            echo "🔄 Starting API and Worker..."
-            docker compose -p staging -f docker-compose.yml -f docker-compose.staging.yml up -d --no-deps api worker
-            
-            # Wait for API to be healthy
-            echo "🏥 Waiting for API health check..."
-            for i in {1..30}; do
-              if curl -sf http://localhost:8001/health > /dev/null 2>&1; then
-                echo "✅ Staging API is healthy"
-                break
-              fi
-              if [ $i -eq 30 ]; then
-                echo "❌ Health check failed after 30 attempts"
-                exit 1
-              fi
-              sleep 2
-            done
-            
-            # Clean up old images (non-fatal — concurrent prune on VPS can race)
-            docker image prune -f || true
-            
-            echo "✅ Staging backend deployed successfully"
+            bash scripts/deploy-backend.sh staging
 
       - name: Update host nginx config
         uses: appleboy/ssh-action@v1.0.3
@@ -153,6 +112,7 @@ jobs:
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
           script: |
+            set -e
             cd /root/arquivo-da-violencia
             cp infra/nginx/arquivo-violencia.conf /etc/nginx/sites-available/arquivo-violencia
             ln -sf /etc/nginx/sites-available/arquivo-violencia /etc/nginx/sites-enabled/
@@ -167,9 +127,6 @@ jobs:
     if: github.ref == 'refs/heads/master' || (github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'production')
 
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
       - name: Deploy to production server
         uses: appleboy/ssh-action@v1.0.3
         with:
@@ -180,54 +137,11 @@ jobs:
           script: |
             set -e
             cd /root/arquivo-da-violencia
-            
-            echo "🚀 Starting production backend deployment..."
-            
-            # Logout from GHCR to avoid stale auth (packages are public)
+            git fetch origin master
+            git checkout master
+            git reset --hard origin/master
             docker logout ghcr.io 2>/dev/null || true
-            
-            # Pull new images
-            echo "📥 Pulling new images..."
-            docker compose -p prod pull api worker
-            
-            # Graceful worker shutdown (wait for current job to finish, up to 120s)
-            echo "⏳ Gracefully stopping production containers..."
-            docker stop --time=120 arquivo-worker arquivo-api || true
-            
-            # Remove old containers to avoid naming conflicts
-            echo "🗑️ Removing old containers..."
-            docker rm -f arquivo-api arquivo-worker 2>/dev/null || true
-            
-            # Ensure Postgres and Redis are running (but don't recreate them)
-            echo "📦 Ensuring Postgres and Redis are running..."
-            docker compose -p prod up -d --no-recreate postgres redis
-            
-            # Run database migrations (--no-deps to avoid recreating redis)
-            echo "🔄 Running database migrations..."
-            docker compose -p prod run --rm --no-deps api alembic upgrade head
-            
-            # Start new API and Worker containers only
-            echo "🔄 Starting API and Worker..."
-            docker compose -p prod up -d --no-deps api worker
-            
-            # Wait for API to be healthy
-            echo "🏥 Waiting for API health check..."
-            for i in {1..30}; do
-              if curl -sf http://localhost:8000/health > /dev/null 2>&1; then
-                echo "✅ Production API is healthy"
-                break
-              fi
-              if [ $i -eq 30 ]; then
-                echo "❌ Health check failed after 30 attempts"
-                exit 1
-              fi
-              sleep 2
-            done
-            
-            # Clean up old images (non-fatal — concurrent prune on VPS can race)
-            docker image prune -f || true
-            
-            echo "✅ Production backend deployed successfully"
+            bash scripts/deploy-backend.sh production
 
       - name: Update host nginx config
         uses: appleboy/ssh-action@v1.0.3
@@ -236,6 +150,7 @@ jobs:
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
           script: |
+            set -e
             cd /root/arquivo-da-violencia
             cp infra/nginx/arquivo-violencia.conf /etc/nginx/sites-available/arquivo-violencia
             ln -sf /etc/nginx/sites-available/arquivo-violencia /etc/nginx/sites-enabled/
@@ -260,11 +175,7 @@ jobs:
           script: |
             set -e
             cd /root/arquivo-da-violencia
-            
-            echo "🔄 Syncing production database to staging..."
-            
-            # Run the sync script
+            git fetch origin master
+            git checkout master
+            git reset --hard origin/master
             bash scripts/sync-staging-db.sh
-            
-            echo "✅ Staging database synced with production"
-

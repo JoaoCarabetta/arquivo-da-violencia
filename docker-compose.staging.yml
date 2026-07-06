@@ -9,17 +9,19 @@
 # This overlay:
 #   - Uses different container names (staging-arquivo-*)
 #   - Uses different ports (8080 for frontend, 8001 for API, 6380 for Redis)
-#   - Uses separate data volumes for isolation from production
+#   - Uses a separate Redis volume; Postgres is shared with production
 #   - Configures staging-specific environment variables
 #
 # =============================================================================
 
 services:
   # ---------------------------------------------------------------------------
-  # PostgreSQL - Staging uses arquivo_staging database on shared server
+  # PostgreSQL - shared prod instance (arquivo-postgres); do not start a second
+  # container on the same data volume.
   # ---------------------------------------------------------------------------
   postgres:
-    container_name: staging-arquivo-postgres
+    profiles: ["disabled"]
+    volumes: !override []
 
   # ---------------------------------------------------------------------------
   # Redis - Staging instance on port 6380
@@ -37,16 +39,19 @@ services:
   api:
     image: ghcr.io/joaocarabetta/arquivo-da-violencia/backend:develop
     container_name: staging-arquivo-api
-    depends_on:
-      postgres:
-        condition: service_healthy
+    env_file:
+      - .env
+    depends_on: !override
       redis:
         condition: service_healthy
+    networks:
+      - default
+      - prod
     ports: !override
       - "8001:8000"
-    environment:
+    environment: !override
       - REDIS_URL=redis://redis:6379
-      - DATABASE_URL=postgresql+asyncpg://arquivo:${POSTGRES_PASSWORD}@postgres:5432/arquivo_staging
+      - DATABASE_URL=postgresql+asyncpg://arquivo:${POSTGRES_PASSWORD}@arquivo-postgres:5432/arquivo_staging
       - DB_POOL_SIZE=5
       - DB_POOL_OVERFLOW=5
       - OPENROUTER_API_KEY=${STAGING_OPENROUTER_API_KEY:-${OPENROUTER_API_KEY:-}}
@@ -61,8 +66,6 @@ services:
       - CORS_ORIGINS=["http://localhost:5173","http://localhost:8080","https://staging.arquivodaviolencia.com.br"]
       - JWT_SECRET_KEY=${STAGING_JWT_SECRET_KEY}
       - ADMIN_USERNAME=${STAGING_ADMIN_USERNAME:-admin}
-      - ADMIN_PASSWORD=${STAGING_ADMIN_PASSWORD}
-      - ADMIN_USERS=${STAGING_ADMIN_USERS:-${ADMIN_USERS:-}}
       - TELEGRAM_BOT_TOKEN=${STAGING_TELEGRAM_BOT_TOKEN:-}
       - TELEGRAM_CHAT_ID=${STAGING_TELEGRAM_CHAT_ID:-}
 
@@ -72,14 +75,17 @@ services:
   worker:
     image: ghcr.io/joaocarabetta/arquivo-da-violencia/backend:develop
     container_name: staging-arquivo-worker
-    depends_on:
-      postgres:
-        condition: service_healthy
+    env_file:
+      - .env
+    depends_on: !override
       redis:
         condition: service_healthy
-    environment:
+    networks:
+      - default
+      - prod
+    environment: !override
       - REDIS_URL=redis://redis:6379
-      - DATABASE_URL=postgresql+asyncpg://arquivo:${POSTGRES_PASSWORD}@postgres:5432/arquivo_staging
+      - DATABASE_URL=postgresql+asyncpg://arquivo:${POSTGRES_PASSWORD}@arquivo-postgres:5432/arquivo_staging
       - DB_POOL_SIZE=15
       - DB_POOL_OVERFLOW=15
       - OPENROUTER_API_KEY=${STAGING_OPENROUTER_API_KEY:-${OPENROUTER_API_KEY:-}}
@@ -93,8 +99,6 @@ services:
       - ENABLE_AUTH=true
       - JWT_SECRET_KEY=${STAGING_JWT_SECRET_KEY}
       - ADMIN_USERNAME=${STAGING_ADMIN_USERNAME:-admin}
-      - ADMIN_PASSWORD=${STAGING_ADMIN_PASSWORD}
-      - ADMIN_USERS=${STAGING_ADMIN_USERS:-${ADMIN_USERS:-}}
       - TELEGRAM_BOT_TOKEN=${STAGING_TELEGRAM_BOT_TOKEN:-}
       - TELEGRAM_CHAT_ID=${STAGING_TELEGRAM_CHAT_ID:-}
     # Allow worker 120s to finish current job before forced shutdown
@@ -114,7 +118,13 @@ services:
     ports: !override
       - "8080:80"
 
+networks:
+  prod:
+    external: true
+    name: prod_default
+
 volumes:
   staging_redis_data:
+    external: true
     name: staging-arquivo-redis-data
 

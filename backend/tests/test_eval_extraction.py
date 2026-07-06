@@ -27,7 +27,9 @@ def _sample_case(**overrides) -> ExtractionCase:
             "date_time": {"date": "2025-03-14", "date_verification": {"has_explicit_date": True}},
             "location_info": {"city": "Rio de Janeiro", "state": "RJ"},
             "victims": {"number_of_victims": 1},
-            "homicide_dynamic": {"homicide_type": "Homicídio", "method": "Arma de fogo"},
+            "event_family": "homicidio",
+            "event_subtype": "simples",
+            "homicide_dynamic": {"method": "Arma de fogo"},
         },
         scoring=CaseScoring(),
     )

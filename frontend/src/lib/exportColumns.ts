@@ -11,6 +11,8 @@ export interface ExportColumnGroup {
 
 export const EXPORT_COLUMN_GROUPS: ExportColumnGroup[] = [
   { id: 'id', dictionaryField: 'id', fields: ['id'] },
+  { id: 'event_family', dictionaryField: 'event_family', fields: ['event_family'] },
+  { id: 'event_subtype', dictionaryField: 'event_subtype', fields: ['event_subtype'] },
   { id: 'homicide_type', dictionaryField: 'homicide_type', fields: ['homicide_type'] },
   { id: 'method_of_death', dictionaryField: 'method_of_death', fields: ['method_of_death'] },
   { id: 'event_date', dictionaryField: 'event_date', fields: ['event_date'] },

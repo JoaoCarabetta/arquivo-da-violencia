@@ -3,10 +3,10 @@
 # =============================================================================
 #
 # Usage:
-#   docker compose up -d              # Start all services
-#   docker compose up -d api worker   # Start API and worker only
-#   docker compose logs -f worker     # Follow worker logs
-#   docker compose exec api alembic upgrade head  # Run migrations
+#   docker compose -p prod up -d              # Start all services
+#   docker compose -p prod up -d api worker   # Start API and worker only
+#   docker compose -p prod logs -f worker     # Follow worker logs
+#   docker compose -p prod exec api alembic upgrade head  # Run migrations
 #
 # Environment variables (create .env file):
 #   OPENROUTER_API_KEY=your-api-key

@@ -3,7 +3,9 @@
 from sqlalchemy import ColumnElement, or_
 
 from app.models.unique_event import UniqueEvent
-from app.taxonomy import parse_legacy_homicide_type
+from app.taxonomy import SUBTYPES_BY_FAMILY, parse_legacy_homicide_type
+
+_HOMICIDIO_SUBTYPES = SUBTYPES_BY_FAMILY["homicidio"]
 
 # Brazilian federative units (27 states + DF).
 BR_UFS = frozenset(
@@ -59,7 +61,13 @@ def apply_public_incident_filter(statement):
 
 
 def homicide_type_filter(type_value: str) -> ColumnElement:
-    """Match legacy homicide_type label or (event_family, event_subtype) pair."""
+    """Match subtype slug, family:subtype pair, or legacy homicide_type label."""
+    if type_value in _HOMICIDIO_SUBTYPES:
+        return UniqueEvent.event_subtype == type_value
+    if ":" in type_value:
+        family, _, subtype = type_value.partition(":")
+        if family and subtype:
+            return (UniqueEvent.event_family == family) & (UniqueEvent.event_subtype == subtype)
     family, subtype = parse_legacy_homicide_type(type_value)
     return or_(
         UniqueEvent.homicide_type == type_value,
