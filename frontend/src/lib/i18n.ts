@@ -1,11 +1,8 @@
 /**
  * Bilingual (PT/EN) strings and value translators for the public portal.
- *
- * The backend stores human-readable Portuguese canonical values for
- * homicide_type / method_of_death / time_of_day. For PT we render them
- * as-is; for EN we map the known values. Unknown values fall back to the
- * original string so nothing ever disappears from the UI.
  */
+
+import { formatSubtype, isHomicideSubtype, legacyLabelToSubtype, subtypeColor } from '@/lib/taxonomy';
 
 export type Lang = 'pt' | 'en';
 
@@ -111,7 +108,7 @@ const PT: Strings = {
   last24h: 'Últimas 24h',
   filters: 'Filtros',
   clear: 'Limpar',
-  fType: 'Tipo de evento',
+  fType: 'Subtipo de homicídio',
   fMethod: 'Método',
   fPeriod: 'Período do dia',
   fTemporal: 'Período',
@@ -121,7 +118,7 @@ const PT: Strings = {
   temporalCustom: 'Intervalo personalizado',
   temporalApply: 'Aplicar',
   trend: 'Tendência mensal',
-  byType: 'Por tipo',
+  byType: 'Por subtipo',
   byState: 'Por estado',
   timeOfDay: 'Período do dia',
   reset: 'Brasil',
@@ -199,7 +196,7 @@ const EN: Strings = {
   last24h: 'Last 24 hours',
   filters: 'Filters',
   clear: 'Clear',
-  fType: 'Event type',
+  fType: 'Homicide subtype',
   fMethod: 'Method',
   fPeriod: 'Time of day',
   fTemporal: 'Date range',
@@ -209,7 +206,7 @@ const EN: Strings = {
   temporalCustom: 'Custom range',
   temporalApply: 'Apply',
   trend: 'Monthly trend',
-  byType: 'By type',
+  byType: 'By subtype',
   byState: 'By state',
   timeOfDay: 'Time of day',
   reset: 'Brazil',
@@ -322,6 +319,9 @@ function titleCasePt(value: string): string {
 
 export function translateType(value: string | null | undefined, lang: Lang): string {
   if (!value) return lang === 'pt' ? 'Não classificado' : 'Unclassified';
+  if (isHomicideSubtype(value)) return formatSubtype(value, lang);
+  const mapped = legacyLabelToSubtype(value);
+  if (mapped) return formatSubtype(mapped, lang);
   if (lang === 'en') return TYPE_EN[value] ?? value;
   return value;
 }
@@ -338,9 +338,12 @@ export function translatePeriod(value: string | null | undefined, lang: Lang): s
   return titleCasePt(value);
 }
 
-/** Color for a homicide type, matching the design's red/gold/stone scheme. */
+/** Color for a homicide subtype slug or legacy label. */
 export function typeColor(value: string | null | undefined): string {
   if (!value) return 'var(--stone-500)';
+  if (isHomicideSubtype(value)) return subtypeColor(value);
+  const mapped = legacyLabelToSubtype(value);
+  if (mapped) return subtypeColor(mapped);
   const v = value.toLowerCase();
   if (v.includes('qualificad') || v.includes('feminic') || v.includes('latroc')) return '#872B26';
   if (v.includes('tentativa')) return '#9E7616';
@@ -394,7 +397,9 @@ export interface DictionaryRow {
 export function dictionaryRows(lang: Lang): DictionaryRow[] {
   const pt: [string, string][] = [
     ['id', 'Identificador único do evento'],
-    ['homicide_type', 'Tipo de evento'],
+    ['event_family', 'Família do evento (homicidio no arquivo público)'],
+    ['event_subtype', 'Subtipo canônico (simples, feminicidio, latrocinio, …)'],
+    ['homicide_type', 'Rótulo legado derivado de família + subtipo'],
     ['method_of_death', 'Método (arma de fogo, etc.)'],
     ['event_date', 'Data do evento (ISO 8601)'],
     ['time_of_day', 'Período do dia'],
@@ -413,7 +418,9 @@ export function dictionaryRows(lang: Lang): DictionaryRow[] {
   ];
   const en: [string, string][] = [
     ['id', 'Unique event identifier'],
-    ['homicide_type', 'Event type'],
+    ['event_family', 'Event family (homicidio in the public archive)'],
+    ['event_subtype', 'Canonical subtype (simples, feminicidio, latrocinio, …)'],
+    ['homicide_type', 'Legacy display label derived from family + subtype'],
     ['method_of_death', 'Method (firearm, etc.)'],
     ['event_date', 'Event date (ISO 8601)'],
     ['time_of_day', 'Time of day'],

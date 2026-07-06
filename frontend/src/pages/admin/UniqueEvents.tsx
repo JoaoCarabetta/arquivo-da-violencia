@@ -12,6 +12,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { fetchUniqueEvents, type UniqueEvent } from '@/lib/api';
+import { adminTypeLabel } from '@/lib/taxonomy';
 import { 
   Loader2, ChevronLeft, ChevronRight, MapPin, CheckCircle, ExternalLink,
   Crosshair, Calendar, Users, FileText, Globe, Navigation, Shield
@@ -126,9 +127,9 @@ export function UniqueEvents() {
                         {event.title || '—'}
                       </TableCell>
                       <TableCell>
-                        {event.homicide_type ? (
+                        {adminTypeLabel(event) ? (
                           <Badge variant="outline" className="text-xs">
-                            {event.homicide_type.replace('Homicídio ', '').replace('Tentativa de ', 'Tent. ')}
+                            {adminTypeLabel(event)}
                           </Badge>
                         ) : (
                           '—'
@@ -217,15 +218,29 @@ export function UniqueEvents() {
         {selectedEvent && (
           <>
             <DetailSection title="Classificação" icon={<Crosshair className="h-3.5 w-3.5" />}>
-              <DetailField 
-                label="Tipo de Homicídio" 
+              <DetailField
+                label="Família"
+                value={selectedEvent.event_family ?? '—'}
+              />
+              <DetailField
+                label="Subtipo"
+                value={
+                  selectedEvent.event_subtype && (
+                    <Badge variant="outline" className="font-normal">
+                      {selectedEvent.event_subtype}
+                    </Badge>
+                  )
+                }
+              />
+              <DetailField
+                label="Rótulo legado"
                 value={
                   selectedEvent.homicide_type && (
                     <Badge variant="outline" className="font-normal">
                       {selectedEvent.homicide_type}
                     </Badge>
                   )
-                } 
+                }
               />
               <DetailField label="Método" value={selectedEvent.method_of_death} />
               <DetailField 

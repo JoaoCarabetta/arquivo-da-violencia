@@ -13,6 +13,8 @@ import 'maplibre-gl/dist/maplibre-gl.css';
 import type { MapPoint } from '@/lib/api';
 import { capPoints, pointsInBounds } from '@/components/portal/types';
 import { useIsMobile } from '@/hooks/useMediaQuery';
+import { useI18n } from '@/contexts/I18nContext';
+import { formatPointLabel } from '@/lib/taxonomy';
 
 export interface MapViewState {
   longitude: number;
@@ -132,6 +134,7 @@ export function CrimeMap({
   searchedLocation,
 }: CrimeMapProps) {
   const isMobile = useIsMobile();
+  const { lang } = useI18n();
   const containerRef = useRef<HTMLDivElement>(null);
   const sizeRef = useRef<{ width: number; height: number }>({ width: 0, height: 0 });
   const [hasSize, setHasSize] = useState(false);
@@ -306,7 +309,7 @@ export function CrimeMap({
           if (showScatter) {
             const p = object as MapPoint;
             return {
-              text: [p.t || 'Evento', [p.n, p.c, p.st].filter(Boolean).join(', ')]
+              text: [formatPointLabel(p, lang), [p.n, p.c, p.st].filter(Boolean).join(', ')]
                 .filter(Boolean)
                 .join('\n'),
             };

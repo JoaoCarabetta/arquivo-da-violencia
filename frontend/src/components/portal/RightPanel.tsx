@@ -9,13 +9,20 @@ import {
   fmtDateShort,
   fmtDateLong,
   monthShort,
-  translateType,
   translateMethod,
   translatePeriod,
   typeColor,
   ufName,
   dictionaryRows,
 } from '@/lib/i18n';
+import {
+  formatPointLabel,
+  formatTaxonomyFields,
+  formatSubtype,
+  pointSubtype,
+  taxonomyColor,
+  type HomicideSubtype,
+} from '@/lib/taxonomy';
 import {
   DEFAULT_SELECTED_COLUMN_IDS,
   EXPORT_COLUMN_GROUPS,
@@ -148,10 +155,10 @@ function StatsMode(props: RightPanelProps) {
   const trendCounts = months.map((m) => stats.trend[m.key] ?? 0);
   const trendPeak = Math.max(0, ...trendCounts);
   const { scaleMax: trendScaleMax, ticks: trendTicks } = trendChartScale(trendPeak);
-  const typeMax = Math.max(1, ...Object.values(stats.byType));
-  const typeRows = Object.entries(stats.byType)
+  const typeMax = Math.max(1, ...Object.values(stats.bySubtype));
+  const typeRows = Object.entries(stats.bySubtype)
     .sort((a, b) => b[1] - a[1])
-    .map(([type, count]) => ({ type, count }));
+    .map(([subtype, count]) => ({ subtype: subtype as HomicideSubtype, count }));
   const stateEntries = Object.entries(stats.byState)
     .sort((a, b) => b[1] - a[1])
     .slice(0, 6);
@@ -262,15 +269,15 @@ function StatsMode(props: RightPanelProps) {
       <SectionLabel>{t.byType}</SectionLabel>
       <div className="mb-[26px] flex flex-col gap-[9px]">
         {typeRows.map((r) => (
-          <div key={r.type}>
+          <div key={r.subtype}>
             <div className="mb-1 flex justify-between" style={{ fontSize: 12.5 }}>
-              <span style={{ color: 'var(--stone-700)' }}>{translateType(r.type, lang)}</span>
+              <span style={{ color: 'var(--stone-700)' }}>{formatSubtype(r.subtype, lang)}</span>
               <span className="font-mono" style={{ color: 'var(--stone-500)', fontVariantNumeric: 'tabular-nums' }}>
                 {fmtNumber(r.count, lang)}
               </span>
             </div>
             <div className="h-[7px] overflow-hidden rounded" style={{ background: 'var(--stone-100)' }}>
-              <div className="h-full rounded transition-[width] duration-300" style={{ background: typeColor(r.type), width: `${Math.round((r.count / typeMax) * 100)}%` }} />
+              <div className="h-full rounded transition-[width] duration-300" style={{ background: typeColor(r.subtype), width: `${Math.round((r.count / typeMax) * 100)}%` }} />
             </div>
           </div>
         ))}
@@ -363,6 +370,7 @@ function FeedMode(props: RightPanelProps) {
         ) : (
         feed.map((e) => {
           const victims = e.v ?? 0;
+          const subtype = pointSubtype(e);
           return (
             <button
               key={e.id}
@@ -381,16 +389,16 @@ function FeedMode(props: RightPanelProps) {
               <div className="flex items-center justify-between gap-2">
                 <span
                   className="rounded-[5px] px-[7px] py-[3px] font-mono uppercase"
-                  style={{ fontSize: 10, letterSpacing: '.03em', color: '#fff', background: typeColor(e.t) }}
+                  style={{ fontSize: 10, letterSpacing: '.03em', color: '#fff', background: typeColor(subtype) }}
                 >
-                  {translateType(e.t, lang)}
+                  {formatSubtype(subtype, lang)}
                 </span>
                 <span className="font-mono" style={{ fontSize: 11, color: 'var(--stone-400)' }}>
                   {e.d ? fmtDateShort(e.d, lang) : ''}
                 </span>
               </div>
               <div style={{ fontSize: 14, fontWeight: 500, color: 'var(--stone-900)', lineHeight: 1.3 }}>
-                {translateType(e.t, lang)}
+                {formatPointLabel(e, lang)}
                 {e.n ? ` — ${e.n}` : ''}
               </div>
               <div className="flex items-center gap-1.5" style={{ fontSize: 12, color: 'var(--color-text-muted)' }}>
@@ -595,7 +603,13 @@ function DetailView({ id, onClose }: { id: number; onClose: () => void }) {
     );
   }
 
-  const tColor = typeColor(event.homicide_type);
+  const typeLabel = formatTaxonomyFields(
+    event.event_family,
+    event.event_subtype,
+    event.homicide_type,
+    lang
+  );
+  const tColor = taxonomyColor(event.event_family, event.event_subtype, event.homicide_type);
   const place = [event.neighborhood, event.city].filter(Boolean).join(', ');
   const cityLine = [event.city, ufName(event.state)].filter(Boolean).join(' · ');
   const srcCount = event.source_count ?? 0;
@@ -611,7 +625,7 @@ function DetailView({ id, onClose }: { id: number; onClose: () => void }) {
 
       <div className="mb-[13px] flex flex-wrap gap-2">
         <span className="inline-flex items-center gap-1.5 rounded-md px-[9px] py-1 font-mono uppercase" style={{ fontSize: 10.5, letterSpacing: '.04em', color: '#fff', background: tColor }}>
-          {translateType(event.homicide_type, lang)}
+          {typeLabel}
         </span>
         {event.security_force_involved && (
           <span className="inline-flex items-center gap-1.5 rounded-md px-2 py-[3px] font-mono uppercase" style={{ fontSize: 10.5, letterSpacing: '.04em', color: 'var(--gold-700)', background: 'var(--gold-50)', border: '1px solid var(--gold-500)' }}>
@@ -621,7 +635,7 @@ function DetailView({ id, onClose }: { id: number; onClose: () => void }) {
       </div>
 
       <h2 className="mb-1.5" style={{ fontFamily: 'var(--font-serif)', fontSize: 23, lineHeight: 1.18, fontWeight: 600, letterSpacing: '-.01em', color: 'var(--stone-900)' }}>
-        {event.title || `${translateType(event.homicide_type, lang)}${event.neighborhood ? ` — ${event.neighborhood}` : ''}`}
+        {event.title || `${typeLabel}${event.neighborhood ? ` — ${event.neighborhood}` : ''}`}
       </h2>
       <div className="mb-[18px]" style={{ fontSize: 13, color: 'var(--color-text-muted)' }}>
         {event.event_date ? fmtDateLong(event.event_date, lang) : ''}

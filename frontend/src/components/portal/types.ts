@@ -1,9 +1,11 @@
 import type { MapPoint } from '@/lib/api';
+import { pointSubtype } from '@/lib/taxonomy';
 import type { MapBounds } from '@/components/map/CrimeMap';
 
 export type PortalMode = 'stats' | 'feed' | 'data';
 
 export interface PortalFilters {
+  /** Homicide subtype slugs (e.g. feminicidio, latrocinio). */
   types: string[];
   methods: string[];
   periods: string[];
@@ -96,7 +98,7 @@ export function applyFilters(points: MapPoint[], f: PortalFilters): MapPoint[] {
   if (!hasActiveFilters(f)) return points;
   return points.filter(
     (p) =>
-      (f.types.length === 0 || (p.t != null && f.types.includes(p.t))) &&
+      (f.types.length === 0 || f.types.includes(pointSubtype(p))) &&
       (f.methods.length === 0 || (p.m != null && f.methods.includes(p.m))) &&
       matchesPeriodFilter(p.p, f.periods) &&
       matchesDateFilter(p.d, f.startDate, f.endDate)
@@ -122,17 +124,18 @@ export function capPoints(points: MapPoint[], max = SCATTER_POINT_CAP): MapPoint
 export interface ViewportStats {
   total: number;
   victims: number;
-  byType: Record<string, number>;
+  bySubtype: Record<string, number>;
   byState: Record<string, number>;
   byPeriod: Record<string, number>;
   trend: Record<string, number>; // key: `${year}-${month}`
 }
 
 export function computeStats(points: MapPoint[]): ViewportStats {
-  const s: ViewportStats = { total: points.length, victims: 0, byType: {}, byState: {}, byPeriod: {}, trend: {} };
+  const s: ViewportStats = { total: points.length, victims: 0, bySubtype: {}, byState: {}, byPeriod: {}, trend: {} };
   for (const p of points) {
     s.victims += p.v ?? 0;
-    if (p.t) s.byType[p.t] = (s.byType[p.t] ?? 0) + 1;
+    const subtype = pointSubtype(p);
+    s.bySubtype[subtype] = (s.bySubtype[subtype] ?? 0) + 1;
     if (p.st) s.byState[p.st] = (s.byState[p.st] ?? 0) + 1;
     if (p.p) s.byPeriod[p.p] = (s.byPeriod[p.p] ?? 0) + 1;
     if (p.d) {
@@ -273,7 +276,7 @@ export function densityLegendScale(peak: number): { scaleMax: number; labels: nu
 }
 
 /** Distinct, sorted filter values present in the dataset. */
-export function distinctValues(points: MapPoint[], key: 't' | 'm' | 'p'): string[] {
+export function distinctValues(points: MapPoint[], key: 'm' | 'p'): string[] {
   const set = new Set<string>();
   for (const p of points) {
     const v = p[key];
@@ -282,3 +285,5 @@ export function distinctValues(points: MapPoint[], key: 't' | 'm' | 'p'): string
   }
   return [...set].sort((a, b) => a.localeCompare(b));
 }
+
+export { distinctSubtypes } from '@/lib/taxonomy';

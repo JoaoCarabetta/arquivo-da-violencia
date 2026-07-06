@@ -645,9 +645,9 @@ async def get_map_points(
     Return every geocoded event as a compact array for client-side map
     aggregation (deck.gl). Short keys keep the payload small.
 
-    Keys: id, lat, lng, t=homicide_type, m=method_of_death, d=event_date (ISO),
-    v=victim_count, s=security_force_involved, c=city, n=neighborhood, st=state,
-    p=time_of_day.
+    Keys: id, lat, lng, f=event_family, su=event_subtype, t=homicide_type (legacy),
+    m=method_of_death, d=event_date (ISO), v=victim_count, s=security_force_involved,
+    c=city, n=neighborhood, st=state, p=time_of_day.
 
     Defaults to the last 365 days. No sort — order is undefined (cheaper for map tiles).
     """
@@ -657,6 +657,8 @@ async def get_map_points(
             UniqueEvent.id,
             UniqueEvent.latitude,
             UniqueEvent.longitude,
+            UniqueEvent.event_family,
+            UniqueEvent.event_subtype,
             UniqueEvent.homicide_type,
             UniqueEvent.method_of_death,
             UniqueEvent.event_date,
@@ -704,6 +706,8 @@ async def get_map_points(
             "id": r.id,
             "lat": lat,
             "lng": lng,
+            "f": r.event_family,
+            "su": r.event_subtype,
             "t": r.homicide_type,
             "m": r.method_of_death,
             "d": r.event_date.isoformat() if r.event_date else None,
@@ -777,6 +781,8 @@ async def get_public_events(
             "state": event.state,
             "city": event.city,
             "neighborhood": event.neighborhood,
+            "event_family": event.event_family,
+            "event_subtype": event.event_subtype,
             "homicide_type": event.homicide_type,
             "method_of_death": event.method_of_death,
             "victim_count": event.victim_count,
@@ -903,6 +909,8 @@ async def get_public_event_by_id(
         "state": event.state,
         "city": event.city,
         "neighborhood": event.neighborhood,
+        "event_family": event.event_family,
+        "event_subtype": event.event_subtype,
         "homicide_type": event.homicide_type,
         "method_of_death": event.method_of_death,
         "victim_count": event.victim_count,
