@@ -50,6 +50,13 @@ remove_orphan_staging_postgres() {
     fi
 }
 
+prepare_docker_for_pull() {
+    echo "🧹 Preparing Docker storage for image pull..."
+    df -h /var/lib/docker 2>/dev/null || df -h /
+    docker image prune -af || true
+    docker builder prune -af || true
+}
+
 wait_for_api_health() {
     local port="$1"
     local max_attempts="${2:-90}"

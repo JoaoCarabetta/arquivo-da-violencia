@@ -39,8 +39,13 @@ ensure_prod_postgres
 remove_orphan_staging_postgres
 
 echo ""
+prepare_docker_for_pull
 echo "📥 Pulling backend images..."
-docker compose $COMPOSE_FILES pull api worker
+if ! docker compose $COMPOSE_FILES pull api worker; then
+    echo "⚠️ Image pull failed; pruning storage and retrying once..."
+    prepare_docker_for_pull
+    docker compose $COMPOSE_FILES pull api worker
+fi
 
 echo ""
 echo "⏳ Gracefully stopping API and worker (up to 120s)..."
