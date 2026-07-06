@@ -63,12 +63,16 @@ docker compose $COMPOSE_STAGING up -d api worker
 
 echo ""
 echo "🏥 Waiting for staging containers to be healthy..."
-MAX_ATTEMPTS=30
+# API can take >60s to pass startup auth/DB checks after a fresh recreate.
+MAX_ATTEMPTS=90
 ATTEMPT=1
+SLEEP_SECS=2
 
 while [ $ATTEMPT -le $MAX_ATTEMPTS ]; do
     API_HEALTHY=false
     if curl -sf "http://localhost:8001/health" > /dev/null 2>&1; then
+        API_HEALTHY=true
+    elif docker inspect --format='{{.State.Health.Status}}' staging-arquivo-api 2>/dev/null | grep -q "healthy"; then
         API_HEALTHY=true
     fi
 
@@ -86,10 +90,11 @@ while [ $ATTEMPT -le $MAX_ATTEMPTS ]; do
     if [ $ATTEMPT -eq $MAX_ATTEMPTS ]; then
         echo "   ❌ Health check failed after $MAX_ATTEMPTS attempts"
         docker ps --filter name="staging-arquivo" --format 'table {{.Names}}\t{{.Status}}'
+        docker logs staging-arquivo-api --tail 20 2>&1 || true
         exit 1
     fi
 
-    sleep 2
+    sleep $SLEEP_SECS
     ATTEMPT=$((ATTEMPT + 1))
 done
 
