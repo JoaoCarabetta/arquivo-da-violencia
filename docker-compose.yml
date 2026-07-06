@@ -73,6 +73,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+    env_file:
+      - .env
     environment:
       - REDIS_URL=redis://redis:6379
       - DATABASE_URL=postgresql+asyncpg://arquivo:${POSTGRES_PASSWORD}@postgres:5432/arquivo_prod
@@ -89,10 +91,6 @@ services:
       - ENVIRONMENT=production
       - ENABLE_AUTH=true
       - CORS_ORIGINS=["http://localhost:5173","http://localhost:3000","http://localhost:80","https://arquivodaviolencia.com.br","https://www.arquivodaviolencia.com.br"]
-      - JWT_SECRET_KEY=${JWT_SECRET_KEY}
-      - ADMIN_USERNAME=${ADMIN_USERNAME:-admin}
-      - ADMIN_PASSWORD=${ADMIN_PASSWORD}
-      - ADMIN_USERS=${ADMIN_USERS:-}
       - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN:-}
       - TELEGRAM_CHAT_ID=${TELEGRAM_CHAT_ID:-}
     healthcheck:
@@ -116,6 +114,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+    env_file:
+      - .env
     environment:
       - REDIS_URL=redis://redis:6379
       - DATABASE_URL=postgresql+asyncpg://arquivo:${POSTGRES_PASSWORD}@postgres:5432/arquivo_prod
@@ -131,10 +131,6 @@ services:
       - ENABLE_CRON=${ENABLE_CRON:-false}
       - ENVIRONMENT=production
       - ENABLE_AUTH=true
-      - JWT_SECRET_KEY=${JWT_SECRET_KEY}
-      - ADMIN_USERNAME=${ADMIN_USERNAME:-admin}
-      - ADMIN_PASSWORD=${ADMIN_PASSWORD}
-      - ADMIN_USERS=${ADMIN_USERS:-}
       - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN:-}
       - TELEGRAM_CHAT_ID=${TELEGRAM_CHAT_ID:-}
     healthcheck:
