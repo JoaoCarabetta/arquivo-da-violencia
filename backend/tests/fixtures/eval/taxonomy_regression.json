@@ -1,0 +1,129 @@
+{
+  "meta": {
+    "stage": "extraction",
+    "version": 1,
+    "source_db": "taxonomy_regression",
+    "labeled_count": 8,
+    "pending_count": 0
+  },
+  "cases": [
+    {
+      "id": "tax-homicidio-simples",
+      "tags": ["homicidio", "simples"],
+      "label_status": "labeled",
+      "input": {
+        "content": "Um homem foi morto a tiros na noite de ontem em Copacabana, Zona Sul do Rio.",
+        "metadata": {"headline": "Homem é morto a tiros em Copacabana", "published_at": "06/07/2026 às 10:00"}
+      },
+      "expected": {
+        "event_family": "homicidio",
+        "event_subtype": "simples",
+        "content_class": "incident"
+      },
+      "metadata": {"notes": "Generic intentional homicide"}
+    },
+    {
+      "id": "tax-feminicidio",
+      "tags": ["homicidio", "feminicidio"],
+      "label_status": "labeled",
+      "input": {
+        "content": "Mulher é assassinada pelo ex-marido dentro de casa em Santa Cruz, na Zona Oeste do Rio, na madrugada de domingo.",
+        "metadata": {"headline": "Feminicídio em Santa Cruz", "published_at": "06/07/2026 às 08:00"}
+      },
+      "expected": {
+        "event_family": "homicidio",
+        "event_subtype": "feminicidio",
+        "content_class": "incident"
+      },
+      "metadata": {"notes": "Domestic violence homicide"}
+    },
+    {
+      "id": "tax-intervencao-policial",
+      "tags": ["homicidio", "intervencao_policial"],
+      "label_status": "labeled",
+      "input": {
+        "content": "Suspeito foi neutralizado durante operação da PM no Jacarezinho, na Zona Norte do Rio, na manhã desta segunda-feira.",
+        "metadata": {"headline": "Operação policial deixa um morto no Jacarezinho", "published_at": "06/07/2026 às 12:00"}
+      },
+      "expected": {
+        "event_family": "homicidio",
+        "event_subtype": "intervencao_policial",
+        "content_class": "incident"
+      },
+      "metadata": {"notes": "Police intervention death"}
+    },
+    {
+      "id": "tax-latrocinio",
+      "tags": ["homicidio", "latrocinio"],
+      "label_status": "labeled",
+      "input": {
+        "content": "Comerciante foi morto durante assalto armado em uma padaria em Campinas, interior de São Paulo, na noite de sexta-feira.",
+        "metadata": {"headline": "Latrocínio em padaria deixa um morto", "published_at": "06/07/2026 às 09:00"}
+      },
+      "expected": {
+        "event_family": "homicidio",
+        "event_subtype": "latrocinio",
+        "content_class": "incident"
+      },
+      "metadata": {"notes": "Robbery homicide"}
+    },
+    {
+      "id": "tax-tentativa",
+      "tags": ["tentativa"],
+      "label_status": "labeled",
+      "input": {
+        "content": "Jovem sobrevive após ser baleado oito vezes em tentativa de homicídio em Duque de Caxias, na Baixada Fluminense.",
+        "metadata": {"headline": "Vítima sobrevive a tiros em Duque de Caxias", "published_at": "06/07/2026 às 11:00"}
+      },
+      "expected": {
+        "event_family": "tentativa",
+        "event_subtype": "simples",
+        "content_class": "incident"
+      },
+      "metadata": {"notes": "No death — tentativa family"}
+    },
+    {
+      "id": "tax-acidente-culposo",
+      "tags": ["acidente_fatal"],
+      "label_status": "labeled",
+      "input": {
+        "content": "Motorista perdeu o controle e atropelou ciclista em acidente fatal na BR-101, em Niterói. A vítima morreu no local.",
+        "metadata": {"headline": "Ciclista morre em acidente na BR-101", "published_at": "06/07/2026 às 07:00"}
+      },
+      "expected": {
+        "event_family": "acidente_fatal",
+        "event_subtype": "transito_culposo",
+        "content_class": "accident_disaster"
+      },
+      "metadata": {"notes": "Culpable traffic death — not public homicide archive"}
+    },
+    {
+      "id": "tax-aggregate",
+      "tags": ["aggregate"],
+      "label_status": "labeled",
+      "input": {
+        "content": "O estado registrou 4.241 mortes violentas em 2025, segundo balanço anual divulgado nesta terça-feira.",
+        "metadata": {"headline": "Balanço anual de mortes violentas no estado", "published_at": "06/07/2026 às 06:00"}
+      },
+      "expected": {
+        "content_class": "aggregate_statistics"
+      },
+      "metadata": {"notes": "Aggregate statistics — discarded at extraction"}
+    },
+    {
+      "id": "tax-qualificado",
+      "tags": ["homicidio", "qualificado"],
+      "label_status": "labeled",
+      "input": {
+        "content": "Homem foi encontrado amarrado e com sinais de tortura em um terreno baldio em Mesquita, na Baixada Fluminense. A polícia investiga homicídio qualificado.",
+        "metadata": {"headline": "Corpo amarrado é encontrado em Mesquita", "published_at": "06/07/2026 às 13:00"}
+      },
+      "expected": {
+        "event_family": "homicidio",
+        "event_subtype": "qualificado",
+        "content_class": "incident"
+      },
+      "metadata": {"notes": "Qualified homicide indicators"}
+    }
+  ]
+}

@@ -41,12 +41,13 @@ def _minimal_event(**victim_kwargs) -> ViolentDeathEvent:
     victim_defaults.update(victim_kwargs)
     victims = Victims(**victim_defaults)
     return ViolentDeathEvent(
+        event_family="homicidio",
+        event_subtype="simples",
         location_info=Location(city="Rio de Janeiro", state="RJ"),
         date_time=_date_time(),
         victims=victims,
         homicide_dynamic=HomicideDynamic(
             title="HOMICÍDIO - RIO DE JANEIRO - DATA NÃO INFORMADA",
-            homicide_type="Homicídio",
             chronological_description="Vítima foi morta a tiros.",
         ),
     )

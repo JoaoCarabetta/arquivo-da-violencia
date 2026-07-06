@@ -24,6 +24,7 @@ export interface Strings {
   langSwitch: string;
   events: string;
   victims: string;
+  last24h: string;
   filters: string;
   clear: string;
   fType: string;
@@ -45,6 +46,7 @@ export interface Strings {
   more: string;
   loadingMap: string;
   legendTitle: string;
+  legendSubtitle: string;
   back: string;
   summary: string;
   method: string;
@@ -92,8 +94,8 @@ export interface Strings {
 }
 
 const PT: Strings = {
-  tagline: 'Arquivo público de mortes violentas reportadas no Brasil',
-  searchPlaceholder: 'Buscar cidade, bairro, estado ou CEP',
+  tagline: 'Veja os crimes na sua região',
+  searchPlaceholder: 'Cidade, bairro, estado ou CEP',
   noResults: 'Nenhum local encontrado',
   geocodeFailed: 'Não foi possível localizar esse endereço',
   navMap: 'Mapa',
@@ -106,6 +108,7 @@ const PT: Strings = {
   langSwitch: 'English',
   events: 'eventos registrados',
   victims: 'vítimas fatais',
+  last24h: 'Últimas 24h',
   filters: 'Filtros',
   clear: 'Limpar',
   fType: 'Tipo de evento',
@@ -126,7 +129,8 @@ const PT: Strings = {
   fewer: 'menos',
   more: 'mais',
   loadingMap: 'Carregando mapa',
-  legendTitle: 'Densidade por área',
+  legendTitle: 'Densidade de eventos',
+  legendSubtitle: 'Eventos por célula do mapa',
   back: 'Voltar',
   summary: 'Resumo do caso',
   method: 'Método',
@@ -147,7 +151,7 @@ const PT: Strings = {
   exportStartDate: 'Data inicial',
   exportEndDate: 'Data final',
   exportDateRangeInvalid: 'A data inicial não pode ser posterior à data final.',
-  exportDateRangeOptional: 'Filtros de tipo, método, horário e período são definidos nos chips acima do mapa.',
+  exportDateRangeOptional: 'Opcional — deixe em branco para usar o recorte padrão de 365 dias.',
   statistics: 'Estatísticas',
   inThisView: 'Nesta área',
   mapLoadingStats: 'Aguardando área do mapa…',
@@ -178,8 +182,8 @@ const PT: Strings = {
 };
 
 const EN: Strings = {
-  tagline: 'A public archive of violent deaths reported in Brazil',
-  searchPlaceholder: 'Search city, neighborhood, state or ZIP',
+  tagline: 'See violent crimes in your area',
+  searchPlaceholder: 'City, neighborhood, state or ZIP',
   noResults: 'No place found',
   geocodeFailed: 'Could not locate that address',
   navMap: 'Map',
@@ -192,6 +196,7 @@ const EN: Strings = {
   langSwitch: 'Português',
   events: 'recorded events',
   victims: 'fatal victims',
+  last24h: 'Last 24 hours',
   filters: 'Filters',
   clear: 'Clear',
   fType: 'Event type',
@@ -212,7 +217,8 @@ const EN: Strings = {
   fewer: 'fewer',
   more: 'more',
   loadingMap: 'Loading map',
-  legendTitle: 'Density by area',
+  legendTitle: 'Event density',
+  legendSubtitle: 'Events per map cell',
   back: 'Back',
   summary: 'Case summary',
   method: 'Method',
@@ -233,7 +239,7 @@ const EN: Strings = {
   exportStartDate: 'Start date',
   exportEndDate: 'End date',
   exportDateRangeInvalid: 'Start date cannot be after end date.',
-  exportDateRangeOptional: 'Type, method, time-of-day, and date filters are set via the map chips above.',
+  exportDateRangeOptional: 'Optional — leave blank to use the default 365-day window.',
   statistics: 'Statistics',
   inThisView: 'In this view',
   mapLoadingStats: 'Waiting for map area…',
@@ -271,12 +277,18 @@ export function strings(lang: Lang): Strings {
 
 const TYPE_EN: Record<string, string> = {
   'Homicídio': 'Homicide',
+  'Homicídio simples': 'Homicide',
   'Homicídio Qualificado': 'Aggravated homicide',
+  'Homicídio qualificado': 'Aggravated homicide',
   'Homicídio Culposo': 'Negligent homicide',
   'Tentativa de Homicídio': 'Attempted homicide',
+  'Tentativa de homicídio': 'Attempted homicide',
   'Latrocínio': 'Robbery-homicide',
   'Feminicídio': 'Femicide',
   'Infanticídio': 'Infanticide',
+  'Intervenção policial': 'Police intervention',
+  'Morte no trânsito': 'Vehicular homicide',
+  'Morte dolosa no trânsito': 'Intentional vehicular death',
   'Outro': 'Other',
   'Não especificado': 'Unspecified',
 };

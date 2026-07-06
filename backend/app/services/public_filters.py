@@ -3,6 +3,7 @@
 from sqlalchemy import ColumnElement, or_
 
 from app.models.unique_event import UniqueEvent
+from app.taxonomy import parse_legacy_homicide_type
 
 # Brazilian federative units (27 states + DF).
 BR_UFS = frozenset(
@@ -37,20 +38,35 @@ BR_UFS = frozenset(
     }
 )
 
-# Phase A (interim, no migration): cap victim_count and exclude non-BR states by UF.
-# Phase B (after AQV-28): switch to UniqueEvent.content_class == "incident".
+# Public archive: homicides only (event_family=homicidio), single incidents, BR scope.
 
 
 def public_incident_criteria() -> tuple[ColumnElement, ...]:
-    """SQLAlchemy criteria for plausible single-incident rows (Phase A)."""
+    """SQLAlchemy criteria for public homicide archive rows."""
     return (
+        UniqueEvent.event_family == "homicidio",
+        UniqueEvent.content_class == "incident",
         UniqueEvent.victim_count <= 10,
         or_(UniqueEvent.state.in_(BR_UFS), UniqueEvent.state.is_(None)),
     )
 
 
 def apply_public_incident_filter(statement):
-    """Apply Phase A public guardrail filters to a Select statement."""
+    """Apply public homicide archive filters to a Select statement."""
     for criterion in public_incident_criteria():
         statement = statement.where(criterion)
     return statement
+
+
+def homicide_type_filter(type_value: str) -> ColumnElement:
+    """Match legacy homicide_type label or (event_family, event_subtype) pair."""
+    family, subtype = parse_legacy_homicide_type(type_value)
+    return or_(
+        UniqueEvent.homicide_type == type_value,
+        (UniqueEvent.event_family == family) & (UniqueEvent.event_subtype == subtype),
+    )
+
+
+def homicide_types_filter(type_values: list[str]) -> ColumnElement:
+    """OR of multiple homicide type filters."""
+    return or_(*(homicide_type_filter(value) for value in type_values))

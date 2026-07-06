@@ -4,44 +4,17 @@ from typing import Literal, Optional
 
 from pydantic import BaseModel, Field, model_validator
 
+from app.taxonomy import (
+    ContentClass,
+    EventFamily,
+    EventSubtype,
+    MethodOfDeath,
+    validate_family_subtype,
+)
 
-# ---- Type definitions for standardization ----
 
-HomicideType = Literal[
-    "Homicídio",
-    "Homicídio Qualificado",
-    "Homicídio Culposo",
-    "Tentativa de Homicídio",
-    "Latrocínio",
-    "Feminicídio",
-    "Infanticídio",
-    "Intervenção policial",
-    "Morte no trânsito",
-    "Outro",
-]
-
-MethodOfDeath = Literal[
-    "Arma de fogo",
-    "Arma branca",
-    "Estrangulamento",
-    "Asfixia",
-    "Espancamento",
-    "Atropelamento",
-    "Envenenamento",
-    "Objeto contundente",
-    "Incêndio",
-    "Queda",
-    "Outro",
-    "Não especificado",
-]
-
-ContentClass = Literal[
-    "incident",
-    "aggregate_statistics",
-    "non_incident",
-    "accident_disaster",
-    "foreign",
-]
+# Re-export for callers that imported from here previously.
+HomicideType = str  # deprecated: use event_family + event_subtype
 
 
 # ---- Classes for Structured Extraction ----
@@ -402,24 +375,6 @@ class HomicideDynamic(BaseModel):
         """,
     )
 
-    homicide_type: HomicideType = Field(
-        ...,
-        description="""
-        Classificação do tipo de homicídio segundo terminologia jurídica brasileira.
-        Valores permitidos:
-        - "Homicídio"
-        - "Homicídio Qualificado"
-        - "Homicídio Culposo"
-        - "Tentativa de Homicídio"
-        - "Latrocínio"
-        - "Feminicídio"
-        - "Infanticídio"
-        - "Intervenção policial"
-        - "Morte no trânsito"
-        - "Outro"
-        """,
-    )
-
     method: Optional[MethodOfDeath] = Field(
         None,
         description="""
@@ -468,6 +423,19 @@ class HomicideDynamic(BaseModel):
 class ViolentDeathEvent(BaseModel):
     """Informações estruturadas completas sobre morte violenta extraída de notícia."""
 
+    event_family: EventFamily = Field(
+        default="homicidio",
+        description=(
+            "Família do evento: homicidio (morte violenta intencional), tentativa (sem óbito), "
+            "acidente_fatal (culposo), nao_classificado."
+        ),
+    )
+
+    event_subtype: EventSubtype = Field(
+        default="simples",
+        description="Subtipo dentro da família; deve ser válido para event_family.",
+    )
+
     content_class: ContentClass = Field(
         default="incident",
         description=(
@@ -498,4 +466,9 @@ class ViolentDeathEvent(BaseModel):
     additional_context: Optional[str] = Field(
         None, description="Contexto adicional relevante que não se enquadra nas categorias acima"
     )
+
+    @model_validator(mode="after")
+    def validate_taxonomy(self):
+        validate_family_subtype(self.event_family, self.event_subtype)
+        return self
 

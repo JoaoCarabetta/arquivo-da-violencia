@@ -16,7 +16,6 @@ import {
   ufName,
   dictionaryRows,
 } from '@/lib/i18n';
-import { TemporalScopeNote } from './TemporalScopeNote';
 import {
   DEFAULT_SELECTED_COLUMN_IDS,
   EXPORT_COLUMN_GROUPS,
@@ -27,15 +26,16 @@ import {
 } from '@/lib/exportColumns';
 import {
   computeStats,
+  computeLast24hStats,
   buildTrendMonths,
   sortPeriods,
+  trendChartScale,
   type PortalFilters,
   type PortalMode,
 } from './types';
 
 interface RightPanelProps {
   mode: PortalMode;
-  sinceDate: string | null;
   pointsInView: MapPoint[];
   viewportReady: boolean;
   filteredCount: number;
@@ -122,9 +122,6 @@ function PanelContent(props: RightPanelProps) {
             </button>
           )}
         </div>
-        <div className="mt-2">
-          <TemporalScopeNote since={props.sinceDate} />
-        </div>
       </div>
 
       {mode === 'stats' && <StatsMode {...props} />}
@@ -141,13 +138,16 @@ function StatsMode(props: RightPanelProps) {
   const { pointsInView, hasFilters, viewportReady } = props;
 
   const stats = useMemo(() => computeStats(pointsInView), [pointsInView]);
+  const last24h = useMemo(() => computeLast24hStats(pointsInView), [pointsInView]);
   const months = useMemo(() => buildTrendMonths(pointsInView), [pointsInView]);
 
   const scopeNote = viewportReady
     ? t.inVisibleArea + (hasFilters ? t.filtersActive : '')
     : t.mapLoadingStats;
 
-  const trendMax = Math.max(1, ...months.map((m) => stats.trend[m.key] ?? 0));
+  const trendCounts = months.map((m) => stats.trend[m.key] ?? 0);
+  const trendPeak = Math.max(0, ...trendCounts);
+  const { scaleMax: trendScaleMax, ticks: trendTicks } = trendChartScale(trendPeak);
   const typeMax = Math.max(1, ...Object.values(stats.byType));
   const typeRows = Object.entries(stats.byType)
     .sort((a, b) => b[1] - a[1])
@@ -162,27 +162,38 @@ function StatsMode(props: RightPanelProps) {
   return (
     <div className="px-5 pb-[30px] pt-4">
       {/* headline numbers */}
-      <div className="mb-2 grid grid-cols-2 gap-[11px]">
-        <div className="rounded-xl px-[15px] py-[13px]" style={{ border: '1px solid var(--stone-200)' }}>
+      <div className="mb-2 grid grid-cols-3 gap-[9px]">
+        <div className="rounded-xl px-3 py-[11px]" style={{ border: '1px solid var(--stone-200)' }}>
           <div
             className="leading-none"
-            style={{ fontSize: 30, fontWeight: 600, letterSpacing: '-.02em', color: 'var(--stone-900)', fontVariantNumeric: 'tabular-nums' }}
+            style={{ fontSize: 26, fontWeight: 600, letterSpacing: '-.02em', color: 'var(--stone-900)', fontVariantNumeric: 'tabular-nums' }}
           >
             {viewportReady ? fmtNumber(stats.total, lang) : '—'}
           </div>
-          <div className="mt-[5px]" style={{ fontSize: 12, color: 'var(--color-text-muted)' }}>
+          <div className="mt-[5px] leading-snug" style={{ fontSize: 11, color: 'var(--color-text-muted)' }}>
             {t.events}
           </div>
         </div>
-        <div className="rounded-xl px-[15px] py-[13px]" style={{ border: '1px solid var(--stone-200)', background: 'var(--red-50)' }}>
+        <div className="rounded-xl px-3 py-[11px]" style={{ border: '1px solid var(--stone-200)', background: 'var(--red-50)' }}>
           <div
             className="leading-none"
-            style={{ fontSize: 30, fontWeight: 600, letterSpacing: '-.02em', color: 'var(--red-700)', fontVariantNumeric: 'tabular-nums' }}
+            style={{ fontSize: 26, fontWeight: 600, letterSpacing: '-.02em', color: 'var(--red-700)', fontVariantNumeric: 'tabular-nums' }}
           >
             {viewportReady ? fmtNumber(stats.victims, lang) : '—'}
           </div>
-          <div className="mt-[5px]" style={{ fontSize: 12, color: 'var(--red-700)', opacity: 0.85 }}>
+          <div className="mt-[5px] leading-snug" style={{ fontSize: 11, color: 'var(--red-700)', opacity: 0.85 }}>
             {t.victims}
+          </div>
+        </div>
+        <div className="rounded-xl px-3 py-[11px]" style={{ border: '1px solid var(--stone-200)', background: 'var(--blue-50)' }}>
+          <div
+            className="leading-none"
+            style={{ fontSize: 26, fontWeight: 600, letterSpacing: '-.02em', color: 'var(--blue-700)', fontVariantNumeric: 'tabular-nums' }}
+          >
+            {viewportReady ? fmtNumber(last24h.total, lang) : '—'}
+          </div>
+          <div className="mt-[5px] leading-snug" style={{ fontSize: 11, color: 'var(--blue-700)', opacity: 0.9 }}>
+            {t.last24h}
           </div>
         </div>
       </div>
@@ -192,23 +203,55 @@ function StatsMode(props: RightPanelProps) {
 
       {/* monthly trend */}
       <SectionLabel>{t.trend}</SectionLabel>
-      <div className="mb-1.5 flex h-[74px] items-end gap-1">
-        {months.map((m) => {
-          const c = stats.trend[m.key] ?? 0;
-          const h = Math.round((c / trendMax) * 100);
-          return (
+      <div className="mb-1.5 flex gap-1">
+        {trendTicks.length > 0 && (
+          <div
+            className="flex w-[22px] shrink-0 flex-col font-mono tabular-nums"
+            style={{
+              height: 74,
+              fontSize: 9.5,
+              color: 'var(--stone-400)',
+              justifyContent: trendTicks.length === 1 ? 'flex-start' : 'space-between',
+            }}
+          >
+            {[...trendTicks].sort((a, b) => b - a).map((v) => (
+              <span key={v}>{fmtNumber(v, lang)}</span>
+            ))}
+          </div>
+        )}
+        <div className="relative min-w-0 flex-1" style={{ height: 74 }}>
+          {trendTicks.map((v) => (
             <div
-              key={m.key}
-              title={`${monthShort(m.m, lang)}/${String(m.y).slice(2)}: ${c}`}
-              className="flex h-full flex-1 flex-col items-center justify-end"
-            >
-              <div
-                className="w-full rounded-t-[3px] transition-[height] duration-300"
-                style={{ background: c > 0 ? 'var(--blue-500)' : 'var(--stone-200)', height: `${Math.max(h, 2)}%` }}
-              />
-            </div>
-          );
-        })}
+              key={v}
+              className="pointer-events-none absolute left-0 right-0"
+              style={{
+                bottom: `${(v / trendScaleMax) * 100}%`,
+                borderTop: '1px dashed var(--stone-200)',
+              }}
+            />
+          ))}
+          <div className="relative z-[1] flex h-full items-end gap-1">
+            {months.map((m) => {
+              const c = stats.trend[m.key] ?? 0;
+              const h = Math.round((c / trendScaleMax) * 100);
+              return (
+                <div
+                  key={m.key}
+                  title={`${monthShort(m.m, lang)}/${String(m.y).slice(2)}: ${fmtNumber(c, lang)}`}
+                  className="flex h-full min-w-0 flex-1 flex-col items-center justify-end"
+                >
+                  <div
+                    className="w-full rounded-t-[3px] transition-[height] duration-300"
+                    style={{
+                      background: c > 0 ? 'var(--blue-500)' : 'var(--stone-200)',
+                      height: `${Math.max(h, 2)}%`,
+                    }}
+                  />
+                </div>
+              );
+            })}
+          </div>
+        </div>
       </div>
       <div className="mb-[26px] flex justify-between font-mono" style={{ fontSize: 9.5, color: 'var(--stone-400)' }}>
         <span>{`${monthShort(months[0].m, lang)}/${String(months[0].y).slice(2)}`}</span>
