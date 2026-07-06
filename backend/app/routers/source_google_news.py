@@ -7,7 +7,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 from sqlalchemy import text
 import math
 
-from app.database import get_session
+from app.database import get_session, sql_hour_bucket
 from app.models import SourceGoogleNews, SourceGoogleNewsRead, SourceStatus
 
 router = APIRouter(prefix="/sources", tags=["sources"])
@@ -112,10 +112,10 @@ async def get_sources_by_hour(
     # Calculate the cutoff time
     cutoff_time = datetime.utcnow() - timedelta(hours=hours)
     
-    # Use raw SQL to group by hour and status (SQLite uses strftime)
-    query = text("""
+    hour_expr = sql_hour_bucket("fetched_at")
+    query = text(f"""
         SELECT 
-            strftime('%Y-%m-%d %H:00:00', fetched_at) as hour,
+            {hour_expr} as hour,
             status,
             COUNT(*) as count
         FROM source_google_news

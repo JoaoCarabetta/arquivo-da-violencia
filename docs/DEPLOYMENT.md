@@ -219,21 +219,37 @@ If you're getting 401 (Unauthorized) errors in the admin dashboard:
 
 1. **Use a reverse proxy** (nginx, Traefik, etc.) in front of the application
 2. **Set up SSL/TLS** certificates (Let's Encrypt)
-3. **Use PostgreSQL** instead of SQLite for better performance and reliability
+3. **PostgreSQL** is the production database (see `docker-compose.yml`); set a strong `POSTGRES_PASSWORD`
 4. **Set up log rotation** and monitoring
-5. **Configure backups** for the database
+5. **Configure backups** for the database (see below)
 6. **Use environment-specific `.env` files** (don't commit `.env` to git)
 
 ## Backup
 
-To backup the database:
+PostgreSQL (production):
 
 ```bash
-# SQLite backup
-docker-compose exec web cp instance/violence.db instance/violence.db.backup
+cd /root/arquivo-da-violencia
 
-# Or copy the entire instance directory
-cp -r instance instance.backup
+# Logical backup (recommended)
+docker compose -p prod exec -T postgres \
+  pg_dump -U arquivo -Fc arquivo_prod > "/root/backups/arquivo_prod_$(date +%Y%m%d).dump"
+
+# Restore (staging or disaster recovery)
+docker compose -p prod exec -T postgres \
+  pg_restore -U arquivo --clean --if-exists --no-owner --dbname=arquivo_prod < backup.dump
+```
+
+Staging sync from production (after Postgres cutover):
+
+```bash
+bash scripts/sync-staging-db.sh
+```
+
+Legacy SQLite backup (pre-migration archives only):
+
+```bash
+sqlite3 backend/app/instance/violence.db ".backup '/root/backups/violence.db'"
 ```
 
 ## Stopping the Application

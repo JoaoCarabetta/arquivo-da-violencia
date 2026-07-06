@@ -1,150 +1,106 @@
 #!/bin/bash
 # =============================================================================
-# Staging Database Sync Script
+# Staging Database Sync Script (PostgreSQL)
 # =============================================================================
-# Copies the production database to staging environment.
+# Copies the production PostgreSQL database to staging.
 # Called after production deploys to refresh staging with current prod data.
 #
 # Usage:
 #   ./scripts/sync-staging-db.sh
 #
-# Safety features:
-#   - Stops staging containers before copying to prevent corruption
-#   - Uses sqlite3 .backup for consistent copy
-#   - Creates backup of current staging DB before overwriting
-#   - Runs migrations after copy
-#   - Verifies staging health after restart
+# Requires:
+#   - POSTGRES_PASSWORD in .env (same postgres container as prod/staging stacks)
+#   - arquivo_prod and arquivo_staging databases on the postgres service
 # =============================================================================
 
 set -e
 
 cd /root/arquivo-da-violencia
 
-PROD_DB="./backend/app/instance/violence.db"
-STAGING_DB="./staging_instance/violence.db"
-STAGING_BACKUP="./staging_instance/violence.db.backup.$(date +%Y%m%d_%H%M%S)"
+COMPOSE_PROD="-p prod -f docker-compose.yml"
 COMPOSE_STAGING="-p staging -f docker-compose.yml -f docker-compose.staging.yml"
+DUMP_PATH="/tmp/arquivo_prod_sync.dump"
 
-echo "🔄 Starting production to staging database sync..."
-echo ""
+if [ -z "${POSTGRES_PASSWORD:-}" ]; then
+    if [ -f .env ]; then
+        set -a
+        # shellcheck disable=SC1091
+        source .env
+        set +a
+    fi
+fi
 
-# Step 0: Verify production database exists
-if [ ! -f "$PROD_DB" ]; then
-    echo "❌ Production database not found at $PROD_DB"
+if [ -z "${POSTGRES_PASSWORD:-}" ]; then
+    echo "❌ POSTGRES_PASSWORD is not set"
     exit 1
 fi
 
-# Step 1: Create staging instance directory if it doesn't exist
-echo "📁 Ensuring staging instance directory exists..."
-mkdir -p ./staging_instance
-chmod 755 ./staging_instance
-
-# Step 2: Stop staging containers
+echo "🔄 Starting production → staging PostgreSQL sync..."
 echo ""
-echo "⏳ Stopping staging containers..."
+
+echo "⏳ Ensuring postgres is running..."
+docker compose $COMPOSE_PROD up -d postgres
+
+echo ""
+echo "⏳ Stopping staging api/worker..."
 docker compose $COMPOSE_STAGING stop api worker || true
-echo "   Staging containers stopped"
 
-# Step 3: Backup current staging database (if exists)
-if [ -f "$STAGING_DB" ]; then
-    echo ""
-    echo "💾 Backing up current staging database..."
-    cp "$STAGING_DB" "$STAGING_BACKUP"
-    echo "   Backup saved to: $STAGING_BACKUP"
-fi
-
-# Step 4: Copy production database to staging
 echo ""
-echo "📥 Copying production database to staging..."
+echo "📥 Dumping production database (arquivo_prod)..."
+docker compose $COMPOSE_PROD exec -T postgres \
+    pg_dump -U arquivo -Fc -d arquivo_prod > "$DUMP_PATH"
+echo "   Dump saved to $DUMP_PATH"
 
-# Check if sqlite3 is available
-if command -v sqlite3 &> /dev/null; then
-    # Use sqlite3 .backup for a consistent copy (handles WAL mode correctly)
-    sqlite3 "$PROD_DB" ".backup '$STAGING_DB'"
-    echo "   Database copied using sqlite3 .backup (safe for WAL mode)"
-else
-    # Fallback to file copy (ensure no writes happening)
-    cp "$PROD_DB" "$STAGING_DB"
-    # Also copy WAL and SHM files if they exist
-    [ -f "${PROD_DB}-wal" ] && cp "${PROD_DB}-wal" "${STAGING_DB}-wal"
-    [ -f "${PROD_DB}-shm" ] && cp "${PROD_DB}-shm" "${STAGING_DB}-shm"
-    echo "   Database copied using file copy"
-fi
-
-# Ensure proper permissions
-chmod 666 "$STAGING_DB"
-
-# Step 5: Run migrations on staging database
 echo ""
-echo "🔄 Running migrations on staging database..."
-docker compose $COMPOSE_STAGING run --rm api alembic upgrade head
+echo "🔄 Restoring into staging database (arquivo_staging)..."
+docker compose $COMPOSE_PROD exec -T postgres \
+    pg_restore -U arquivo --clean --if-exists --no-owner --dbname=arquivo_staging < "$DUMP_PATH"
+echo "   Restore complete"
 
-# Step 6: Start staging containers
 echo ""
-echo "🔄 Starting staging containers..."
+echo "🔄 Starting staging api/worker..."
 docker compose $COMPOSE_STAGING up -d api worker
 
-# Step 7: Health check
 echo ""
 echo "🏥 Waiting for staging containers to be healthy..."
 MAX_ATTEMPTS=30
 ATTEMPT=1
 
 while [ $ATTEMPT -le $MAX_ATTEMPTS ]; do
-    # Check API health via HTTP
     API_HEALTHY=false
     if curl -sf "http://localhost:8001/health" > /dev/null 2>&1; then
         API_HEALTHY=true
     fi
-    
-    # Check Worker health via Docker
+
     WORKER_HEALTHY=false
     if docker inspect --format='{{.State.Health.Status}}' staging-arquivo-worker 2>/dev/null | grep -q "healthy"; then
         WORKER_HEALTHY=true
     fi
-    
-    # Both must be healthy
+
     if [ "$API_HEALTHY" = true ] && [ "$WORKER_HEALTHY" = true ]; then
         echo "   ✅ Staging API is healthy"
         echo "   ✅ Staging Worker is healthy"
         break
     fi
-    
+
     if [ $ATTEMPT -eq $MAX_ATTEMPTS ]; then
         echo "   ❌ Health check failed after $MAX_ATTEMPTS attempts"
-        echo ""
-        echo "📋 Container status:"
         docker ps --filter name="staging-arquivo" --format 'table {{.Names}}\t{{.Status}}'
-        echo ""
-        echo "📋 Recent staging API logs:"
-        docker logs --tail=30 staging-arquivo-api
-        echo ""
-        echo "📋 Recent staging Worker logs:"
-        docker logs --tail=30 staging-arquivo-worker
         exit 1
     fi
-    
-    STATUS=""
-    [ "$API_HEALTHY" = false ] && STATUS="$STATUS API"
-    [ "$WORKER_HEALTHY" = false ] && STATUS="$STATUS Worker"
-    echo "   Waiting for:$STATUS (attempt $ATTEMPT/$MAX_ATTEMPTS)"
+
     sleep 2
     ATTEMPT=$((ATTEMPT + 1))
 done
 
-# Step 8: Summary
-PROD_SIZE=$(du -h "$PROD_DB" | cut -f1)
-STAGING_SIZE=$(du -h "$STAGING_DB" | cut -f1)
+echo ""
+echo "📊 Row counts (staging):"
+docker compose $COMPOSE_PROD exec -T postgres psql -U arquivo -d arquivo_staging -c \
+    "SELECT 'source_google_news' AS tbl, COUNT(*) FROM source_google_news
+     UNION ALL SELECT 'raw_event', COUNT(*) FROM raw_event
+     UNION ALL SELECT 'unique_event', COUNT(*) FROM unique_event;"
+
+rm -f "$DUMP_PATH"
 
 echo ""
-echo "✅ Database sync complete!"
-echo "   Production DB size: $PROD_SIZE"
-echo "   Staging DB size: $STAGING_SIZE"
-echo "   Staging API: http://localhost:8001"
-
-# Clean up old backups (keep last 5)
-echo ""
-echo "🧹 Cleaning up old backups..."
-ls -t ./staging_instance/violence.db.backup.* 2>/dev/null | tail -n +6 | xargs -r rm -f
-echo "   Kept last 5 backups"
-
+echo "✅ PostgreSQL staging sync complete!"

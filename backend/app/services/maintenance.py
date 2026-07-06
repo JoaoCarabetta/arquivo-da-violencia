@@ -80,6 +80,8 @@ def pick_survivor_id(event_ids: list[dict[str, Any]]) -> int:
 
 async def checkpoint_wal() -> None:
     """Best-effort passive WAL checkpoint to limit lock contention on SQLite."""
+    if not get_settings().is_sqlite:
+        return
     async with async_session_maker() as session:
         await session.execute(text("PRAGMA wal_checkpoint(PASSIVE)"))
         await session.commit()
@@ -323,7 +325,7 @@ async def merge_exact_duplicate_unique_events(dry_run: bool = True) -> dict:
                 text("""
                     UPDATE unique_event
                     SET source_count = :source_count,
-                        needs_enrichment = 1,
+                        needs_enrichment = true,
                         updated_at = CURRENT_TIMESTAMP
                     WHERE id = :survivor_id
                 """),

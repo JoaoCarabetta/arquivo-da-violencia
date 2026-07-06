@@ -38,6 +38,7 @@ docker compose -f docker-compose.dev.yml -f docker-compose.dev.override.yml up -
 |----------|------------|
 | Frontend | http://localhost (Vite, hot-reload) |
 | API      | http://localhost:8010 |
+| Postgres | localhost:5432 (`arquivo_dev` / password `arquivo_dev`) |
 | Redis    | localhost:6379 |
 
 Stop:
@@ -74,7 +75,12 @@ docker compose -f docker-compose.dev.yml exec api alembic upgrade head
 ```
 
 Copy env vars from [env.example](env.example) into `.env` at the repo root before
-starting services that need API keys.
+starting services that need API keys. Set `POSTGRES_PASSWORD` for the Postgres
+service (default dev password: `arquivo_dev`).
+
+Production and staging use PostgreSQL (`arquivo_prod` / `arquivo_staging`).
+See [docs/postgres-migration-runbook.md](docs/postgres-migration-runbook.md) for
+cutover steps from legacy SQLite.
 
 ## Production server (SSH)
 

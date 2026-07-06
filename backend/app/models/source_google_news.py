@@ -3,6 +3,7 @@
 from datetime import datetime
 from enum import Enum
 
+from sqlalchemy import Column, String
 from sqlmodel import Field, SQLModel
 
 
@@ -55,8 +56,11 @@ class SourceGoogleNewsBase(SQLModel):
     # Search context (which query found this)
     search_query: str | None = Field(default=None, max_length=256)
     
-    # Pipeline status
-    status: SourceStatus = Field(default=SourceStatus.ready_for_classification, index=True)
+    # Pipeline status (stored as VARCHAR — avoids native Postgres enum drift)
+    status: SourceStatus = Field(
+        default=SourceStatus.ready_for_classification,
+        sa_column=Column(String(40), nullable=False, index=True),
+    )
     
     # Classification results (from headline classification)
     is_violent_death: bool | None = Field(default=None, index=True)
