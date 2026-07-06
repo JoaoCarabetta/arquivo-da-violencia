@@ -153,15 +153,14 @@ export const SearchCard = memo(function SearchCard({ points, onLocate }: SearchC
   }
 
   return (
-    <div className="absolute left-[18px] top-[18px] z-[1200] w-[380px] max-w-[calc(100%-36px)]">
-      <div
-        className="overflow-hidden rounded-[14px]"
-        style={{
-          background: 'var(--color-surface)',
-          border: '1px solid var(--color-border)',
-          boxShadow: '0 6px 26px rgba(20,23,28,.13)',
-        }}
-      >
+    <div
+      className="overflow-hidden rounded-[14px]"
+      style={{
+        background: 'var(--color-surface)',
+        border: '1px solid var(--color-border)',
+        boxShadow: '0 6px 26px rgba(20,23,28,.13)',
+      }}
+    >
         <div className="px-[15px] pb-[11px] pt-[13px]" style={{ borderBottom: '1px solid var(--stone-100)' }}>
           <div className="flex items-baseline gap-2">
             <span
@@ -273,7 +272,6 @@ export const SearchCard = memo(function SearchCard({ points, onLocate }: SearchC
             </div>
           )}
         </div>
-      </div>
     </div>
   );
 });

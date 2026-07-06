@@ -7,9 +7,58 @@ export interface PortalFilters {
   types: string[];
   methods: string[];
   periods: string[];
+  /** Inclusive ISO date (YYYY-MM-DD), empty = no lower bound. */
+  startDate: string;
+  /** Inclusive ISO date (YYYY-MM-DD), empty = no upper bound. */
+  endDate: string;
 }
 
-export const EMPTY_FILTERS: PortalFilters = { types: [], methods: [], periods: [] };
+export const EMPTY_FILTERS: PortalFilters = {
+  types: [],
+  methods: [],
+  periods: [],
+  startDate: '',
+  endDate: '',
+};
+
+const PERIOD_ORDER = ['madrugada', 'manhã', 'manha', 'tarde', 'noite'];
+
+export function sortPeriods(values: string[]): string[] {
+  return [...values].sort((a, b) => {
+    const ia = PERIOD_ORDER.indexOf(a.toLowerCase());
+    const ib = PERIOD_ORDER.indexOf(b.toLowerCase());
+    return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib);
+  });
+}
+
+function pointDateKey(iso: string | null): string | null {
+  if (!iso) return null;
+  return iso.slice(0, 10);
+}
+
+function matchesDateFilter(iso: string | null, startDate: string, endDate: string): boolean {
+  if (!startDate && !endDate) return true;
+  const key = pointDateKey(iso);
+  if (!key) return false;
+  if (startDate && key < startDate) return false;
+  if (endDate && key > endDate) return false;
+  return true;
+}
+
+/** Format a Date as YYYY-MM-DD in local time. */
+export function formatIsoDate(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+export function dateRangeForLastDays(days: number): { startDate: string; endDate: string } {
+  const end = new Date();
+  const start = new Date();
+  start.setDate(start.getDate() - days);
+  return { startDate: formatIsoDate(start), endDate: formatIsoDate(end) };
+}
 
 /** Canonical period key — merges spelling variants. */
 export function normalizePeriodKey(value: string): string {
@@ -32,7 +81,14 @@ function matchesPeriodFilter(pointPeriod: string | null, selected: string[]): bo
 }
 
 export function hasActiveFilters(f: PortalFilters): boolean {
-  return f.types.length + f.methods.length + f.periods.length > 0;
+  return (
+    f.types.length +
+      f.methods.length +
+      f.periods.length +
+      (f.startDate ? 1 : 0) +
+      (f.endDate ? 1 : 0) >
+    0
+  );
 }
 
 /** Apply the multi-select filters to a list of points. */
@@ -42,7 +98,8 @@ export function applyFilters(points: MapPoint[], f: PortalFilters): MapPoint[] {
     (p) =>
       (f.types.length === 0 || (p.t != null && f.types.includes(p.t))) &&
       (f.methods.length === 0 || (p.m != null && f.methods.includes(p.m))) &&
-      matchesPeriodFilter(p.p, f.periods)
+      matchesPeriodFilter(p.p, f.periods) &&
+      matchesDateFilter(p.d, f.startDate, f.endDate)
   );
 }
 

@@ -29,6 +29,12 @@ export interface Strings {
   fType: string;
   fMethod: string;
   fPeriod: string;
+  fTemporal: string;
+  temporal30d: string;
+  temporal90d: string;
+  temporal365d: string;
+  temporalCustom: string;
+  temporalApply: string;
   trend: string;
   byType: string;
   byState: string;
@@ -63,6 +69,9 @@ export interface Strings {
   inThisView: string;
   mapLoadingStats: string;
   filtersActive: string;
+  filtersLoading: string;
+  filtersNoOptions: string;
+  openPanel: string;
   inVisibleArea: string;
   state: string;
   reportedBy: string;
@@ -102,6 +111,12 @@ const PT: Strings = {
   fType: 'Tipo de evento',
   fMethod: 'Método',
   fPeriod: 'Período do dia',
+  fTemporal: 'Período',
+  temporal30d: '30 dias',
+  temporal90d: '90 dias',
+  temporal365d: '1 ano',
+  temporalCustom: 'Intervalo personalizado',
+  temporalApply: 'Aplicar',
   trend: 'Tendência mensal',
   byType: 'Por tipo',
   byState: 'Por estado',
@@ -132,11 +147,14 @@ const PT: Strings = {
   exportStartDate: 'Data inicial',
   exportEndDate: 'Data final',
   exportDateRangeInvalid: 'A data inicial não pode ser posterior à data final.',
-  exportDateRangeOptional: 'Opcional — deixe em branco para usar o recorte padrão de 365 dias.',
+  exportDateRangeOptional: 'Filtros de tipo, método, horário e período são definidos nos chips acima do mapa.',
   statistics: 'Estatísticas',
   inThisView: 'Nesta área',
   mapLoadingStats: 'Aguardando área do mapa…',
   filtersActive: ' · filtros ativos',
+  filtersLoading: 'Carregando opções…',
+  filtersNoOptions: 'Nenhuma opção neste recorte.',
+  openPanel: 'Abrir painel',
   inVisibleArea: 'No recorte visível do mapa',
   state: 'Estado',
   reportedBy: 'Reportado por ',
@@ -179,6 +197,12 @@ const EN: Strings = {
   fType: 'Event type',
   fMethod: 'Method',
   fPeriod: 'Time of day',
+  fTemporal: 'Date range',
+  temporal30d: '30 days',
+  temporal90d: '90 days',
+  temporal365d: '1 year',
+  temporalCustom: 'Custom range',
+  temporalApply: 'Apply',
   trend: 'Monthly trend',
   byType: 'By type',
   byState: 'By state',
@@ -209,11 +233,14 @@ const EN: Strings = {
   exportStartDate: 'Start date',
   exportEndDate: 'End date',
   exportDateRangeInvalid: 'Start date cannot be after end date.',
-  exportDateRangeOptional: 'Optional — leave blank to use the default 365-day window.',
+  exportDateRangeOptional: 'Type, method, time-of-day, and date filters are set via the map chips above.',
   statistics: 'Statistics',
   inThisView: 'In this view',
   mapLoadingStats: 'Waiting for map area…',
   filtersActive: ' · filters active',
+  filtersLoading: 'Loading options…',
+  filtersNoOptions: 'No options in this view.',
+  openPanel: 'Open panel',
   inVisibleArea: 'In the visible map area',
   state: 'State',
   reportedBy: 'Reported by ',

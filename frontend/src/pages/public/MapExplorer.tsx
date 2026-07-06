@@ -2,13 +2,14 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { FlyToInterpolator } from '@deck.gl/core';
-import { Loader2 } from 'lucide-react';
+import { Loader2, LayoutGrid } from 'lucide-react';
 import { fetchMapPoints, fetchPublicStats } from '@/lib/api';
 import { useI18n } from '@/contexts/I18nContext';
 import { CrimeMap, type MapViewState, type MapBounds, type ViewportSnapshot } from '@/components/map/CrimeMap';
 import { MapErrorBoundary } from '@/components/map/MapErrorBoundary';
 import { LeftRail } from '@/components/portal/LeftRail';
 import { SearchCard, type LocatedPlace } from '@/components/portal/SearchCard';
+import { MapFilterBar } from '@/components/portal/MapFilterBar';
 import { RightPanel } from '@/components/portal/RightPanel';
 import { AboutModal } from '@/components/portal/AboutModal';
 import { MethodologyPanel } from '@/components/portal/MethodologyPanel';
@@ -44,17 +45,13 @@ const PATH_FOR: Record<PortalMode, string> = {
   data: '/dados',
 };
 
-interface MapExplorerProps {
-  initialMode?: PortalMode;
-  initialAbout?: boolean;
-  initialMethodology?: boolean;
+function modeFromPath(pathname: string): PortalMode {
+  if (pathname.startsWith('/eventos')) return 'feed';
+  if (pathname === '/dados') return 'data';
+  return 'stats';
 }
 
-export function MapExplorer({
-  initialMode = 'stats',
-  initialAbout = false,
-  initialMethodology = false,
-}: MapExplorerProps) {
+export function MapExplorer() {
   const navigate = useNavigate();
   const location = useLocation();
   const { id } = useParams();
@@ -62,7 +59,9 @@ export function MapExplorer({
   const isMobile = useIsMobile();
 
   const selectedId = id ? Number(id) : null;
-  const mode = initialMode;
+  const mode = useMemo(() => modeFromPath(location.pathname), [location.pathname]);
+  const aboutFromRoute = location.pathname === '/sobre';
+  const methodologyFromRoute = location.pathname === '/metodologia';
 
   const [viewState, setViewState] = useState<MapViewState>(BRAZIL_VIEW);
   const [panelBounds, setPanelBounds] = useState<MapBounds | null>(null);
@@ -70,8 +69,8 @@ export function MapExplorer({
   const [panelLng, setPanelLng] = useState(BRAZIL_VIEW.longitude);
   const [filters, setFilters] = useState<PortalFilters>(EMPTY_FILTERS);
   const [searchedLocation, setSearchedLocation] = useState<{ lat: number; lng: number } | null>(null);
-  const [aboutOpen, setAboutOpen] = useState(initialAbout);
-  const [methodologyOpen, setMethodologyOpen] = useState(initialMethodology);
+  const [aboutOpen, setAboutOpen] = useState(aboutFromRoute);
+  const [methodologyOpen, setMethodologyOpen] = useState(methodologyFromRoute);
   const [mobilePanelOpen, setMobilePanelOpen] = useState(false);
 
   const { data, isLoading } = useQuery({
@@ -119,6 +118,10 @@ export function MapExplorer({
 
   const clearFilters = useCallback(() => {
     setFilters(EMPTY_FILTERS);
+  }, []);
+
+  const setDateRange = useCallback((startDate: string, endDate: string) => {
+    setFilters((prev) => ({ ...prev, startDate, endDate }));
   }, []);
 
   const onMode = useCallback(
@@ -219,12 +222,12 @@ export function MapExplorer({
   }, [location.pathname, navigate]);
 
   useEffect(() => {
-    setAboutOpen(initialAbout);
-  }, [initialAbout]);
+    setAboutOpen(aboutFromRoute);
+  }, [aboutFromRoute]);
 
   useEffect(() => {
-    setMethodologyOpen(initialMethodology);
-  }, [initialMethodology]);
+    setMethodologyOpen(methodologyFromRoute);
+  }, [methodologyFromRoute]);
 
   useEffect(() => {
     if (isMobile && selectedId != null) {
@@ -239,11 +242,6 @@ export function MapExplorer({
     viewportReady,
     filteredCount: filteredPoints.length,
     filters,
-    availableTypes,
-    availableMethods,
-    availablePeriods,
-    onToggleFilter: toggleFilter,
-    onClearFilters: clearFilters,
     hasFilters: filtersActive,
     selectedId,
     onSelect,
@@ -284,8 +282,42 @@ export function MapExplorer({
           </div>
         )}
 
-        <SearchCard points={allPoints} onLocate={onLocate} />
+        <div className="pointer-events-none absolute left-[18px] top-[18px] z-[1200] flex w-[min(420px,calc(100%-36px))] flex-col gap-2">
+          <div className="pointer-events-auto">
+            <SearchCard points={allPoints} onLocate={onLocate} />
+          </div>
+          <div className="pointer-events-auto">
+            <MapFilterBar
+              filters={filters}
+              availableTypes={availableTypes}
+              availableMethods={availableMethods}
+              availablePeriods={availablePeriods}
+              dataLoading={isLoading}
+              hasFilters={filtersActive}
+              onToggleFilter={toggleFilter}
+              onSetDateRange={setDateRange}
+              onClearFilters={clearFilters}
+            />
+          </div>
+        </div>
         <DensityLegend />
+
+        {isMobile && !mobilePanelOpen && selectedId == null && (
+          <button
+            type="button"
+            onClick={() => setMobilePanelOpen(true)}
+            className="absolute bottom-[calc(76px+env(safe-area-inset-bottom,0px))] right-3 z-[700] inline-flex items-center gap-2 rounded-full px-3.5 py-2 shadow-md"
+            style={{
+              border: '1px solid var(--stone-200)',
+              background: 'var(--color-surface)',
+              fontSize: 12.5,
+              color: 'var(--stone-800)',
+            }}
+          >
+            <LayoutGrid className="h-4 w-4" style={{ color: 'var(--blue-500)' }} />
+            {t.openPanel}
+          </button>
+        )}
       </div>
 
       <RightPanel {...panelProps} className="hidden md:flex" />
