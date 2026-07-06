@@ -8,6 +8,8 @@ import sqlite3
 from collections import defaultdict
 from pathlib import Path
 
+from app.taxonomy import parse_legacy_homicide_type
+
 from eval.schemas import CaseMetadata
 from eval.schemas_extraction import (
     ExtractionCase,
@@ -73,8 +75,22 @@ def _project_expected(extraction_data: dict) -> dict:
         "victims": {
             "number_of_victims": _deep_get(extraction_data, "victims", "number_of_victims"),
         },
-        "event_family": _deep_get(extraction_data, "event_family"),
-        "event_subtype": _deep_get(extraction_data, "event_subtype"),
+        "event_family": _deep_get(extraction_data, "event_family")
+        or (
+            parse_legacy_homicide_type(
+                _deep_get(extraction_data, "homicide_dynamic", "homicide_type")
+            )[0]
+            if _deep_get(extraction_data, "homicide_dynamic", "homicide_type")
+            else None
+        ),
+        "event_subtype": _deep_get(extraction_data, "event_subtype")
+        or (
+            parse_legacy_homicide_type(
+                _deep_get(extraction_data, "homicide_dynamic", "homicide_type")
+            )[1]
+            if _deep_get(extraction_data, "homicide_dynamic", "homicide_type")
+            else None
+        ),
         "homicide_dynamic": {
             "method": _deep_get(extraction_data, "homicide_dynamic", "method"),
         },

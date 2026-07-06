@@ -115,11 +115,11 @@ jobs:
             echo "🗑️ Removing old containers..."
             docker rm -f staging-arquivo-api staging-arquivo-worker 2>/dev/null || true
             
-            # Ensure Postgres and Redis are running (but don't recreate them)
-            echo "📦 Ensuring Postgres and Redis are running..."
-            docker compose -p staging -f docker-compose.yml -f docker-compose.staging.yml up -d --no-recreate postgres redis
+            # Ensure Redis is running (staging shares prod Postgres; do not start a second instance)
+            echo "📦 Ensuring Redis is running..."
+            docker compose -p staging -f docker-compose.yml -f docker-compose.staging.yml up -d --no-recreate redis
             
-            # Run database migrations (--no-deps to avoid recreating redis)
+            # Run database migrations against shared prod Postgres
             echo "🔄 Running database migrations..."
             docker compose -p staging -f docker-compose.yml -f docker-compose.staging.yml run --rm --no-deps api alembic upgrade head
             

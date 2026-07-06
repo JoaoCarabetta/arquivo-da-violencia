@@ -112,6 +112,8 @@ def _event_to_export_row(event: UniqueEvent, fieldnames: list[str]) -> dict[str,
     """Build a single export row restricted to the requested public columns."""
     full_row = {
         "id": event.id,
+        "event_family": event.event_family,
+        "event_subtype": event.event_subtype,
         "homicide_type": event.homicide_type,
         "method_of_death": event.method_of_death,
         "event_date": event.event_date.isoformat() if event.event_date else None,
