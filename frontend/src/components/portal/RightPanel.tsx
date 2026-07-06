@@ -1,6 +1,6 @@
 import { memo, useMemo, useState, useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { ChevronLeft, RotateCcw, SlidersHorizontal, MapPin, Clock, FileText, Download, ExternalLink } from 'lucide-react';
+import { ChevronLeft, RotateCcw, MapPin, Clock, FileText, Download, ExternalLink } from 'lucide-react';
 import { useI18n } from '@/contexts/I18nContext';
 import { fetchPublicEventById, getExportUrl, type MapPoint } from '@/lib/api';
 import { cn } from '@/lib/utils';
@@ -28,11 +28,10 @@ import {
 import {
   computeStats,
   buildTrendMonths,
+  sortPeriods,
   type PortalFilters,
   type PortalMode,
 } from './types';
-
-type FilterGroup = 'types' | 'methods' | 'periods';
 
 interface RightPanelProps {
   mode: PortalMode;
@@ -41,11 +40,6 @@ interface RightPanelProps {
   viewportReady: boolean;
   filteredCount: number;
   filters: PortalFilters;
-  availableTypes: string[];
-  availableMethods: string[];
-  availablePeriods: string[];
-  onToggleFilter: (group: FilterGroup, value: string) => void;
-  onClearFilters: () => void;
   hasFilters: boolean;
   selectedId: number | null;
   onSelect: (id: number) => void;
@@ -66,16 +60,6 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
       {children}
     </div>
   );
-}
-
-const PERIOD_ORDER = ['madrugada', 'manhã', 'manha', 'tarde', 'noite'];
-
-function sortPeriods(values: string[]): string[] {
-  return [...values].sort((a, b) => {
-    const ia = PERIOD_ORDER.indexOf(a.toLowerCase());
-    const ib = PERIOD_ORDER.indexOf(b.toLowerCase());
-    return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib);
-  });
 }
 
 export const RightPanel = memo(function RightPanel(props: RightPanelProps) {
@@ -152,74 +136,6 @@ function PanelContent(props: RightPanelProps) {
 
 // ---------------------------------------------------------------- Stats mode
 
-function Chip({
-  label,
-  active,
-  onClick,
-}: {
-  label: string;
-  active: boolean;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      onClick={onClick}
-      className="rounded-[20px] px-[11px] py-[5px] transition-all"
-      style={{
-        border: `1px solid ${active ? 'var(--blue-500)' : 'var(--stone-200)'}`,
-        background: active ? 'var(--blue-500)' : 'var(--color-surface)',
-        color: active ? '#fff' : 'var(--stone-600)',
-        fontSize: 12,
-      }}
-    >
-      {label}
-    </button>
-  );
-}
-
-function FiltersSection(props: RightPanelProps) {
-  const { t, lang } = useI18n();
-
-  return (
-    <>
-      <div className="mb-[9px] flex items-center justify-between">
-        <div className="flex items-center gap-[7px] font-mono text-[10px] uppercase tracking-[.1em]" style={{ color: 'var(--color-text-subtle)' }}>
-          <SlidersHorizontal className="h-[13px] w-[13px]" />
-          {t.filters}
-        </div>
-        {props.hasFilters && (
-          <button onClick={props.onClearFilters} className="border-none bg-transparent p-0" style={{ fontSize: 11.5, color: 'var(--blue-600)' }}>
-            {t.clear}
-          </button>
-        )}
-      </div>
-
-      <FilterGroupBlock
-        label={t.fType}
-        values={props.availableTypes}
-        active={props.filters.types}
-        render={(v) => translateType(v, lang)}
-        onToggle={(v) => props.onToggleFilter('types', v)}
-      />
-      <FilterGroupBlock
-        label={t.fMethod}
-        values={props.availableMethods}
-        active={props.filters.methods}
-        render={(v) => translateMethod(v, lang)}
-        onToggle={(v) => props.onToggleFilter('methods', v)}
-      />
-      <FilterGroupBlock
-        label={t.fPeriod}
-        values={sortPeriods(props.availablePeriods)}
-        active={props.filters.periods}
-        render={(v) => translatePeriod(v, lang)}
-        onToggle={(v) => props.onToggleFilter('periods', v)}
-        extraMargin
-      />
-    </>
-  );
-}
-
 function StatsMode(props: RightPanelProps) {
   const { t, lang } = useI18n();
   const { pointsInView, hasFilters, viewportReady } = props;
@@ -240,7 +156,7 @@ function StatsMode(props: RightPanelProps) {
     .sort((a, b) => b[1] - a[1])
     .slice(0, 6);
   const stateMax = Math.max(1, ...stateEntries.map((x) => x[1]));
-  const periodVals = sortPeriods(props.availablePeriods.filter((p) => stats.byPeriod[p] != null || true)).slice(0, 4);
+  const periodVals = sortPeriods(Object.keys(stats.byPeriod)).slice(0, 4);
   const periodMax = Math.max(1, ...periodVals.map((p) => stats.byPeriod[p] ?? 0));
 
   return (
@@ -273,8 +189,6 @@ function StatsMode(props: RightPanelProps) {
       <div className="mb-5" style={{ fontSize: 11.5, color: 'var(--color-text-subtle)' }}>
         {scopeNote}
       </div>
-
-      <FiltersSection {...props} />
 
       {/* monthly trend */}
       <SectionLabel>{t.trend}</SectionLabel>
@@ -372,36 +286,6 @@ function StatsMode(props: RightPanelProps) {
   );
 }
 
-function FilterGroupBlock({
-  label,
-  values,
-  active,
-  render,
-  onToggle,
-  extraMargin,
-}: {
-  label: string;
-  values: string[];
-  active: string[];
-  render: (v: string) => string;
-  onToggle: (v: string) => void;
-  extraMargin?: boolean;
-}) {
-  if (values.length === 0) return null;
-  return (
-    <>
-      <div className="mb-1.5" style={{ fontSize: 11, color: 'var(--color-text-muted)' }}>
-        {label}
-      </div>
-      <div className={`flex flex-wrap gap-1.5 ${extraMargin ? 'mb-6' : 'mb-[13px]'}`}>
-        {values.map((v) => (
-          <Chip key={v} label={render(v)} active={active.includes(v)} onClick={() => onToggle(v)} />
-        ))}
-      </div>
-    </>
-  );
-}
-
 function EmptyArea() {
   const { t } = useI18n();
   return <div style={{ fontSize: 12.5, color: 'var(--color-text-muted)' }}>{t.emptyArea}</div>;
@@ -491,11 +375,6 @@ function DataMode(props: RightPanelProps) {
   const { t, lang } = useI18n();
   const dict = dictionaryRows(lang);
   const [selectedColumnIds, setSelectedColumnIds] = useState<string[]>(loadSelectedColumnIds);
-  const [startDate, setStartDate] = useState('');
-  const [endDate, setEndDate] = useState('');
-  const dateRangeInvalid = Boolean(
-    startDate && endDate && startDate > endDate
-  );
 
   useEffect(() => {
     saveSelectedColumnIds(selectedColumnIds);
@@ -520,10 +399,10 @@ function DataMode(props: RightPanelProps) {
       periods: props.filters.periods,
       days: 365,
       columns: selectedExportFields(selectedColumnIds),
-      startDate: startDate || undefined,
-      endDate: endDate || undefined,
+      startDate: props.filters.startDate || undefined,
+      endDate: props.filters.endDate || undefined,
     }),
-    [props.filters, selectedColumnIds, startDate, endDate]
+    [props.filters, selectedColumnIds]
   );
 
   const toggleColumn = (id: string) => {
@@ -540,39 +419,10 @@ function DataMode(props: RightPanelProps) {
         {t.dataIntro}
       </p>
 
-      <FiltersSection {...props} />
-
       <div className="mb-[18px] rounded-xl p-4" style={{ border: '1px solid var(--stone-200)', background: 'var(--stone-50)' }}>
-        <div className="mb-3 grid grid-cols-2 gap-3">
-          <label className="flex flex-col gap-1">
-            <span style={{ fontSize: 11.5, color: 'var(--color-text-muted)' }}>{t.exportStartDate}</span>
-            <input
-              type="date"
-              value={startDate}
-              onChange={(event) => setStartDate(event.target.value)}
-              className="rounded-md px-2 py-1.5"
-              style={{ border: '1px solid var(--stone-200)', fontSize: 13 }}
-            />
-          </label>
-          <label className="flex flex-col gap-1">
-            <span style={{ fontSize: 11.5, color: 'var(--color-text-muted)' }}>{t.exportEndDate}</span>
-            <input
-              type="date"
-              value={endDate}
-              onChange={(event) => setEndDate(event.target.value)}
-              className="rounded-md px-2 py-1.5"
-              style={{ border: '1px solid var(--stone-200)', fontSize: 13 }}
-            />
-          </label>
-        </div>
         <div className="mb-3" style={{ fontSize: 11, color: 'var(--color-text-subtle)' }}>
           {t.exportDateRangeOptional}
         </div>
-        {dateRangeInvalid && (
-          <div className="mb-3 rounded-md px-2 py-1.5" style={{ fontSize: 12, color: '#b45309', background: '#fffbeb' }}>
-            {t.exportDateRangeInvalid}
-          </div>
-        )}
         <div className="mb-[13px] flex justify-between">
           <div>
             <div className="leading-none" style={{ fontSize: 26, fontWeight: 600, color: 'var(--stone-900)', fontVariantNumeric: 'tabular-nums' }}>
@@ -591,29 +441,17 @@ function DataMode(props: RightPanelProps) {
             </div>
           </div>
         </div>
-        {dateRangeInvalid ? (
-          <button
-            type="button"
-            disabled
-            className="flex w-full cursor-not-allowed items-center justify-center gap-2 rounded-[10px] p-3"
-            style={{ background: 'var(--stone-300)', color: '#fff', fontSize: 14, fontWeight: 500 }}
-          >
-            <Download className="h-[17px] w-[17px]" />
-            {t.downloadCsv}
-          </button>
-        ) : (
-          <a
-            href={getExportUrl(exportFilters)}
-            download="eventos.csv"
-            className="flex w-full items-center justify-center gap-2 rounded-[10px] p-3 transition-colors"
-            style={{ background: 'var(--blue-500)', color: '#fff', fontSize: 14, fontWeight: 500 }}
-            onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--blue-600)')}
-            onMouseLeave={(e) => (e.currentTarget.style.background = 'var(--blue-500)')}
-          >
-            <Download className="h-[17px] w-[17px]" />
-            {t.downloadCsv}
-          </a>
-        )}
+        <a
+          href={getExportUrl(exportFilters)}
+          download="eventos.csv"
+          className="flex w-full items-center justify-center gap-2 rounded-[10px] p-3 transition-colors"
+          style={{ background: 'var(--blue-500)', color: '#fff', fontSize: 14, fontWeight: 500 }}
+          onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--blue-600)')}
+          onMouseLeave={(e) => (e.currentTarget.style.background = 'var(--blue-500)')}
+        >
+          <Download className="h-[17px] w-[17px]" />
+          {t.downloadCsv}
+        </a>
         <div className="mt-2 text-center" style={{ fontSize: 11, color: 'var(--color-text-subtle)' }}>
           {props.hasFilters ? t.dataNote : t.allEvents}
         </div>

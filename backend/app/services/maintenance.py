@@ -1,6 +1,6 @@
 """Maintenance helpers for recovering the pipeline from stuck states."""
 
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from typing import Any
 
 from loguru import logger
@@ -105,16 +105,21 @@ async def recover_stuck_sources(older_than_minutes: int = 15) -> dict:
         Dict mapping each transient status to the number of rows requeued.
     """
     recovered: dict[str, int] = {}
+    cutoff = datetime.utcnow() - timedelta(minutes=int(older_than_minutes))
     async with async_session_maker() as session:
         for stuck_status, target_status in STUCK_STATUS_RESETS.items():
             result = await session.execute(
-                text(f"""
+                text("""
                     UPDATE source_google_news
                     SET status = :target_status, updated_at = CURRENT_TIMESTAMP
                     WHERE status = :stuck_status
-                    AND updated_at < datetime('now', '-{int(older_than_minutes)} minutes')
+                    AND updated_at < :cutoff
                 """),
-                {"target_status": target_status, "stuck_status": stuck_status},
+                {
+                    "target_status": target_status,
+                    "stuck_status": stuck_status,
+                    "cutoff": cutoff,
+                },
             )
             recovered[stuck_status] = result.rowcount or 0
         await session.commit()

@@ -1,5 +1,5 @@
-import { lazy, Suspense, useEffect, type ComponentProps } from 'react';
-import { BrowserRouter, Routes, Route, useLocation } from 'react-router-dom';
+import { lazy, Suspense, useEffect } from 'react';
+import { BrowserRouter, Routes, Route, useLocation, Outlet } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { AuthProvider } from '@/contexts/AuthContext';
 import { I18nProvider } from '@/contexts/I18nContext';
@@ -42,10 +42,11 @@ function PortalFallback() {
   );
 }
 
-function MapExplorerRoute(props: ComponentProps<typeof MapExplorer>) {
+function MapExplorerRoute() {
   return (
     <Suspense fallback={<PortalFallback />}>
-      <MapExplorer {...props} />
+      <MapExplorer />
+      <Outlet />
     </Suspense>
   );
 }
@@ -69,12 +70,14 @@ function App() {
           <BrowserRouter>
             <RouteTracker />
             <Routes>
-              <Route path="/" element={<MapExplorerRoute initialMode="stats" />} />
-              <Route path="/eventos" element={<MapExplorerRoute initialMode="feed" />} />
-              <Route path="/eventos/:id" element={<MapExplorerRoute initialMode="feed" />} />
-              <Route path="/dados" element={<MapExplorerRoute initialMode="data" />} />
-              <Route path="/sobre" element={<MapExplorerRoute initialMode="stats" initialAbout />} />
-              <Route path="/metodologia" element={<MapExplorerRoute initialMode="stats" initialMethodology />} />
+              <Route element={<MapExplorerRoute />}>
+                <Route index />
+                <Route path="eventos" />
+                <Route path="eventos/:id" />
+                <Route path="dados" />
+                <Route path="sobre" />
+                <Route path="metodologia" />
+              </Route>
 
               <Route path="/admin/login" element={<Login />} />
 
