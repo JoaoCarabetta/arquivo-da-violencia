@@ -9,26 +9,20 @@
 #   ./scripts/sync-staging-db.sh
 #
 # Requires:
-#   - POSTGRES_PASSWORD in .env (same postgres container as prod/staging stacks)
-#   - arquivo_prod and arquivo_staging databases on the postgres service
+#   - POSTGRES_PASSWORD in .env
+#   - Single shared Postgres container (arquivo-postgres) with arquivo_prod and
+#     arquivo_staging databases
 # =============================================================================
 
-set -e
+set -euo pipefail
 
-cd /root/arquivo-da-violencia
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck disable=SC1091
+source "$SCRIPT_DIR/lib/deploy-common.sh"
 
-COMPOSE_PROD="-p prod -f docker-compose.yml"
-COMPOSE_STAGING="-p staging -f docker-compose.yml -f docker-compose.staging.yml"
 DUMP_PATH="/tmp/arquivo_prod_sync.dump"
 
-if [ -z "${POSTGRES_PASSWORD:-}" ]; then
-    if [ -f .env ]; then
-        set -a
-        # shellcheck disable=SC1091
-        source .env
-        set +a
-    fi
-fi
+load_env
 
 if [ -z "${POSTGRES_PASSWORD:-}" ]; then
     echo "❌ POSTGRES_PASSWORD is not set"
@@ -38,8 +32,8 @@ fi
 echo "🔄 Starting production → staging PostgreSQL sync..."
 echo ""
 
-echo "⏳ Ensuring postgres is running..."
-docker compose $COMPOSE_PROD up -d postgres
+ensure_prod_postgres
+remove_orphan_staging_postgres
 
 echo ""
 echo "⏳ Stopping staging api/worker..."
@@ -50,6 +44,12 @@ echo "📥 Dumping production database (arquivo_prod)..."
 docker compose $COMPOSE_PROD exec -T postgres \
     pg_dump -U arquivo -Fc -d arquivo_prod > "$DUMP_PATH"
 echo "   Dump saved to $DUMP_PATH"
+
+echo ""
+echo "🔌 Terminating active connections to arquivo_staging..."
+docker compose $COMPOSE_PROD exec -T postgres psql -U arquivo -d postgres -c \
+    "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = 'arquivo_staging' AND pid <> pg_backend_pid();" \
+    >/dev/null || true
 
 echo ""
 echo "🔄 Restoring into staging database (arquivo_staging)..."
@@ -63,40 +63,17 @@ docker compose $COMPOSE_STAGING up -d api worker
 
 echo ""
 echo "🏥 Waiting for staging containers to be healthy..."
-# API can take >60s to pass startup auth/DB checks after a fresh recreate.
-MAX_ATTEMPTS=90
-ATTEMPT=1
-SLEEP_SECS=2
+if ! wait_for_api_health 8001 90; then
+    echo "❌ Staging API health check failed"
+    docker logs staging-arquivo-api --tail 20 2>&1 || true
+    exit 1
+fi
 
-while [ $ATTEMPT -le $MAX_ATTEMPTS ]; do
-    API_HEALTHY=false
-    if curl -sf "http://localhost:8001/health" > /dev/null 2>&1; then
-        API_HEALTHY=true
-    elif docker inspect --format='{{.State.Health.Status}}' staging-arquivo-api 2>/dev/null | grep -q "healthy"; then
-        API_HEALTHY=true
-    fi
-
-    WORKER_HEALTHY=false
-    if docker inspect --format='{{.State.Health.Status}}' staging-arquivo-worker 2>/dev/null | grep -q "healthy"; then
-        WORKER_HEALTHY=true
-    fi
-
-    if [ "$API_HEALTHY" = true ] && [ "$WORKER_HEALTHY" = true ]; then
-        echo "   ✅ Staging API is healthy"
-        echo "   ✅ Staging Worker is healthy"
-        break
-    fi
-
-    if [ $ATTEMPT -eq $MAX_ATTEMPTS ]; then
-        echo "   ❌ Health check failed after $MAX_ATTEMPTS attempts"
-        docker ps --filter name="staging-arquivo" --format 'table {{.Names}}\t{{.Status}}'
-        docker logs staging-arquivo-api --tail 20 2>&1 || true
-        exit 1
-    fi
-
-    sleep $SLEEP_SECS
-    ATTEMPT=$((ATTEMPT + 1))
-done
+if ! wait_for_worker_health staging-arquivo-worker 90; then
+    echo "❌ Staging worker health check failed"
+    docker logs staging-arquivo-worker --tail 20 2>&1 || true
+    exit 1
+fi
 
 echo ""
 echo "📊 Row counts (staging):"
