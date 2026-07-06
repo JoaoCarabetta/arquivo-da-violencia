@@ -38,19 +38,25 @@ def hash_password(value: str) -> str:
     return bcrypt.hashpw(value.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
 
 
+def quote_env_value(value: str) -> str:
+    escaped = value.replace("'", "'\"'\"'")
+    return f"'{escaped}'"
+
+
 def upgrade_password_value(raw: str) -> tuple[str, bool]:
     value = normalize_docker_value(unquote(raw))
     if not value or is_bcrypt(value):
         escaped = escape_for_docker_compose(value) if value else value
-        return escaped, False
+        quoted = quote_env_value(escaped) if escaped else escaped
+        return quoted, escaped != raw
     hashed = hash_password(value)
-    return escape_for_docker_compose(hashed), True
+    return quote_env_value(escape_for_docker_compose(hashed)), True
 
 
 def upgrade_admin_users(raw: str) -> tuple[str, int]:
     changed = 0
     pairs: list[str] = []
-    for chunk in raw.split(","):
+    for chunk in unquote(raw.strip()).split(","):
         chunk = chunk.strip()
         if not chunk or ":" not in chunk:
             continue
@@ -62,14 +68,15 @@ def upgrade_admin_users(raw: str) -> tuple[str, int]:
             continue
         if is_bcrypt(normalized):
             escaped = escape_for_docker_compose(normalized)
-            if escaped != pwd_raw:
+            if escaped != normalize_docker_value(unquote(pwd_raw)):
                 changed += 1
             pairs.append(f"{user.strip()}:{escaped}")
             continue
         hashed = escape_for_docker_compose(hash_password(normalized))
         pairs.append(f"{user.strip()}:{hashed}")
         changed += 1
-    return ",".join(pairs), changed
+    upgraded = quote_env_value(",".join(pairs)) if pairs else raw
+    return upgraded, changed
 
 
 def upgrade_env_file(path: Path) -> int:
@@ -97,14 +104,11 @@ def upgrade_env_file(path: Path) -> int:
             out.append(line)
             continue
 
-        upgraded, did_hash = upgrade_password_value(raw)
+        upgraded, did_change = upgrade_password_value(raw)
         out.append(f"{key}={upgraded}")
-        if did_hash:
+        if did_change:
             changed += 1
-            print(f"   Hashed plaintext {key} in {path}")
-        elif upgraded != raw:
-            changed += 1
-            print(f"   Escaped bcrypt {key} for Docker Compose in {path}")
+            print(f"   Updated {key} in {path}")
 
     if changed:
         path.write_text("\n".join(out) + "\n", encoding="utf-8")

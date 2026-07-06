@@ -6,12 +6,22 @@ COMPOSE_PROD="-p prod -f docker-compose.yml"
 COMPOSE_STAGING="-p staging -f docker-compose.yml -f docker-compose.staging.yml"
 
 load_env() {
-    if [ -z "${POSTGRES_PASSWORD:-}" ] && [ -f "$REPO_DIR/.env" ]; then
-        set -a
-        # shellcheck disable=SC1091
-        source "$REPO_DIR/.env"
-        set +a
+    if [ -n "${POSTGRES_PASSWORD:-}" ]; then
+        return 0
     fi
+    local env_file="$REPO_DIR/.env"
+    if [ ! -f "$env_file" ]; then
+        return 0
+    fi
+    # Do not `source` .env: bcrypt hashes contain `$` sequences.
+    POSTGRES_PASSWORD="$(
+        grep -m1 '^POSTGRES_PASSWORD=' "$env_file" | cut -d= -f2- | tr -d '\r'
+    )"
+    POSTGRES_PASSWORD="${POSTGRES_PASSWORD%\"}"
+    POSTGRES_PASSWORD="${POSTGRES_PASSWORD#\"}"
+    POSTGRES_PASSWORD="${POSTGRES_PASSWORD%\'}"
+    POSTGRES_PASSWORD="${POSTGRES_PASSWORD#\'}"
+    export POSTGRES_PASSWORD
 }
 
 sync_deploy_repo() {
