@@ -1,4 +1,4 @@
-"""Tests for extraction content_class and taxonomy prompts (AQV-33)."""
+"""Tests for extraction content_class and event taxonomy (AQV-33)."""
 
 from unittest.mock import AsyncMock, patch
 
@@ -41,6 +41,8 @@ def extraction_db(async_session):
 
 def _minimal_event(**kwargs) -> ViolentDeathEvent:
     defaults = {
+        "event_family": "homicidio",
+        "event_subtype": "simples",
         "content_class": "incident",
         "location_info": Location(city="Rio de Janeiro", state="RJ"),
         "date_time": DateTime(
@@ -59,7 +61,6 @@ def _minimal_event(**kwargs) -> ViolentDeathEvent:
         ),
         "homicide_dynamic": HomicideDynamic(
             title="HOMICÍDIO - RIO DE JANEIRO - DATA NÃO INFORMADA",
-            homicide_type="Homicídio",
             chronological_description="Vítima foi morta a tiros.",
         ),
     }
@@ -83,18 +84,18 @@ def _source(**kwargs):
 
 
 @pytest.mark.parametrize(
-    "homicide_type",
-    ["Intervenção policial", "Morte no trânsito"],
+    ("subtype", "legacy_label"),
+    [
+        ("intervencao_policial", "Intervenção policial"),
+        ("morte_transito_doloso", "Morte no trânsito"),
+    ],
 )
-def test_homicide_type_accepts_new_values(homicide_type):
-    event = _minimal_event(
-        homicide_dynamic=HomicideDynamic(
-            title="HOMICÍDIO - RIO DE JANEIRO - DATA NÃO INFORMADA",
-            homicide_type=homicide_type,
-            chronological_description="Vítima foi morta.",
-        )
-    )
-    assert event.homicide_dynamic.homicide_type == homicide_type
+def test_event_subtype_accepts_homicide_subtypes(subtype, legacy_label):
+    event = _minimal_event(event_family="homicidio", event_subtype=subtype)
+    assert event.event_subtype == subtype
+    from app.taxonomy import format_legacy_homicide_type
+
+    assert format_legacy_homicide_type(event.event_family, event.event_subtype) == legacy_label
 
 
 @pytest.mark.parametrize(
@@ -142,7 +143,7 @@ async def test_extract_source_discards_non_incident_content_class(extraction_db)
 
 
 @pytest.mark.asyncio
-async def test_extract_source_persists_incident_with_content_class(extraction_db):
+async def test_extract_source_persists_incident_with_taxonomy(extraction_db):
     from app.models.raw_event import RawEvent
     from app.models.source_google_news import SourceStatus
     from sqlmodel import select
@@ -153,11 +154,12 @@ async def test_extract_source_persists_incident_with_content_class(extraction_db
     await extraction_db.refresh(source)
 
     incident_event = _minimal_event(
+        event_family="homicidio",
+        event_subtype="intervencao_policial",
         homicide_dynamic=HomicideDynamic(
             title="INTERVENÇÃO POLICIAL - ZONA NORTE - DATA NÃO INFORMADA",
-            homicide_type="Intervenção policial",
             chronological_description="Suspeito foi morto em confronto com a polícia.",
-        )
+        ),
     )
 
     with patch(
@@ -174,6 +176,8 @@ async def test_extract_source_persists_incident_with_content_class(extraction_db
 
     assert raw_event is not None
     assert raw_event.content_class == "incident"
+    assert raw_event.event_family == "homicidio"
+    assert raw_event.event_subtype == "intervencao_policial"
     assert raw_event.homicide_type == "Intervenção policial"
 
     await extraction_db.refresh(source)

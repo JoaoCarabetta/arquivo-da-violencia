@@ -99,10 +99,11 @@ const PT: MethodologyContent = {
       id: 'taxonomy',
       title: 'Taxonomia de eventos',
       paragraphs: [
-        'Tipos de homicídio extraídos seguem terminologia jurídica brasileira. "Homicídio" é a categoria geral; subtipos como feminicídio, latrocínio e homicídio qualificado são classificações específicas quando a matéria as identifica. "Outro" abrange casos que não se encaixam nas categorias listadas ou quando o tipo não é especificado na notícia.',
+        'O arquivo público registra homicídios (mortes violentas intencionais). Cada evento recebe uma família (event_family) e um subtipo (event_subtype). Tentativas de homicídio e acidentes fatais culposos são classificados no pipeline, mas não entram no mapa nem nas estatísticas públicas.',
       ],
       bullets: [
-        'Tipos: Homicídio, Homicídio Qualificado, Homicídio Culposo, Tentativa de Homicídio, Latrocínio, Feminicídio, Infanticídio, Outro',
+        'Família homicídio (público): simples, qualificado, feminicídio, latrocínio, infanticídio, intervenção policial, morte dolosa no trânsito',
+        'Fora do arquivo público: tentativa, acidente fatal, não classificado',
         'Métodos: Arma de fogo, Arma branca, Estrangulamento, Asfixia, Espancamento, Atropelamento, Envenenamento, Objeto contundente, Incêndio, Queda, Outro',
       ],
     },
@@ -257,10 +258,11 @@ const EN: MethodologyContent = {
     id: 'taxonomy',
     title: 'Event taxonomy',
     paragraphs: [
-      'Extracted homicide types follow Brazilian legal terminology. "Homicídio" (Homicide) is the general category; subtypes like femicide, robbery-homicide, and aggravated homicide are specific classifications when the article identifies them. "Outro" (Other) covers cases that do not fit listed categories or when the type is not specified in the news.',
+      'The public archive records homicides (intentional violent deaths). Each event has an event_family and event_subtype. Attempted homicides and culpable fatal accidents are classified in the pipeline but excluded from the public map and statistics.',
     ],
     bullets: [
-      'Types: Homicide, Aggravated homicide, Negligent homicide, Attempted homicide, Robbery-homicide, Femicide, Infanticide, Other',
+      'Homicide family (public): simple, aggravated, femicide, robbery-homicide, infanticide, police intervention, intentional vehicular death',
+      'Outside public archive: attempt, fatal accident, unclassified',
       'Methods: Firearm, Bladed weapon, Strangulation, Asphyxiation, Beating, Vehicle, Poisoning, Blunt object, Fire, Fall, Other',
     ],
   },

@@ -25,6 +25,7 @@ from app.config import get_settings
 from app.database import async_session_maker
 from app.models import RawEvent, UniqueEvent
 from app.services.telegram import notify_new_death
+from app.taxonomy import format_legacy_homicide_type, parse_legacy_homicide_type
 
 
 def parse_datetime(value) -> datetime | None:
@@ -960,6 +961,18 @@ def select_best_raw_event(cluster: list[RawEvent]) -> RawEvent:
     return max(cluster, key=score)
 
 
+def _taxonomy_from_raw_event(raw_event: RawEvent) -> tuple[str, str]:
+    """Resolve event_family + event_subtype from columns or extraction JSON."""
+    if raw_event.event_family and raw_event.event_subtype:
+        return raw_event.event_family, raw_event.event_subtype
+    if raw_event.extraction_data:
+        family = raw_event.extraction_data.get("event_family")
+        subtype = raw_event.extraction_data.get("event_subtype")
+        if family and subtype:
+            return str(family), str(subtype)
+    return parse_legacy_homicide_type(raw_event.homicide_type)
+
+
 def _content_class_from_raw_event(raw_event: RawEvent) -> str:
     """Resolve content_class from denormalized column or extraction JSON."""
     if raw_event.content_class and raw_event.content_class != "incident":
@@ -987,13 +1000,15 @@ async def create_unique_event_from_cluster(cluster: list[RawEvent]) -> UniqueEve
         victims_summary = ", ".join(victim_names)
 
     content_class = _content_class_from_raw_event(best)
+    event_family, event_subtype = _taxonomy_from_raw_event(best)
+    homicide_label = format_legacy_homicide_type(event_family, event_subtype)
     
     async with async_session_maker() as session:
         # Create UniqueEvent
         result = await session.execute(
             text("""
                 INSERT INTO unique_event (
-                    homicide_type, method_of_death, event_date, date_precision, time_of_day,
+                    event_family, event_subtype, homicide_type, method_of_death, event_date, date_precision, time_of_day,
                     country, state, city, neighborhood, street, establishment, full_location_description,
                     victim_count, identified_victim_count, victims_summary,
                     perpetrator_count, security_force_involved,
@@ -1001,7 +1016,7 @@ async def create_unique_event_from_cluster(cluster: list[RawEvent]) -> UniqueEve
                     merged_data, source_count, content_class, confirmed, needs_enrichment,
                     created_at, updated_at
                 ) VALUES (
-                    :homicide_type, :method_of_death, :event_date, :date_precision, :time_of_day,
+                    :event_family, :event_subtype, :homicide_type, :method_of_death, :event_date, :date_precision, :time_of_day,
                     :country, :state, :city, :neighborhood, :street, :establishment, :full_location_description,
                     :victim_count, :identified_victim_count, :victims_summary,
                     :perpetrator_count, :security_force_involved,
@@ -1012,7 +1027,9 @@ async def create_unique_event_from_cluster(cluster: list[RawEvent]) -> UniqueEve
                 RETURNING id
             """),
             {
-                "homicide_type": best.homicide_type,
+                "event_family": event_family,
+                "event_subtype": event_subtype,
+                "homicide_type": homicide_label,
                 "method_of_death": best.method_of_death,
                 "event_date": best.event_date,
                 "date_precision": best.date_precision,

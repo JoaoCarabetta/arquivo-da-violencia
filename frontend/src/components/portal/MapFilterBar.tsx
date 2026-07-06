@@ -208,14 +208,15 @@ export const MapFilterBar = memo(function MapFilterBar(props: MapFilterBarProps)
   return (
     <div ref={rootRef} className="relative">
       <div
-        className="av-scroll flex items-center gap-1.5 overflow-x-auto rounded-full px-1.5 py-1.5"
-        style={{
-          background: 'var(--color-surface)',
-          border: '1px solid var(--color-border)',
-          boxShadow: '0 4px 18px rgba(20,23,28,.1)',
-          scrollbarWidth: 'none',
-        }}
+        className="av-scroll flex min-w-0 items-center gap-1.5 overflow-x-auto py-0.5"
+        style={{ scrollbarWidth: 'none' }}
       >
+        <MenuChip
+          label={t.fPeriod}
+          open={openMenu === 'periods'}
+          active={props.filters.periods.length > 0}
+          onClick={() => toggleMenu('periods')}
+        />
         <MenuChip
           label={t.fType}
           open={openMenu === 'types'}
@@ -227,12 +228,6 @@ export const MapFilterBar = memo(function MapFilterBar(props: MapFilterBarProps)
           open={openMenu === 'methods'}
           active={props.filters.methods.length > 0}
           onClick={() => toggleMenu('methods')}
-        />
-        <MenuChip
-          label={t.fPeriod}
-          open={openMenu === 'periods'}
-          active={props.filters.periods.length > 0}
-          onClick={() => toggleMenu('periods')}
         />
         <MenuChip
           label={t.fTemporal}
@@ -267,8 +262,14 @@ export const MapFilterBar = memo(function MapFilterBar(props: MapFilterBarProps)
           <button
             type="button"
             onClick={props.onClearFilters}
-            className="shrink-0 rounded-full border-none bg-transparent px-2 py-1.5"
-            style={{ fontSize: 12, color: 'var(--blue-600)' }}
+            className="inline-flex shrink-0 items-center rounded-full px-3 py-1.5"
+            style={{
+              fontSize: 12,
+              color: 'var(--blue-600)',
+              background: 'var(--color-surface)',
+              border: '1px solid var(--stone-200)',
+              boxShadow: '0 1px 3px rgba(20,23,28,.06)',
+            }}
           >
             {t.clear}
           </button>

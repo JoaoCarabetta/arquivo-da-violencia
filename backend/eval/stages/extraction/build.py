@@ -73,8 +73,9 @@ def _project_expected(extraction_data: dict) -> dict:
         "victims": {
             "number_of_victims": _deep_get(extraction_data, "victims", "number_of_victims"),
         },
+        "event_family": _deep_get(extraction_data, "event_family"),
+        "event_subtype": _deep_get(extraction_data, "event_subtype"),
         "homicide_dynamic": {
-            "homicide_type": _deep_get(extraction_data, "homicide_dynamic", "homicide_type"),
             "method": _deep_get(extraction_data, "homicide_dynamic", "method"),
         },
     }

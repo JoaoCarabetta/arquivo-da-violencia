@@ -14,7 +14,11 @@ from app.database import get_session
 from app.models.unique_event import UniqueEvent
 from app.models.raw_event import RawEvent
 from app.models.source_google_news import SourceGoogleNews
-from app.services.public_filters import apply_public_incident_filter
+from app.services.public_filters import (
+    apply_public_incident_filter,
+    homicide_type_filter,
+    homicide_types_filter,
+)
 
 router = APIRouter(prefix="/public", tags=["public"])
 
@@ -24,6 +28,8 @@ PUBLIC_MAP_DAYS = 365
 # Public data-dictionary fields only (matches UI export groups minus internal pipeline fields).
 PUBLIC_EXPORT_FIELD_NAMES = [
     "id",
+    "event_family",
+    "event_subtype",
     "homicide_type",
     "method_of_death",
     "event_date",
@@ -157,7 +163,7 @@ def _build_export_query(
     if type:
         type_filters.append(type)
     if type_filters:
-        query = query.where(UniqueEvent.homicide_type.in_(type_filters))
+        query = query.where(homicide_types_filter(type_filters))
 
     if methods:
         query = query.where(UniqueEvent.method_of_death.in_(methods))
@@ -667,7 +673,7 @@ async def get_map_points(
     )
 
     if type:
-        query = query.where(UniqueEvent.homicide_type == type)
+        query = query.where(homicide_type_filter(type))
 
     if min_lng is not None and max_lng is not None:
         query = query.where(
@@ -731,8 +737,8 @@ async def get_public_events(
         count_query = count_query.where(UniqueEvent.state == state)
     
     if type:
-        query = query.where(UniqueEvent.homicide_type == type)
-        count_query = count_query.where(UniqueEvent.homicide_type == type)
+        query = query.where(homicide_type_filter(type))
+        count_query = count_query.where(homicide_type_filter(type))
     
     if search:
         search_filter = f"%{search}%"

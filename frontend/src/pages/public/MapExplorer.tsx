@@ -3,7 +3,7 @@ import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { FlyToInterpolator } from '@deck.gl/core';
 import { Loader2, LayoutGrid } from 'lucide-react';
-import { fetchMapPoints, fetchPublicStats } from '@/lib/api';
+import { fetchMapPoints } from '@/lib/api';
 import { useI18n } from '@/contexts/I18nContext';
 import { CrimeMap, type MapViewState, type MapBounds, type ViewportSnapshot } from '@/components/map/CrimeMap';
 import { MapErrorBoundary } from '@/components/map/MapErrorBoundary';
@@ -77,14 +77,6 @@ export function MapExplorer() {
     queryKey: ['map-points', MAP_DAYS],
     queryFn: () => fetchMapPoints({ days: MAP_DAYS }),
   });
-
-  const { data: publicStats } = useQuery({
-    queryKey: ['public-stats'],
-    queryFn: fetchPublicStats,
-    staleTime: 60_000,
-  });
-
-  const sinceDate = publicStats?.since ?? null;
 
   const allPoints = useMemo(() => data?.points ?? [], [data]);
 
@@ -237,7 +229,6 @@ export function MapExplorer() {
 
   const panelProps = {
     mode,
-    sinceDate,
     pointsInView,
     viewportReady,
     filteredCount: filteredPoints.length,
@@ -282,11 +273,11 @@ export function MapExplorer() {
           </div>
         )}
 
-        <div className="pointer-events-none absolute left-[18px] top-[18px] z-[1200] flex w-[min(420px,calc(100%-36px))] flex-col gap-2">
-          <div className="pointer-events-auto">
+        <div className="pointer-events-none absolute left-[18px] right-[18px] top-[18px] z-[1200] flex flex-col gap-1.5 md:flex-row md:items-start md:gap-2">
+          <div className="pointer-events-auto w-full shrink-0 md:w-[min(380px,calc(100%-36px))]">
             <SearchCard points={allPoints} onLocate={onLocate} />
           </div>
-          <div className="pointer-events-auto">
+          <div className="pointer-events-auto min-w-0 flex-1">
             <MapFilterBar
               filters={filters}
               availableTypes={availableTypes}
@@ -300,7 +291,7 @@ export function MapExplorer() {
             />
           </div>
         </div>
-        <DensityLegend />
+        <DensityLegend points={filteredPoints} bounds={panelBounds} zoom={panelZoom} />
 
         {isMobile && !mobilePanelOpen && selectedId == null && (
           <button

@@ -7,6 +7,7 @@ from httpx import AsyncClient, ASGITransport
 from decimal import Decimal
 
 from app.models.unique_event import UniqueEvent
+from app.taxonomy import parse_legacy_homicide_type
 
 
 def create_fake_event(
@@ -21,14 +22,23 @@ def create_fake_event(
     """Helper function to create a fake event for testing."""
     if title is None:
         title = f"Event in {city}, {state}"
-    
+
+    family, subtype = parse_legacy_homicide_type(homicide_type)
+    if "event_family" in kwargs:
+        family = kwargs.pop("event_family")
+    if "event_subtype" in kwargs:
+        subtype = kwargs.pop("event_subtype")
+
     return UniqueEvent(
         title=title,
         event_date=event_date,
         state=state,
         city=city,
         neighborhood=kwargs.get("neighborhood"),
+        event_family=family,
+        event_subtype=subtype,
         homicide_type=homicide_type,
+        content_class=kwargs.get("content_class", "incident"),
         method_of_death=kwargs.get("method_of_death", "Tiro"),
         victim_count=victim_count,
         identified_victim_count=kwargs.get("identified_victim_count"),
@@ -539,43 +549,6 @@ async def test_stats_last_30_days_edge_case_boundary(app, async_session):
         data = response.json()
         # Should include only the event within 30 days
         assert data["last_30_days"] >= 1
-
-
-def create_fake_event(
-    title: str = None,
-    event_date: datetime | None = None,
-    state: str = "RJ",
-    city: str = "Rio de Janeiro",
-    homicide_type: str = "Homicídio",
-    victim_count: int = 1,
-    **kwargs
-) -> UniqueEvent:
-    """Helper function to create a fake event for testing."""
-    from decimal import Decimal
-    
-    if title is None:
-        title = f"Event in {city}, {state}"
-    
-    return UniqueEvent(
-        title=title,
-        event_date=event_date,
-        state=state,
-        city=city,
-        neighborhood=kwargs.get("neighborhood"),
-        homicide_type=homicide_type,
-        method_of_death=kwargs.get("method_of_death", "Tiro"),
-        victim_count=victim_count,
-        identified_victim_count=kwargs.get("identified_victim_count"),
-        victims_summary=kwargs.get("victims_summary", f"Vítima em {city}"),
-        perpetrator_count=kwargs.get("perpetrator_count"),
-        security_force_involved=kwargs.get("security_force_involved", False),
-        chronological_description=kwargs.get("chronological_description", f"Descrição do evento em {city}"),
-        latitude=kwargs.get("latitude", Decimal("-22.9068")),
-        longitude=kwargs.get("longitude", Decimal("-43.1729")),
-        source_count=kwargs.get("source_count", 1),
-        confirmed=kwargs.get("confirmed", False),
-        needs_enrichment=kwargs.get("needs_enrichment", False),
-    )
 
 
 @pytest.mark.asyncio

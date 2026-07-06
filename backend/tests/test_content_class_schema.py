@@ -18,6 +18,8 @@ from app.services.extraction_schemas import (
 
 def _minimal_event(content_class: ContentClass = "incident") -> ViolentDeathEvent:
     return ViolentDeathEvent(
+        event_family="homicidio",
+        event_subtype="simples",
         content_class=content_class,
         location_info=Location(city="Rio de Janeiro", state="RJ"),
         date_time=DateTime(
@@ -36,7 +38,6 @@ def _minimal_event(content_class: ContentClass = "incident") -> ViolentDeathEven
         ),
         homicide_dynamic=HomicideDynamic(
             title="HOMICÍDIO - RIO DE JANEIRO - DATA NÃO INFORMADA",
-            homicide_type="Homicídio",
             chronological_description="Vítima foi morta a tiros.",
         ),
     )

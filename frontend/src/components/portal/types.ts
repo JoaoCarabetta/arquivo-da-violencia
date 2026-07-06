@@ -146,6 +146,28 @@ export function computeStats(points: MapPoint[]): ViewportStats {
   return s;
 }
 
+const MS_24H = 24 * 60 * 60 * 1000;
+
+export interface Last24hStats {
+  total: number;
+  victims: number;
+}
+
+/** Events in `points` with `d` within the trailing 24 hours (missing/invalid dates excluded). */
+export function computeLast24hStats(points: MapPoint[]): Last24hStats {
+  const cutoff = Date.now() - MS_24H;
+  let total = 0;
+  let victims = 0;
+  for (const p of points) {
+    if (!p.d) continue;
+    const t = Date.parse(p.d);
+    if (Number.isNaN(t) || t < cutoff) continue;
+    total++;
+    victims += p.v ?? 0;
+  }
+  return { total, victims };
+}
+
 export interface TrendMonth {
   y: number;
   m: number;
@@ -172,6 +194,82 @@ export function buildTrendMonths(points: MapPoint[]): TrendMonth[] {
     }
   }
   return out;
+}
+
+function niceCeil(value: number): number {
+  if (value <= 0) return 1;
+  const exponent = Math.floor(Math.log10(value));
+  const magnitude = 10 ** exponent;
+  const normalized = value / magnitude;
+  let nice: number;
+  if (normalized <= 1) nice = 1;
+  else if (normalized <= 2) nice = 2;
+  else if (normalized <= 5) nice = 5;
+  else nice = 10;
+  return nice * magnitude;
+}
+
+/** Round reference ticks (1–2 lines) and scale ceiling for the monthly trend chart. */
+export function trendChartScale(peak: number): { scaleMax: number; ticks: number[] } {
+  if (peak <= 0) return { scaleMax: 1, ticks: [] };
+  const scaleMax = niceCeil(peak);
+  if (peak <= 3 || scaleMax <= 4) {
+    return { scaleMax, ticks: [scaleMax] };
+  }
+  return { scaleMax, ticks: [0, scaleMax] };
+}
+
+/** Grid cell size in meters — mirrors `cellSizeForZoom` in CrimeMap. */
+export function gridCellSizeMeters(zoom: number): number {
+  if (zoom < 5) return 40000;
+  if (zoom < 7) return 15000;
+  if (zoom < 9) return 5000;
+  return 1500;
+}
+
+/** Zoom level at which the map switches from density grid to individual markers. */
+export const SCATTER_ZOOM_THRESHOLD = 12;
+
+/** Peak event count in any single grid cell for the current viewport and zoom. */
+export function computeGridPeakCount(
+  points: MapPoint[],
+  bounds: MapBounds | null,
+  zoom: number
+): number {
+  const inView = bounds ? pointsInBounds(points, bounds) : points;
+  if (inView.length === 0) return 0;
+
+  const cellMeters = gridCellSizeMeters(zoom);
+  const metersPerDegLat = 111_320;
+  const [[minLng, minLat], [maxLng, maxLat]] = bounds ?? [
+    [-180, -90],
+    [180, 90],
+  ];
+  const centerLat = (minLat + maxLat) / 2;
+  const cosLat = Math.cos((centerLat * Math.PI) / 180) || 1;
+  const cellLat = cellMeters / metersPerDegLat;
+  const cellLng = cellMeters / (metersPerDegLat * cosLat);
+
+  const counts = new Map<string, number>();
+  for (const p of inView) {
+    const key = `${Math.floor(p.lat / cellLat)}:${Math.floor(p.lng / cellLng)}`;
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+  let peak = 0;
+  for (const n of counts.values()) {
+    if (n > peak) peak = n;
+  }
+  return peak;
+}
+
+/** Round numeric labels for the map density legend (e.g. 0 — 5 — 10). */
+export function densityLegendScale(peak: number): { scaleMax: number; labels: number[] } {
+  if (peak <= 0) return { scaleMax: 1, labels: [0, 1] };
+  const { scaleMax } = trendChartScale(peak);
+  if (scaleMax <= 3) return { scaleMax, labels: [0, scaleMax] };
+  const mid = Math.round(scaleMax / 2);
+  if (mid <= 0 || mid >= scaleMax) return { scaleMax, labels: [0, scaleMax] };
+  return { scaleMax, labels: [0, mid, scaleMax] };
 }
 
 /** Distinct, sorted filter values present in the dataset. */

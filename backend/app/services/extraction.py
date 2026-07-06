@@ -14,6 +14,7 @@ from app.database import async_session_maker
 from app.models import RawEvent, SourceGoogleNews, SourceStatus
 from app.services import diagnostics
 from app.services.extraction_schemas import ViolentDeathEvent
+from app.taxonomy import format_legacy_homicide_type
 
 
 def content_class_failure_reason(content_class: str) -> str:
@@ -120,32 +121,39 @@ SOBRE LOCALIZAÇÃO (location_info.state):
 - Se o nome da cidade é ambíguo entre estados e o texto não desambigua
   (ex.: apenas "Campo Grande", que existe em MS e como bairro no RJ), deixe state = null.
 
-SOBRE homicide_type - SEJA CONSERVADOR:
-- "Homicídio": morte violenta intencional SEM qualificadora explícita no texto. É o padrão.
-- "Homicídio Qualificado": SOMENTE quando o texto evidencia qualificadora: vítima amarrada
-  ou rendida (impossibilidade de defesa), tortura ou meio cruel (múltiplos golpes com
-  requintes de crueldade), emboscada/perseguição planejada, motivo torpe, crime na frente
-  de familiares, ocultação de cadáver, ou quando a polícia/imprensa classifica como
-  "homicídio qualificado". Mera hipótese de "execução" SEM outros indícios NÃO conta.
-- "Latrocínio": morte durante roubo/assalto (ainda que a notícia use "assassinado").
-- "Feminicídio": mulher morta por razão de gênero ou violência doméstica. Use quando o
-  texto menciona ex-marido, marido, companheiro, namorado, violência doméstica, Lei
-  Maria da Penha, agressão por parceiro íntimo, ou feminicídio explicitamente — mesmo
-  que a polícia ainda não tenha tipificado legalmente.
-- "Intervenção policial": morte durante operação policial, confronto ou troca de tiros
-  com PM/PC/Bope/PRF, ou quando a vítima é "neutralizada" pela polícia. Prefira este
-  tipo em vez de "Homicídio" genérico quando a morte ocorre no contexto de ação policial.
-- "Morte no trânsito": homicídio doloso com veículo como meio principal (atropelamento
-  intencional, emboscada com carro, perseguição fatal). NÃO use para acidentes de
-  trânsito sem dolo (esses são content_class = accident_disaster, não incident).
-- "Outro": use APENAS quando o texto não estabelece nem sugere morte violenta
-  intencional (ex.: "corpo achado em terreno, causa não divulgada", sem qualquer
-  indício de crime). Se o texto trata a morte como crime sob investigação
-  (envenenamento suspeito, tiros, golpes), classifique pelo indício, não como "Outro".
-- Briga/discussão espontânea NÃO é qualificadora; legítima defesa reconhecida ou
-  absolvição não muda o tipo: registre "Homicídio" simples se não há qualificadora.
-- Não eleve a classificação por suposição: na dúvida entre "Homicídio" e
-  "Homicídio Qualificado", use "Homicídio".
+SOBRE event_family e event_subtype — CLASSIFICAÇÃO EM DOIS PASSOS:
+
+Passo 1 — event_family (macro):
+- "homicidio": houve óbito por morte violenta intencional (arquivo público)
+- "tentativa": não houve óbito (tentativa de homicídio, feminicídio ou latrocínio)
+- "acidente_fatal": morte culposa ou acidente sem dolo homicida
+- "nao_classificado": não foi possível classificar
+
+Passo 2 — event_subtype (dentro da família):
+
+Se event_family = "homicidio":
+- "simples": homicídio sem qualificadora explícita (padrão; na dúvida use simples)
+- "qualificado": qualificadora explícita (tortura, emboscada, vítima rendida, etc.)
+- "feminicidio": violência de gênero ou doméstica contra mulher
+- "latrocinio": morte durante roubo/assalto
+- "infanticidio": morte de criança pelo contexto do texto
+- "intervencao_policial": morte em operação policial ou "neutralizado"
+- "morte_transito_doloso": atropelamento intencional ou perseguição fatal com veículo
+
+Se event_family = "tentativa":
+- "simples", "feminicidio" ou "latrocinio" conforme o caso
+
+Se event_family = "acidente_fatal":
+- "culposo" ou "transito_culposo"
+
+Se event_family = "nao_classificado":
+- "outro"
+
+REGRAS:
+- Sem óbito → event_family = "tentativa", nunca "homicidio"
+- Morte culposa/acidente sem dolo → event_family = "acidente_fatal"
+- Feminicídio, latrocínio e qualificado são SUBTIPOS de homicidio, não famílias separadas
+- event_family = "homicidio" exige content_class = "incident"
 
 SOBRE content_class — OBRIGATÓRIO EM TODA EXTRAÇÃO:
 Defina content_class em todo JSON de saída. Valores permitidos:
@@ -477,7 +485,9 @@ async def extract_source(source_id: int) -> RawEvent | None:
             identified_victim_count=event.victims.number_of_identifiable_victims,
             perpetrator_count=event.perpetrators.number_of_perpetrators if event.perpetrators else None,
             security_force_involved=security_force_involved,
-            homicide_type=event.homicide_dynamic.homicide_type,
+            event_family=event.event_family,
+            event_subtype=event.event_subtype,
+            homicide_type=format_legacy_homicide_type(event.event_family, event.event_subtype),
             method_of_death=event.homicide_dynamic.method,
             title=event.homicide_dynamic.title,
             chronological_description=event.homicide_dynamic.chronological_description,

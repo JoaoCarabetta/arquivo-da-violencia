@@ -14,7 +14,8 @@ DEFAULT_REQUIRED_FIELDS = [
     "location_info.city",
     "location_info.state",
     "victims.number_of_victims",
-    "homicide_dynamic.homicide_type",
+    "event_family",
+    "event_subtype",
     "homicide_dynamic.method",
 ]
 

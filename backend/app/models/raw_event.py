@@ -1,46 +1,11 @@
 """Raw event model - extracted from any source."""
 
 from datetime import datetime
-from typing import Literal
 
 from sqlmodel import Field, SQLModel, Column
 from sqlalchemy import JSON
 
-
-# Type definitions matching the extraction schema
-HomicideType = Literal[
-    "Homicídio",
-    "Homicídio Qualificado",
-    "Homicídio Culposo",
-    "Tentativa de Homicídio",
-    "Latrocínio",
-    "Feminicídio",
-    "Infanticídio",
-    "Outro"
-]
-
-MethodOfDeath = Literal[
-    "Arma de fogo",
-    "Arma branca",
-    "Estrangulamento",
-    "Asfixia",
-    "Espancamento",
-    "Atropelamento",
-    "Envenenamento",
-    "Objeto contundente",
-    "Incêndio",
-    "Queda",
-    "Outro",
-    "Não especificado"
-]
-
-ContentClass = Literal[
-    "incident",
-    "aggregate_statistics",
-    "non_incident",
-    "accident_disaster",
-    "foreign",
-]
+from app.taxonomy import ContentClass, EventFamily, EventSubtype, MethodOfDeath
 
 
 class RawEventBase(SQLModel):
@@ -49,7 +14,9 @@ class RawEventBase(SQLModel):
     # === Key queryable fields (denormalized for efficient queries) ===
     
     # Event classification
-    homicide_type: str | None = Field(default=None, max_length=50, index=True)
+    event_family: str | None = Field(default="homicidio", max_length=30, index=True)
+    event_subtype: str | None = Field(default="simples", max_length=30)
+    homicide_type: str | None = Field(default=None, max_length=50, index=True)  # legacy display label
     method_of_death: str | None = Field(default=None, max_length=50)
     content_class: str = Field(default="incident", max_length=30)
     
