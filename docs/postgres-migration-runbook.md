@@ -25,17 +25,23 @@ docker compose -p staging -f docker-compose.yml -f docker-compose.staging.yml ru
 
 ### 3. Migrate SQLite data into `arquivo_staging`
 
+Ensure `alembic upgrade head` has run (includes `b2c3d4e5f6a7` widening VARCHAR
+columns to TEXT — required before import).
+
+Copy SQLite to a writable path and use the sync driver URL (`sqlite://`, not
+`sqlite+aiosqlite://`) so the migration script can read via a sync engine:
+
 ```bash
 # Backup prod SQLite (source of truth until cutover)
 sqlite3 backend/app/instance/violence.db ".backup '/root/backups/violence-pre-pg-$(date +%Y%m%d).db'"
+cp /root/backups/violence-pre-pg-*.db /tmp/violence-migrate.db
 
-docker compose -p staging -f docker-compose.yml -f docker-compose.staging.yml run --rm --no-deps api \
-  python scripts/migrate_sqlite_to_postgres.py \
-  --sqlite-url sqlite+aiosqlite:////root/arquivo-da-violencia/backend/app/instance/violence.db \
+docker compose -p staging -f docker-compose.yml -f docker-compose.staging.yml run --rm --no-deps \
+  -v /tmp/violence-migrate.db:/tmp/violence-migrate.db:ro \
+  api python scripts/migrate_sqlite_to_postgres.py \
+  --sqlite-url sqlite:////tmp/violence-migrate.db \
   --postgres-url "postgresql+asyncpg://arquivo:${POSTGRES_PASSWORD}@postgres:5432/arquivo_staging"
 ```
-
-Adjust the SQLite path if the backup file is used instead.
 
 ### 4. Restart staging stack
 
@@ -83,13 +89,23 @@ docker stop --time=120 arquivo-worker arquivo-api
 docker compose -p prod up -d postgres
 docker compose -p prod run --rm --no-deps api alembic upgrade head
 
-docker compose -p prod run --rm --no-deps api \
-  python scripts/migrate_sqlite_to_postgres.py \
-  --sqlite-url sqlite+aiosqlite:////root/arquivo-da-violencia/backend/app/instance/violence.db \
+cp /root/backups/violence-pre-pg-*.db /tmp/violence-migrate.db
+
+docker compose -p prod run --rm --no-deps \
+  -v /tmp/violence-migrate.db:/tmp/violence-migrate.db:ro \
+  api python scripts/migrate_sqlite_to_postgres.py \
+  --sqlite-url sqlite:////tmp/violence-migrate.db \
   --postgres-url "postgresql+asyncpg://arquivo:${POSTGRES_PASSWORD}@postgres:5432/arquivo_prod"
 ```
 
+The script coerces SQLite string datetimes/booleans, serializes JSON columns for
+asyncpg, and verifies row counts per table when finished.
+
 ### 4. Start prod
+
+Admin passwords in `.env` must be **bcrypt hashes** in production/staging (escape
+literal `$` as `$$` in Docker Compose `.env` files). Hash plain-text values before
+first boot on the new images if startup fails with `must be a bcrypt hash`.
 
 ```bash
 docker compose -p prod up -d api worker

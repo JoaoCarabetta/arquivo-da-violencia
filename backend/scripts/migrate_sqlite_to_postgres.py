@@ -7,18 +7,31 @@ Usage (from repo root, with Postgres reachable):
         --sqlite-url sqlite+aiosqlite:////app/instance/violence.db \\
         --postgres-url postgresql+asyncpg://arquivo:arquivo_dev@postgres:5432/arquivo_dev
 
-On the VPS during cutover, point --sqlite-url at the production backup and
---postgres-url at arquivo_prod or arquivo_staging.
+On the VPS during cutover, copy the SQLite backup to a writable path and use a
+sync driver URL (no aiosqlite):
+
+    cp /root/backups/violence-pre-pg-*.db /tmp/violence-migrate.db
+    docker compose -p prod run --rm --no-deps \\
+      -v /tmp/violence-migrate.db:/tmp/violence-migrate.db:ro \\
+      api python scripts/migrate_sqlite_to_postgres.py \\
+      --sqlite-url sqlite:////tmp/violence-migrate.db \\
+      --postgres-url "postgresql+asyncpg://arquivo:\${POSTGRES_PASSWORD}@postgres:5432/arquivo_prod"
+
+Run ``alembic upgrade head`` (including the widen-text-columns migration) before
+importing data.
 """
 
 from __future__ import annotations
 
 import argparse
 import asyncio
+import json
 import sys
+from datetime import datetime
+from decimal import Decimal
 from pathlib import Path
 
-from sqlalchemy import inspect, text
+from sqlalchemy import Boolean, DateTime, Integer, JSON, Numeric, create_engine, inspect, text
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 
 TABLES_IN_ORDER = [
@@ -32,9 +45,9 @@ TABLES_IN_ORDER = [
 BATCH_SIZE = 1000
 
 
-def _normalize_sqlite_url(url: str) -> str:
-    if url.startswith("sqlite:///") and "+aiosqlite" not in url:
-        return url.replace("sqlite:///", "sqlite+aiosqlite:///", 1)
+def _sync_sqlite_url(url: str) -> str:
+    if url.startswith("sqlite+aiosqlite://"):
+        return url.replace("sqlite+aiosqlite://", "sqlite://")
     return url
 
 
@@ -46,13 +59,75 @@ def _normalize_postgres_url(url: str) -> str:
     return url
 
 
-async def _count_rows(engine: AsyncEngine, table: str) -> int:
+def _parse_datetime(value: str) -> datetime:
+    for fmt in ("%Y-%m-%d %H:%M:%S.%f", "%Y-%m-%d %H:%M:%S", "%Y-%m-%d"):
+        try:
+            return datetime.strptime(value, fmt)
+        except ValueError:
+            continue
+    return datetime.fromisoformat(value.replace("Z", "+00:00"))
+
+
+def _coerce_value(value, col_type):
+    if value is None:
+        return None
+    if isinstance(col_type, DateTime) and isinstance(value, str):
+        return _parse_datetime(value)
+    if isinstance(col_type, Boolean):
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, (int, float)):
+            return bool(value)
+        if isinstance(value, str) and value.isdigit():
+            return bool(int(value))
+    if isinstance(col_type, Integer) and isinstance(value, str) and value.isdigit():
+        return int(value)
+    if isinstance(col_type, Numeric) and isinstance(value, str):
+        return Decimal(value)
+    if isinstance(col_type, JSON):
+        if isinstance(value, str):
+            try:
+                return json.dumps(json.loads(value))
+            except json.JSONDecodeError:
+                return value
+        if isinstance(value, (dict, list)):
+            return json.dumps(value)
+    return value
+
+
+def _coerce_row(row: dict, column_types: dict[str, object]) -> dict:
+    return {
+        key: _coerce_value(row.get(key), column_types.get(key))
+        for key in column_types
+    }
+
+
+def _sqlite_count(sqlite_url: str, table: str) -> int:
+    engine = create_engine(_sync_sqlite_url(sqlite_url))
+    try:
+        with engine.connect() as conn:
+            return int(conn.execute(text(f"SELECT COUNT(*) FROM {table}")).scalar_one())
+    finally:
+        engine.dispose()
+
+
+def _sqlite_max_id(sqlite_url: str, table: str) -> int | None:
+    engine = create_engine(_sync_sqlite_url(sqlite_url))
+    try:
+        with engine.connect() as conn:
+            value = conn.execute(text(f"SELECT MAX(id) FROM {table}")).scalar_one()
+            return int(value) if value is not None else None
+    finally:
+        engine.dispose()
+
+
+async def _pg_count(engine: AsyncEngine, table: str) -> int:
     async with engine.connect() as conn:
         result = await conn.execute(text(f"SELECT COUNT(*) FROM {table}"))
         return int(result.scalar_one())
 
 
-async def _max_id(engine: AsyncEngine, table: str) -> int | None:
+async def _pg_max_id(engine: AsyncEngine, table: str) -> int | None:
     async with engine.connect() as conn:
         result = await conn.execute(text(f"SELECT MAX(id) FROM {table}"))
         value = result.scalar_one()
@@ -65,41 +140,45 @@ async def _truncate_target(engine: AsyncEngine, tables: list[str]) -> None:
             await conn.execute(text(f"TRUNCATE TABLE {table} RESTART IDENTITY CASCADE"))
 
 
-async def _copy_table(
-    source: AsyncEngine,
-    target: AsyncEngine,
-    table: str,
-) -> int:
-    async with source.connect() as src_conn:
-        inspector = inspect(source.sync_engine)
-        columns = [col["name"] for col in inspector.get_columns(table)]
+async def _copy_table(sqlite_url: str, target: AsyncEngine, table: str) -> int:
+    sync_engine = create_engine(_sync_sqlite_url(sqlite_url))
+    try:
+        inspector = inspect(sync_engine)
+        columns_meta = inspector.get_columns(table)
+        columns = [col["name"] for col in columns_meta]
+        column_types = {col["name"]: col["type"] for col in columns_meta}
         col_list = ", ".join(columns)
         placeholders = ", ".join(f":{col}" for col in columns)
 
         offset = 0
         copied = 0
-        while True:
-            result = await src_conn.execute(
-                text(f"SELECT {col_list} FROM {table} ORDER BY id LIMIT :limit OFFSET :offset"),
-                {"limit": BATCH_SIZE, "offset": offset},
-            )
-            rows = result.mappings().all()
-            if not rows:
-                break
-
-            async with target.begin() as tgt_conn:
-                await tgt_conn.execute(
+        with sync_engine.connect() as src_conn:
+            while True:
+                result = src_conn.execute(
                     text(
-                        f"INSERT INTO {table} ({col_list}) VALUES ({placeholders})"
+                        f"SELECT {col_list} FROM {table} ORDER BY id LIMIT :limit OFFSET :offset"
                     ),
-                    [dict(row) for row in rows],
+                    {"limit": BATCH_SIZE, "offset": offset},
                 )
+                rows = [
+                    _coerce_row(dict(row), column_types)
+                    for row in result.mappings().all()
+                ]
+                if not rows:
+                    break
 
-            copied += len(rows)
-            offset += BATCH_SIZE
-            print(f"  {table}: copied {copied} rows...", flush=True)
+                async with target.begin() as tgt_conn:
+                    await tgt_conn.execute(
+                        text(f"INSERT INTO {table} ({col_list}) VALUES ({placeholders})"),
+                        rows,
+                    )
 
-    return copied
+                copied += len(rows)
+                offset += BATCH_SIZE
+                print(f"  {table}: copied {copied} rows...", flush=True)
+        return copied
+    finally:
+        sync_engine.dispose()
 
 
 async def _reset_sequences(engine: AsyncEngine, tables: list[str]) -> None:
@@ -123,13 +202,13 @@ async def _reset_sequences(engine: AsyncEngine, tables: list[str]) -> None:
             )
 
 
-async def _verify(source: AsyncEngine, target: AsyncEngine, tables: list[str]) -> bool:
+async def _verify(sqlite_url: str, target: AsyncEngine, tables: list[str]) -> bool:
     ok = True
     for table in tables:
-        src_count = await _count_rows(source, table)
-        tgt_count = await _count_rows(target, table)
-        src_max = await _max_id(source, table)
-        tgt_max = await _max_id(target, table)
+        src_count = _sqlite_count(sqlite_url, table)
+        tgt_count = await _pg_count(target, table)
+        src_max = _sqlite_max_id(sqlite_url, table)
+        tgt_max = await _pg_max_id(target, table)
         match = src_count == tgt_count and src_max == tgt_max
         status = "OK" if match else "MISMATCH"
         print(
@@ -146,13 +225,12 @@ async def migrate(
     skip_truncate: bool,
     verify_only: bool,
 ) -> int:
-    source_engine = create_async_engine(_normalize_sqlite_url(sqlite_url), future=True)
     target_engine = create_async_engine(_normalize_postgres_url(postgres_url), future=True)
 
     try:
         if verify_only:
             print("Verification only:")
-            ok = await _verify(source_engine, target_engine, TABLES_IN_ORDER)
+            ok = await _verify(sqlite_url, target_engine, TABLES_IN_ORDER)
             return 0 if ok else 1
 
         if not skip_truncate:
@@ -161,17 +239,16 @@ async def migrate(
 
         print("Copying tables...")
         for table in TABLES_IN_ORDER:
-            copied = await _copy_table(source_engine, target_engine, table)
+            copied = await _copy_table(sqlite_url, target_engine, table)
             print(f"  {table}: {copied} rows total")
 
         print("Resetting PostgreSQL sequences...")
         await _reset_sequences(target_engine, TABLES_IN_ORDER)
 
         print("Verification:")
-        ok = await _verify(source_engine, target_engine, TABLES_IN_ORDER)
+        ok = await _verify(sqlite_url, target_engine, TABLES_IN_ORDER)
         return 0 if ok else 1
     finally:
-        await source_engine.dispose()
         await target_engine.dispose()
 
 
@@ -180,7 +257,7 @@ def main() -> None:
     parser.add_argument(
         "--sqlite-url",
         default="sqlite+aiosqlite:///./instance/violence.db",
-        help="Source SQLite URL",
+        help="Source SQLite URL (use sqlite:// for sync reads during VPS cutover)",
     )
     parser.add_argument(
         "--postgres-url",
@@ -200,16 +277,16 @@ def main() -> None:
     args = parser.parse_args()
 
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-
-    exit_code = asyncio.run(
-        migrate(
-            args.sqlite_url,
-            args.postgres_url,
-            skip_truncate=args.skip_truncate,
-            verify_only=args.verify_only,
+    raise SystemExit(
+        asyncio.run(
+            migrate(
+                args.sqlite_url,
+                args.postgres_url,
+                skip_truncate=args.skip_truncate,
+                verify_only=args.verify_only,
+            )
         )
     )
-    raise SystemExit(exit_code)
 
 
 if __name__ == "__main__":
