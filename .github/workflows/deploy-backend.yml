@@ -20,6 +20,7 @@ on:
       - 'docker-compose.staging.yml'
       - 'scripts/deploy-backend.sh'
       - 'scripts/sync-staging-db.sh'
+      - 'scripts/hash-env-passwords.py'
       - 'scripts/lib/**'
       - 'infra/postgres/**'
       - 'infra/nginx/**'
