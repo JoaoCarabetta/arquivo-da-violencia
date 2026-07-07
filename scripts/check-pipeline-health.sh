@@ -65,7 +65,7 @@ read_env_var() {
     local key="$1"
     local env_file="$REPO_DIR/.env"
     [ -f "$env_file" ] || return 0
-    grep -m1 "^${key}=" "$env_file" | cut -d= -f2- | tr -d '\r'
+    grep -m1 "^${key}=" "$env_file" | cut -d= -f2- | tr -d '\r' || true
 }
 
 TELEGRAM_BOT_TOKEN="${TELEGRAM_BOT_TOKEN:-$(read_env_var TELEGRAM_BOT_TOKEN)}"
