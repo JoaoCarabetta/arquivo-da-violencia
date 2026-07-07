@@ -85,7 +85,7 @@ preflight_api_config() {
     if docker compose $COMPOSE_FILES run --rm --no-deps \
         -v "$REPO_DIR/.env:/run/deploy.env:ro" \
         -v "$REPO_DIR/scripts/preflight-auth.py:/tmp/preflight-auth.py:ro" \
-        api sh -c "cd /app && python /tmp/preflight-auth.py /run/deploy.env"; then
+        api sh -c "cd /app && PYTHONPATH=/app .venv/bin/python /tmp/preflight-auth.py /run/deploy.env"; then
         echo "   ✅ API config is valid"
         return 0
     fi
