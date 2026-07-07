@@ -196,15 +196,22 @@ function StatsMode(props: RightPanelProps) {
             {t.victims}
           </div>
         </div>
-        <div className="rounded-xl px-3 py-[11px]" style={{ border: '1px solid var(--stone-200)', background: 'var(--blue-50)' }}>
+        <div
+          className="rounded-xl px-3 py-[11px]"
+          style={{
+            border: '1px solid color-mix(in oklab, var(--red-500) 32%, var(--stone-200))',
+            background: 'var(--red-50)',
+          }}
+        >
           <div
             className="leading-none"
-            style={{ fontSize: 26, fontWeight: 600, letterSpacing: '-.02em', color: 'var(--blue-700)', fontVariantNumeric: 'tabular-nums' }}
+            style={{ fontSize: 26, fontWeight: 600, letterSpacing: '-.02em', color: 'var(--red-600)', fontVariantNumeric: 'tabular-nums' }}
           >
             {viewportReady ? fmtNumber(last24h.total, lang) : '—'}
           </div>
-          <div className="mt-[5px] leading-snug" style={{ fontSize: 11, color: 'var(--blue-700)', opacity: 0.9 }}>
-            {t.last24h}
+          <div className="mt-[5px] flex items-center gap-[5px] leading-snug" style={{ fontSize: 11, color: 'var(--red-700)', opacity: 0.85 }}>
+            <span className="av-live-dot" aria-hidden="true" />
+            <span>{t.last24h}</span>
           </div>
         </div>
       </div>
