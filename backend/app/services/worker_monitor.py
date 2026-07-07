@@ -16,6 +16,7 @@ import asyncio
 from arq import create_pool
 from loguru import logger
 
+from app.metrics import set_heartbeat_misses, set_redis_connected, set_worker_alive
 from app.tasks.worker import get_redis_settings, HEALTH_CHECK_KEY
 from app.services.telegram import notify_worker_down, notify_worker_recovered
 
@@ -45,6 +46,8 @@ async def monitor_worker_health(stop_event: asyncio.Event) -> None:
                 pool = await create_pool(get_redis_settings())
 
             alive = await pool.get(HEALTH_CHECK_KEY) is not None
+            set_redis_connected(True)
+            set_worker_alive(alive)
 
             if alive:
                 if alerted_down:
@@ -55,6 +58,7 @@ async def monitor_worker_health(stop_event: asyncio.Event) -> None:
                 alerted_down = False
             else:
                 consecutive_misses += 1
+                set_heartbeat_misses(consecutive_misses)
                 logger.warning(
                     f"[WorkerMonitor] Missed heartbeat "
                     f"({consecutive_misses}/{MISS_THRESHOLD})"
@@ -67,6 +71,7 @@ async def monitor_worker_health(stop_event: asyncio.Event) -> None:
         except Exception as e:
             # Redis errors etc. - don't treat as "worker down" (that's a
             # different failure mode). Drop the pool so we reconnect cleanly.
+            set_redis_connected(False)
             logger.error(f"[WorkerMonitor] Health check error: {e}")
             if pool is not None:
                 try:

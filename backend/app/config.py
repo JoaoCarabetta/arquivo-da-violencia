@@ -83,6 +83,17 @@ class Settings(BaseSettings):
     github_token: str | None = None
     github_repo: str | None = None  # Format: "owner/repo"
 
+    hetzner_api_token: str | None = None
+
+    grafana_cloud_prom_url: str | None = None
+    grafana_cloud_prom_user: str | None = None
+    grafana_cloud_prom_key: str | None = None
+    grafana_cloud_loki_url: str | None = None
+    grafana_cloud_loki_user: str | None = None
+    grafana_cloud_loki_key: str | None = None
+    metrics_push_interval_seconds: int = 30
+    metrics_enabled: bool = True
+
     @property
     def is_sqlite(self) -> bool:
         """True when the configured database URL targets SQLite."""

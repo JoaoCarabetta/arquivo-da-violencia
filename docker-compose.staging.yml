@@ -68,6 +68,11 @@ services:
       - ADMIN_USERNAME=${STAGING_ADMIN_USERNAME:-admin}
       - TELEGRAM_BOT_TOKEN=${STAGING_TELEGRAM_BOT_TOKEN:-}
       - TELEGRAM_CHAT_ID=${STAGING_TELEGRAM_CHAT_ID:-}
+      - GRAFANA_CLOUD_PROM_URL=${GRAFANA_CLOUD_PROM_URL:-}
+      - GRAFANA_CLOUD_PROM_USER=${GRAFANA_CLOUD_PROM_USER:-}
+      - GRAFANA_CLOUD_PROM_KEY=${GRAFANA_CLOUD_PROM_KEY:-}
+      - METRICS_PUSH_INTERVAL_SECONDS=${METRICS_PUSH_INTERVAL_SECONDS:-30}
+      - METRICS_ENABLED=${METRICS_ENABLED:-true}
 
   # ---------------------------------------------------------------------------
   # Worker - Staging instance
@@ -101,6 +106,11 @@ services:
       - ADMIN_USERNAME=${STAGING_ADMIN_USERNAME:-admin}
       - TELEGRAM_BOT_TOKEN=${STAGING_TELEGRAM_BOT_TOKEN:-}
       - TELEGRAM_CHAT_ID=${STAGING_TELEGRAM_CHAT_ID:-}
+      - GRAFANA_CLOUD_PROM_URL=${GRAFANA_CLOUD_PROM_URL:-}
+      - GRAFANA_CLOUD_PROM_USER=${GRAFANA_CLOUD_PROM_USER:-}
+      - GRAFANA_CLOUD_PROM_KEY=${GRAFANA_CLOUD_PROM_KEY:-}
+      - METRICS_PUSH_INTERVAL_SECONDS=${METRICS_PUSH_INTERVAL_SECONDS:-30}
+      - METRICS_ENABLED=${METRICS_ENABLED:-true}
     # Allow worker 120s to finish current job before forced shutdown
     stop_grace_period: 120s
 
@@ -118,6 +128,25 @@ services:
     ports: !override
       - "8080:80"
 
+  promtail:
+    image: grafana/promtail:latest
+    container_name: staging-arquivo-promtail
+    profiles: ["logs"]
+    depends_on:
+      - api
+      - worker
+    environment:
+      - GRAFANA_CLOUD_LOKI_URL=${GRAFANA_CLOUD_LOKI_URL:-}
+      - GRAFANA_CLOUD_LOKI_USER=${GRAFANA_CLOUD_LOKI_USER:-}
+      - GRAFANA_CLOUD_LOKI_KEY=${GRAFANA_CLOUD_LOKI_KEY:-}
+    volumes:
+      - ./promtail.yml:/etc/promtail/config.yml:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      - staging_promtail_positions:/tmp
+    command: -config.file=/etc/promtail/config.yml -config.expand-env=true
+    restart: unless-stopped
+
 networks:
   prod:
     external: true
@@ -127,4 +156,6 @@ volumes:
   staging_redis_data:
     external: true
     name: staging-arquivo-redis-data
+  staging_promtail_positions:
+    name: staging-arquivo-promtail-positions
 

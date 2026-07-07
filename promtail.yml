@@ -1,0 +1,59 @@
+# Promtail config: ship api + worker container logs to Grafana Cloud Loki.
+#
+# - Scrapes Docker container logs via the Docker daemon socket.
+# - Keeps only the api and worker containers (drops redis/frontend to stay
+#   within the free-tier 50GB/month log budget).
+# - Adds a `container` label so logs can be filtered in Grafana Explore.
+# - Drops /health and /api/health request lines to cut noise.
+#
+# The Loki push URL + basic auth are passed in via environment variables
+# (GRAFANA_CLOUD_LOKI_URL / _USER / _KEY) — see docker-compose.yml.
+
+server:
+  http_listen_port: 9080
+  grpc_listen_port: 0
+
+positions:
+  filename: /tmp/positions.yaml
+
+clients:
+  - url: ${GRAFANA_CLOUD_LOKI_URL}
+    basic_auth:
+      username: ${GRAFANA_CLOUD_LOKI_USER}
+      password: ${GRAFANA_CLOUD_LOKI_KEY}
+    backoff_config:
+      min_period: 500ms
+      max_period: 5m
+      max_retries: 10
+
+scrape_configs:
+  - job_name: docker
+    docker_sd_configs:
+      - host: unix:///var/run/docker.sock
+        refresh_interval: 5s
+        filters:
+          - name: name
+            values:
+              ["arquivo-api", "arquivo-worker", "staging-arquivo-api", "staging-arquivo-worker"]
+    relabel_configs:
+      - source_labels: ["__meta_docker_container_name"]
+        target_label: container
+        regex: '/(.*)'
+        replacement: '${1}'
+      - source_labels: ["__meta_docker_container_log_stream"]
+        target_label: stream
+    pipeline_stages:
+      # Drop health-check access-log lines to cut log volume. Matches both
+      # "GET /health" and "GET /api/health" in the raw line.
+      - drop:
+          expression: '.*"(GET|HEAD) /(api/)?health HTTP.*'
+          drop_counter_reason: health_check_noise
+      # Parse loguru JSON logs when present (best-effort, non-JSON lines pass through).
+      - json:
+          expressions:
+            level: level
+            message: message
+            timestamp: time
+          on_error: continue
+      - labels:
+          level:

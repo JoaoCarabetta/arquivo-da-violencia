@@ -83,6 +83,11 @@ services:
       - ENABLE_AUTH=false
       - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN:-}
       - TELEGRAM_CHAT_ID=${TELEGRAM_CHAT_ID:-}
+      - GRAFANA_CLOUD_PROM_URL=${GRAFANA_CLOUD_PROM_URL:-}
+      - GRAFANA_CLOUD_PROM_USER=${GRAFANA_CLOUD_PROM_USER:-}
+      - GRAFANA_CLOUD_PROM_KEY=${GRAFANA_CLOUD_PROM_KEY:-}
+      - METRICS_PUSH_INTERVAL_SECONDS=${METRICS_PUSH_INTERVAL_SECONDS:-30}
+      - METRICS_ENABLED=${METRICS_ENABLED:-true}
     volumes:
       - ./backend/app:/app/app:ro
       - ./backend/alembic:/app/alembic:ro
@@ -113,6 +118,11 @@ services:
       - ADMIN_PASSWORD=
       - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN:-}
       - TELEGRAM_CHAT_ID=${TELEGRAM_CHAT_ID:-}
+      - GRAFANA_CLOUD_PROM_URL=${GRAFANA_CLOUD_PROM_URL:-}
+      - GRAFANA_CLOUD_PROM_USER=${GRAFANA_CLOUD_PROM_USER:-}
+      - GRAFANA_CLOUD_PROM_KEY=${GRAFANA_CLOUD_PROM_KEY:-}
+      - METRICS_PUSH_INTERVAL_SECONDS=${METRICS_PUSH_INTERVAL_SECONDS:-30}
+      - METRICS_ENABLED=${METRICS_ENABLED:-true}
     volumes:
       - ./backend/app:/app/app:ro
     stop_grace_period: 120s
@@ -144,8 +154,29 @@ services:
       - api
     restart: unless-stopped
 
+  promtail:
+    image: grafana/promtail:latest
+    container_name: arquivo-promtail-dev
+    profiles: ["logs"]
+    depends_on:
+      - api
+      - worker
+    environment:
+      - GRAFANA_CLOUD_LOKI_URL=${GRAFANA_CLOUD_LOKI_URL:-}
+      - GRAFANA_CLOUD_LOKI_USER=${GRAFANA_CLOUD_LOKI_USER:-}
+      - GRAFANA_CLOUD_LOKI_KEY=${GRAFANA_CLOUD_LOKI_KEY:-}
+    volumes:
+      - ./promtail.yml:/etc/promtail/config.yml:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      - promtail_dev_positions:/tmp
+    command: -config.file=/etc/promtail/config.yml -config.expand-env=true
+    restart: unless-stopped
+
 volumes:
   postgres_dev_data:
     name: arquivo-postgres-dev-data
   redis_dev_data:
     name: arquivo-redis-dev-data
+  promtail_dev_positions:
+    name: arquivo-promtail-dev-positions

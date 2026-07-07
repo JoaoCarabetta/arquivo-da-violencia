@@ -135,3 +135,9 @@ docker compose -p prod up -d --no-deps api worker
 ```
 
 Public site: https://arquivodaviolencia.com.br
+
+## Observability
+
+Grafana Cloud (free) + UptimeRobot for pipeline metrics/logs/alerts. See
+[docs/observability-setup.md](docs/observability-setup.md) and
+`bash scripts/check-observability.sh`.

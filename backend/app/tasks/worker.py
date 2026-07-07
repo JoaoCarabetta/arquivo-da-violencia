@@ -1,5 +1,6 @@
 """ARQ worker configuration."""
 
+import asyncio
 import os
 import json
 from datetime import datetime, timezone
@@ -74,11 +75,28 @@ async def startup(ctx: dict) -> None:
     except Exception as e:  # pragma: no cover - best effort, non-fatal
         logger.warning(f"Failed to recover stuck sources on startup: {e}")
 
+    try:
+        from app.metrics import push_loop
+
+        ctx["metrics_task"] = asyncio.create_task(
+            push_loop(settings.metrics_push_interval_seconds)
+        )
+    except Exception as e:  # pragma: no cover
+        logger.warning(f"Failed to start metrics push loop: {e}")
+
 
 async def shutdown(ctx: dict) -> None:
     """Worker shutdown handler."""
     from loguru import logger
     logger.info("ARQ Worker shutting down...")
+
+    metrics_task = ctx.get("metrics_task")
+    if metrics_task is not None and not metrics_task.done():
+        metrics_task.cancel()
+        try:
+            await metrics_task
+        except (asyncio.CancelledError, Exception):  # pragma: no cover
+            pass
 
 
 def get_cron_jobs():
