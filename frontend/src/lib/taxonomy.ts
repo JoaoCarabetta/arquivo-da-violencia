@@ -126,7 +126,7 @@ export function formatTaxonomyFields(
     if (mapped) return formatSubtype(mapped, lang);
   }
   if (family === 'homicidio') {
-    return lang === 'pt' ? 'Homicídio' : 'Homicide';
+    return lang === 'pt' ? 'Morte violenta' : 'Violent death';
   }
   return lang === 'pt' ? 'Não classificado' : 'Unclassified';
 }

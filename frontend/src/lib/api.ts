@@ -148,7 +148,9 @@ export interface EventSource {
   headline: string | null;
   publisher_name: string | null;
   url: string | null;
+  google_news_url?: string | null;
   published_at: string | null;
+  kind?: 'source' | 'raw_fallback';
 }
 
 export interface PublicEvent {
@@ -156,22 +158,25 @@ export interface PublicEvent {
   title: string | null;
   event_date: string | null;
   time_of_day: string | null;
+  country?: string | null;
   state: string | null;
   city: string | null;
   neighborhood: string | null;
+  street?: string | null;
   homicide_type: string | null;
   event_family: string | null;
   event_subtype: string | null;
   method_of_death: string | null;
   victim_count: number | null;
   victims_summary: string | null;
+  perpetrator_count?: number | null;
   security_force_involved: boolean | null;
   chronological_description: string | null;
   latitude: number | null;
   longitude: number | null;
+  location_precision?: string | null;
   formatted_address: string | null;
   source_count: number;
-  merged_data: Record<string, any> | null;
   created_at: string;
   updated_at?: string | null;
   sources?: EventSource[];
@@ -506,6 +511,8 @@ export interface ExportFilters {
   types?: string[];
   methods?: string[];
   periods?: string[];
+  states?: string[];
+  cities?: string[];
   days?: number;
   columns?: string[];
   startDate?: string;
@@ -524,6 +531,8 @@ export function getExportUrl(filters?: ExportFilters): string {
   for (const t of filters?.types ?? []) qs.append('types', t);
   for (const m of filters?.methods ?? []) qs.append('methods', m);
   for (const p of filters?.periods ?? []) qs.append('periods', p);
+  for (const st of filters?.states ?? []) qs.append('states', st);
+  for (const c of filters?.cities ?? []) qs.append('cities', c);
   for (const c of filters?.columns ?? []) qs.append('columns', c);
   return `${API_BASE}/public/events/export?${qs.toString()}`;
 }

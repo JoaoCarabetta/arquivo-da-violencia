@@ -1,20 +1,20 @@
 import { X } from 'lucide-react';
 import { memo, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { useI18n } from '@/contexts/I18nContext';
 import { methodologyContent } from '@/lib/methodology';
 
 interface MethodologyPanelProps {
   open: boolean;
   onClose: () => void;
+  onSetMode: (mode: 'data') => void;
 }
 
 export const MethodologyPanel = memo(function MethodologyPanel({
   open,
   onClose,
+  onSetMode,
 }: MethodologyPanelProps) {
-  const { lang } = useI18n();
-  const navigate = useNavigate();
+  const { t, lang } = useI18n();
   const content = methodologyContent(lang);
 
   useEffect(() => {
@@ -127,12 +127,12 @@ export const MethodologyPanel = memo(function MethodologyPanel({
           <button
             onClick={() => {
               onClose();
-              navigate('/dados');
+              onSetMode('data');
             }}
             className="mt-4 w-full rounded-[10px] border-none px-4 py-2.5"
             style={{ background: 'var(--blue-500)', color: '#fff', fontSize: 14, fontWeight: 500 }}
           >
-            {lang === 'pt' ? 'Ver dicionário de dados' : 'View data dictionary'}
+            {t.navData}
           </button>
         </div>
       </div>
