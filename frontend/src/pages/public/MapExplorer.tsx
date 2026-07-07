@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { FlyToInterpolator } from '@deck.gl/core';
@@ -22,6 +22,7 @@ import {
   hasActiveFilters,
   computeGeoCentroid,
   geoFlyZoom,
+  SCATTER_ZOOM_THRESHOLD,
   type FilterGroup,
   type PortalFilters,
   type PortalMode,
@@ -71,6 +72,7 @@ export function MapExplorer() {
   const [aboutOpen, setAboutOpen] = useState(aboutFromRoute);
   const [methodologyOpen, setMethodologyOpen] = useState(methodologyFromRoute);
   const [mobilePanelOpen, setMobilePanelOpen] = useState(false);
+  const flyInterpolatorRef = useRef(new FlyToInterpolator({ speed: 1.4 }));
 
   const { data, isLoading } = useQuery({
     queryKey: ['map-points', MAP_DAYS],
@@ -110,7 +112,7 @@ export function MapExplorer() {
       latitude: lat,
       zoom,
       transitionDuration: 900,
-      transitionInterpolator: new FlyToInterpolator({ speed: 1.4 }),
+      transitionInterpolator: flyInterpolatorRef.current,
     }));
   }, []);
 
@@ -151,21 +153,28 @@ export function MapExplorer() {
     (eventId: number) => {
       const point = allPoints.find((p) => p.id === eventId);
       if (point) {
-        setViewState((prev) => ({
-          ...prev,
-          longitude: point.lng,
-          latitude: point.lat,
-          zoom: Math.max(prev.zoom, 12.5),
-          transitionDuration: 900,
-          transitionInterpolator: new FlyToInterpolator({ speed: 1.4 }),
-        }));
+        const alreadyVisible =
+          panelZoom >= SCATTER_ZOOM_THRESHOLD &&
+          panelBounds != null &&
+          pointsInBounds([point], panelBounds).length > 0;
+
+        if (!alreadyVisible) {
+          setViewState((prev) => ({
+            ...prev,
+            longitude: point.lng,
+            latitude: point.lat,
+            zoom: Math.max(prev.zoom, 12.5),
+            transitionDuration: 900,
+            transitionInterpolator: flyInterpolatorRef.current,
+          }));
+        }
       }
       if (isMobile) {
         setMobilePanelOpen(true);
       }
       navigate(`/eventos/${eventId}`);
     },
-    [allPoints, navigate, isMobile]
+    [allPoints, navigate, isMobile, panelZoom, panelBounds]
   );
 
   const onCloseDetail = useCallback(() => {
@@ -188,7 +197,7 @@ export function MapExplorer() {
         latitude: coordinate[1],
         zoom: Math.min(prev.zoom + 2.5, 13),
         transitionDuration: 900,
-        transitionInterpolator: new FlyToInterpolator({ speed: 1.4 }),
+        transitionInterpolator: flyInterpolatorRef.current,
       }));
     },
     []
@@ -199,7 +208,7 @@ export function MapExplorer() {
     setViewState({
       ...BRAZIL_VIEW,
       transitionDuration: 700,
-      transitionInterpolator: new FlyToInterpolator({ speed: 1.4 }),
+      transitionInterpolator: flyInterpolatorRef.current,
     });
   }, []);
 
@@ -277,6 +286,7 @@ export function MapExplorer() {
           <CrimeMap
             points={filteredPoints}
             viewState={viewState}
+            settledZoom={panelZoom}
             onViewportSettled={handleViewportSettled}
             onPointClick={onSelect}
             onCellClick={onCellClick}

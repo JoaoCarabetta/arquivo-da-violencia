@@ -363,13 +363,19 @@ export function trendChartScale(peak: number): { scaleMax: number; ticks: number
 /** Zoom level at which the map switches from density grid to individual markers. */
 export const SCATTER_ZOOM_THRESHOLD = 12;
 
+/** Points included in H3 hex aggregation — strict viewport, no nationwide fallback. */
+export function pointsForHexGrid(points: MapPoint[], bounds: MapBounds | null): MapPoint[] {
+  if (!bounds) return [];
+  return pointsInBounds(points, bounds);
+}
+
 /** Peak fatal-victim count in any single H3 grid cell for the current viewport and zoom. */
 export function computeGridPeakCount(
   points: MapPoint[],
   bounds: MapBounds | null,
   zoom: number
 ): number {
-  const inView = bounds ? pointsInBounds(points, bounds) : points;
+  const inView = bounds ? pointsForHexGrid(points, bounds) : points;
   if (inView.length === 0) return 0;
   const resolution = h3ResolutionForZoom(zoom);
   const cells = aggregatePointsToH3Cells(inView, resolution);
