@@ -44,8 +44,15 @@ def test_fuzzy_title_match_rejects_short_substring_only():
 
 def test_tuned_constants():
     assert TITLE_DATE_TOLERANCE_DAYS == 3
-    assert FUZZY_TITLE_THRESHOLD == 0.85
+    assert FUZZY_TITLE_THRESHOLD == 0.80
     assert LLM_MATCH_CONFIDENCE_THRESHOLD == 0.6
+
+
+def test_fuzzy_title_match_sao_jose_feminicidio_pair():
+    """Regression: prod duplicate pair 9843/9851 (same incident, different headlines)."""
+    a = "HOMICÍDIO - VIA PÚBLICA SERTÃO DO MARUIM - 06/07/2026"
+    b = "FEMINICÍDIO - RODOVIA SC-281, SERTÃO DO MARUIM - 06/07/2026"
+    assert fuzzy_title_match(a, b, threshold=FUZZY_TITLE_THRESHOLD)
 
 
 @pytest.mark.asyncio

@@ -1,0 +1,63 @@
+{
+  "meta": {
+    "stage": "dedup_match",
+    "version": 1,
+    "source_db": "production",
+    "seed": null,
+    "labeled_count": 1,
+    "pending_count": 0
+  },
+  "cases": [
+    {
+      "id": "dm-neg-confresa-different-day",
+      "tags": ["negative", "different_city", "candidates_2"],
+      "label_status": "labeled",
+      "input": {
+        "raw_event": {
+          "id": 50001,
+          "title": "HOMICÍDIO - RESIDÊNCIA CENTRO - 02/07/2026",
+          "event_date": "2026-07-02",
+          "city": "Manaus",
+          "state": "AM",
+          "homicide_type": "Homicídio simples",
+          "chronological_description": "Homem morto a tiros dentro de apartamento no centro de Manaus. Vítima identificada como Carlos Eduardo Lima, 41 anos.",
+          "victim_names": ["Carlos Eduardo Lima"]
+        },
+        "candidates": [
+          {
+            "id": 9003,
+            "title": "FEMINICÍDIO - RESIDÊNCIA JARDIM AEROPORTO - 04/07/2026",
+            "event_date": "2026-07-04",
+            "city": "Confresa",
+            "state": "MT",
+            "homicide_type": "Feminicídio",
+            "chronological_description": "Mulher morta a facadas pelo ex-companheiro em residência no Jardim Aeroporto, Confresa.",
+            "victims_summary": "Maria Helena Costa, 28 anos",
+            "victim_count": 1,
+            "source_count": 1
+          },
+          {
+            "id": 9004,
+            "title": "HOMICÍDIO - ESTABELECIMENTO COMERCIAL - 03/07/2026",
+            "event_date": "2026-07-03",
+            "city": "Confresa",
+            "state": "MT",
+            "homicide_type": "Homicídio simples",
+            "chronological_description": "Cliente morto a tiros em bar no centro de Confresa.",
+            "victims_summary": "Homem adulto não identificado",
+            "victim_count": 1,
+            "source_count": 1
+          }
+        ]
+      },
+      "expected": {
+        "match": false,
+        "unique_event_id": null
+      },
+      "metadata": {
+        "source_id": null,
+        "notes": "Different city (Manaus vs Confresa) and different named victim — must not match."
+      }
+    }
+  ]
+}

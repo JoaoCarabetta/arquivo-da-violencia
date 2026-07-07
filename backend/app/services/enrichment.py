@@ -12,6 +12,8 @@ Deduplication Strategy:
 """
 
 import json
+import re
+from collections import defaultdict
 from datetime import datetime, timedelta
 from difflib import SequenceMatcher
 
@@ -68,7 +70,7 @@ DATE_TOLERANCE_DAYS = 1  # For date+city blocking
 VICTIM_NAME_DATE_TOLERANCE_DAYS = 10  # Wider window when victim name matches
 TITLE_DATE_TOLERANCE_DAYS = 3  # Wider window when title similarity is high
 FUZZY_NAME_THRESHOLD = 0.85  # Threshold for fuzzy name matching
-FUZZY_TITLE_THRESHOLD = 0.85  # Threshold for fuzzy title matching
+FUZZY_TITLE_THRESHOLD = 0.80  # Threshold for fuzzy title matching
 LLM_MATCH_CONFIDENCE_THRESHOLD = 0.6  # Minimum confidence to accept LLM match
 
 
@@ -142,24 +144,62 @@ def fuzzy_title_match(
     return SequenceMatcher(None, t1, t2).ratio() >= threshold
 
 
+# Matches "Daiany Rodrigues de Souza, 33 anos" or "A vítima Nome ..., 33 anos"
+_VICTIM_NAME_IN_TEXT = re.compile(
+    r"(?:[Aa]\s+)?(?:v[ií]tima\s+)?"
+    r"((?:[A-ZÀ-ÚÁÉÍÓÚÇ][a-zà-úáéíóúç]+"
+    r"(?:\s+(?:da|de|do|dos|das|e)\s+|\s+)){0,4}"
+    r"[A-ZÀ-ÚÁÉÍÓÚÇ][a-zà-úáéíóúç]+)"
+    r"\s*,\s*\d+\s+anos",
+    re.IGNORECASE,
+)
+
+
+def _names_from_free_text(*texts: str | None) -> list[str]:
+    """Extract victim names mentioned in description/title prose."""
+    names: list[str] = []
+    seen: set[str] = set()
+    for text in texts:
+        if not text:
+            continue
+        for match in _VICTIM_NAME_IN_TEXT.finditer(text):
+            name = normalize_name(match.group(1))
+            if len(name) > 3 and name not in seen:
+                seen.add(name)
+                names.append(name)
+    return names
+
+
 def extract_victim_names(raw_event: RawEvent) -> list[str]:
     """
     Extract identified victim names from extraction_data.
     
     Returns list of normalized names (at least 4 characters).
+    Falls back to parsing chronological_description/title when JSON lacks names.
     """
-    names = []
-    if not raw_event.extraction_data:
-        return names
-    
-    victims = raw_event.extraction_data.get("victims", {})
-    identifiable = victims.get("identifiable_victims", [])
-    
-    for victim in identifiable:
-        name = victim.get("name")
-        if name and len(name.strip()) > 3:  # Ignore very short names/initials
-            names.append(normalize_name(name))
-    
+    names: list[str] = []
+    seen: set[str] = set()
+
+    if raw_event.extraction_data:
+        victims = raw_event.extraction_data.get("victims", {})
+        identifiable = victims.get("identifiable_victims", [])
+        for victim in identifiable:
+            name = victim.get("name")
+            if name and len(name.strip()) > 3:
+                normalized = normalize_name(name)
+                if normalized not in seen:
+                    seen.add(normalized)
+                    names.append(normalized)
+
+    if not names:
+        for name in _names_from_free_text(
+            raw_event.chronological_description,
+            raw_event.title,
+        ):
+            if name not in seen:
+                seen.add(name)
+                names.append(name)
+
     return names
 
 
@@ -496,13 +536,18 @@ REGRAS DE MATCHING (em ordem de importância):
 2. **TÍTULO** (peso alto): Manchetes/títulos muito similares sobre o mesmo crime indicam o MESMO evento,
    mesmo com pequenas diferenças de data (±3 dias) ou redação entre fontes.
 
-3. **DATA + LOCAL** (peso alto): Mesmo dia + mesmo bairro/local sugere mesmo evento, especialmente se não há vítimas identificadas.
+3. **DATA + LOCAL** (peso alto): Mesmo dia + mesma cidade/bairro sugere mesmo evento.
+   - Endereços equivalentes contam como o MESMO local (ex.: rodovia SC-281 = Avenida sobre a mesma via;
+     "bar em Confresa" = "bar Jardim Planalto" quando vítima e descrição coincidem).
+   - "companheiro" e "namorado" referindo-se ao mesmo suspeito NÃO impedem match.
 
 4. **DESCRIÇÃO** (peso médio): Descrições similares do crime ajudam a confirmar, mas fontes diferentes podem descrever o mesmo evento de formas diferentes.
    - "Homem baleado no Complexo da Maré" e "Tiroteio deixa um morto na Maré" podem ser o MESMO evento
 
 IMPORTANTE: Prefira match quando há evidência convergente (vítima, título ou local+data).
 Se a evidência for fraca ou ambígua, responda que NÃO há match.
+Cidades diferentes = eventos DIFERENTES, salvo se a mesma vítima identificada aparecer em ambos.
+Mesmo dia + mesma cidade NÃO basta se vítimas ou descrições indicam incidentes claramente distintos.
 
 Responda com:
 - match: true/false
@@ -524,7 +569,9 @@ REGRAS DE MATCHING (em ordem de importância):
 IMPORTANTE:
 - Diferentes fontes podem descrever o mesmo evento de formas diferentes
 - "Homem baleado na Maré" e "Tiroteio deixa um morto na Maré" podem ser o MESMO evento
-- Se há dúvida, considere como eventos DIFERENTES
+- Mesma vítima identificada = MESMO evento, mesmo com títulos ou endereços diferentes
+- Rodovias e avenidas sobre o mesmo trecho são o MESMO local
+- Se há dúvida forte entre incidentes claramente distintos, considere como eventos DIFERENTES
 
 Responda com:
 - clusters: lista de clusters, onde cada cluster é a lista dos números (1-indexados) das extrações que são o mesmo evento. Exemplo: [[1, 3], [2]] significa que as extrações 1 e 3 são o mesmo evento e a 2 é um evento diferente. TODA extração deve aparecer em exatamente um cluster.
@@ -754,75 +801,62 @@ def pre_cluster_by_victim_name(raw_events: list[RawEvent]) -> list[list[RawEvent
     """
     Pre-cluster RawEvents by victim name match (no LLM needed).
     
-    Events with matching victim names are clustered together.
+    Events with matching victim names are clustered together (fuzzy).
     Events without identifiable victims remain as singletons.
     """
     if len(raw_events) <= 1:
         return [[e] for e in raw_events]
-    
-    # Build victim name -> raw_events index
-    name_to_events: dict[str, list[RawEvent]] = {}
+
+    event_names: dict[int, list[str]] = {}
     events_with_names: set[int] = set()
-    
     for raw_event in raw_events:
         names = extract_victim_names(raw_event)
         if names:
             events_with_names.add(raw_event.id)
-            for name in names:
-                name_to_events.setdefault(name, []).append(raw_event)
-    
-    # Build clusters using union-find approach
-    event_to_cluster: dict[int, int] = {}
-    clusters: dict[int, list[RawEvent]] = {}
-    next_cluster_id = 0
-    
-    # First, cluster events that share any victim name
-    for name, events in name_to_events.items():
-        if len(events) > 1:
-            # Find if any of these events are already in a cluster
-            existing_cluster_ids = set()
-            for e in events:
-                if e.id in event_to_cluster:
-                    existing_cluster_ids.add(event_to_cluster[e.id])
-            
-            if existing_cluster_ids:
-                # Merge into the first existing cluster
-                target_cluster_id = min(existing_cluster_ids)
-                for e in events:
-                    if e.id not in event_to_cluster:
-                        event_to_cluster[e.id] = target_cluster_id
-                        clusters.setdefault(target_cluster_id, []).append(e)
-                    elif event_to_cluster[e.id] != target_cluster_id:
-                        # Merge clusters
-                        old_cluster_id = event_to_cluster[e.id]
-                        for old_e in clusters.get(old_cluster_id, []):
-                            event_to_cluster[old_e.id] = target_cluster_id
-                            clusters.setdefault(target_cluster_id, []).append(old_e)
-                        clusters.pop(old_cluster_id, None)
-            else:
-                # Create new cluster
-                for e in events:
-                    event_to_cluster[e.id] = next_cluster_id
-                    clusters.setdefault(next_cluster_id, []).append(e)
-                next_cluster_id += 1
-    
-    # Add events with names that weren't clustered (unique names)
+            event_names[raw_event.id] = names
+
+    parent: dict[int, int] = {e.id: e.id for e in raw_events}
+
+    def find(x: int) -> int:
+        while parent[x] != x:
+            parent[x] = parent[parent[x]]
+            x = parent[x]
+        return x
+
+    def union(a: int, b: int) -> None:
+        ra, rb = find(a), find(b)
+        if ra != rb:
+            parent[rb] = ra
+
+    ids = list(event_names.keys())
+    for i, id_a in enumerate(ids):
+        for id_b in ids[i + 1 :]:
+            if any(
+                fuzzy_name_match(na, nb)
+                for na in event_names[id_a]
+                for nb in event_names[id_b]
+            ):
+                union(id_a, id_b)
+
+    clusters_by_root: dict[int, list[RawEvent]] = defaultdict(list)
     for raw_event in raw_events:
-        if raw_event.id in events_with_names and raw_event.id not in event_to_cluster:
-            clusters[next_cluster_id] = [raw_event]
-            event_to_cluster[raw_event.id] = next_cluster_id
-            next_cluster_id += 1
-    
-    # Add events without names as singletons
+        if raw_event.id in events_with_names:
+            clusters_by_root[find(raw_event.id)].append(raw_event)
+
+    next_cluster_id = 0
+    clusters: dict[int, list[RawEvent]] = {}
+    for events in clusters_by_root.values():
+        clusters[next_cluster_id] = events
+        next_cluster_id += 1
+
     for raw_event in raw_events:
         if raw_event.id not in events_with_names:
             clusters[next_cluster_id] = [raw_event]
             next_cluster_id += 1
-    
-    # Deduplicate events within clusters
+
     result = []
-    for cluster_id, events in clusters.items():
-        seen_ids = set()
+    for events in clusters.values():
+        seen_ids: set[int] = set()
         unique_events = []
         for e in events:
             if e.id not in seen_ids:
@@ -830,7 +864,7 @@ def pre_cluster_by_victim_name(raw_events: list[RawEvent]) -> list[list[RawEvent
                 unique_events.append(e)
         if unique_events:
             result.append(unique_events)
-    
+
     return result
 
 
@@ -1276,7 +1310,49 @@ async def process_pending_deduplication(limit: int = 200) -> dict:
         raw_events.append(raw_event)
     
     logger.info(f"[Batch Dedup] Processing {len(raw_events)} pending RawEvent(s)")
-    
+
+    # Phase 1: try matching each pending RawEvent against existing UniqueEvents
+    # before clustering only among themselves (closes cross-wave duplicate gap).
+    still_pending: list[RawEvent] = []
+    matched_to_existing = 0
+
+    for raw_event in raw_events:
+        candidates = await find_candidate_unique_events(raw_event)
+        if candidates:
+            matched, confidence, reasoning = llm_match_to_unique_event(
+                raw_event, candidates
+            )
+            if matched:
+                await link_raw_event_to_unique_event(raw_event.id, matched.id)
+                matched_to_existing += 1
+                logger.info(
+                    f"[Batch Dedup] Phase 1 match: RawEvent {raw_event.id} "
+                    f"-> UniqueEvent {matched.id} (confidence: {confidence:.2f})"
+                )
+                continue
+        still_pending.append(raw_event)
+
+    if matched_to_existing:
+        logger.info(
+            f"[Batch Dedup] Phase 1 linked {matched_to_existing} RawEvent(s) "
+            "to existing UniqueEvents"
+        )
+
+    if not still_pending:
+        logger.info("[Batch Dedup] All pending RawEvents matched to existing UniqueEvents")
+        return {
+            "status": "completed",
+            "processed": matched_to_existing,
+            "matched_to_existing": matched_to_existing,
+            "unique_events_created": 0,
+            "groups_processed": 0,
+        }
+
+    raw_events = still_pending
+    logger.info(
+        f"[Batch Dedup] {len(raw_events)} RawEvent(s) remaining for clustering"
+    )
+
     # Group by date+city
     groups = group_pending_by_date_city(raw_events)
     logger.info(f"[Batch Dedup] Grouped into {len(groups)} group(s)")
@@ -1301,7 +1377,8 @@ async def process_pending_deduplication(limit: int = 200) -> dict:
     
     return {
         "status": "completed",
-        "processed": raw_events_processed,
+        "processed": raw_events_processed + matched_to_existing,
+        "matched_to_existing": matched_to_existing,
         "unique_events_created": unique_events_created,
         "groups_processed": len(groups),
     }

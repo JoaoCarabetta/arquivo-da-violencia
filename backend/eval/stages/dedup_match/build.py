@@ -38,7 +38,7 @@ DEFAULT_OUT = (
     / "tests"
     / "fixtures"
     / "eval"
-    / "dedup_match.json"
+    / "dedup_match_seed.json"
 )
 
 
