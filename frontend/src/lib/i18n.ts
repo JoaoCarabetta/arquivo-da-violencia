@@ -92,7 +92,7 @@ export interface Strings {
 }
 
 const PT: Strings = {
-  tagline: 'Veja os crimes na sua região',
+  tagline: 'Veja os homicídios da sua região em tempo real',
   searchPlaceholder: 'Cidade, bairro, estado ou CEP',
   noResults: 'Nenhum local encontrado',
   geocodeFailed: 'Não foi possível localizar esse endereço',
@@ -181,7 +181,7 @@ const PT: Strings = {
 };
 
 const EN: Strings = {
-  tagline: 'See violent crimes in your area',
+  tagline: 'See homicides in your area in real time',
   searchPlaceholder: 'City, neighborhood, state or ZIP',
   noResults: 'No place found',
   geocodeFailed: 'Could not locate that address',
