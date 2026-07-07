@@ -6,7 +6,7 @@ import {
   h3ResolutionForZoom,
   peakH3Count,
 } from '@/lib/h3Grid';
-import { computeGridPeakCount } from '@/components/portal/types';
+import { computeGridPeakCount, pointsForHexGrid } from '@/components/portal/types';
 
 function point(lat: number, lng: number, v = 1, id = 1): MapPoint {
   return {
@@ -73,6 +73,30 @@ describe('aggregatePointsToH3Cells', () => {
       resolution
     );
     expect(peakH3Count(cells)).toBe(5);
+  });
+});
+
+describe('pointsForHexGrid', () => {
+  it('returns empty when bounds are not ready', () => {
+    const points = [point(-23.55, -46.63, 2, 1)];
+    expect(pointsForHexGrid(points, null)).toEqual([]);
+  });
+
+  it('excludes out-of-bounds points so hex counts stay viewport-scoped', () => {
+    const bounds: [[number, number], [number, number]] = [
+      [-47, -24],
+      [-43, -22],
+    ];
+    const inView = point(-23.55, -46.63, 5, 1);
+    const outOfView = point(-10, -50, 99, 2);
+    const resolution = h3ResolutionForZoom(8);
+
+    const scoped = pointsForHexGrid([inView, outOfView], bounds);
+    const cells = aggregatePointsToH3Cells(scoped, resolution);
+
+    expect(scoped).toHaveLength(1);
+    expect(cells).toHaveLength(1);
+    expect(cells[0].count).toBe(5);
   });
 });
 
