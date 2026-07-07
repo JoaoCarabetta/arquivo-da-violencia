@@ -36,6 +36,7 @@ export interface Strings {
   trend: string;
   byType: string;
   byState: string;
+  byCity: string;
   timeOfDay: string;
   reset: string;
   emptyArea: string;
@@ -118,8 +119,9 @@ const PT: Strings = {
   temporalCustom: 'Intervalo personalizado',
   temporalApply: 'Aplicar',
   trend: 'Tendência mensal de vítimas fatais',
-  byType: 'Por subtipo',
+  byType: 'Homicídios',
   byState: 'Por estado',
+  byCity: 'Por cidade',
   timeOfDay: 'Período do dia',
   reset: 'Brasil',
   emptyArea: 'Nenhum evento nesta área.',
@@ -150,7 +152,7 @@ const PT: Strings = {
   exportDateRangeInvalid: 'A data inicial não pode ser posterior à data final.',
   exportDateRangeOptional: 'Opcional — deixe em branco para usar o recorte padrão de 365 dias.',
   statistics: 'Estatísticas',
-  inThisView: 'Nesta área',
+  inThisView: 'Homicídios nesta área',
   mapLoadingStats: 'Aguardando área do mapa…',
   filtersActive: ' · filtros ativos',
   filtersLoading: 'Carregando opções…',
@@ -206,8 +208,9 @@ const EN: Strings = {
   temporalCustom: 'Custom range',
   temporalApply: 'Apply',
   trend: 'Monthly fatal victim trend',
-  byType: 'By subtype',
+  byType: 'Homicides',
   byState: 'By state',
+  byCity: 'By city',
   timeOfDay: 'Time of day',
   reset: 'Brazil',
   emptyArea: 'No events in this area.',
@@ -238,7 +241,7 @@ const EN: Strings = {
   exportDateRangeInvalid: 'Start date cannot be after end date.',
   exportDateRangeOptional: 'Optional — leave blank to use the default 365-day window.',
   statistics: 'Statistics',
-  inThisView: 'In this view',
+  inThisView: 'Homicides in this area',
   mapLoadingStats: 'Waiting for map area…',
   filtersActive: ' · filters active',
   filtersLoading: 'Loading options…',

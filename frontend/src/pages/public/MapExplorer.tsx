@@ -231,6 +231,7 @@ export function MapExplorer() {
   const panelProps = {
     mode,
     pointsInView,
+    mapZoom: panelZoom,
     viewportReady,
     filteredCount: filteredPoints.length,
     filters,

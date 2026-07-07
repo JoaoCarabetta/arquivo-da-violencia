@@ -126,17 +126,30 @@ export interface ViewportStats {
   victims: number;
   bySubtype: Record<string, number>;
   byState: Record<string, number>;
+  byCity: Record<string, number>;
   byPeriod: Record<string, number>;
   trend: Record<string, number>; // key: `${year}-${month}` → fatal victims
 }
 
+/** Zoom at which the stats sidebar switches from state to city breakdown. */
+export const CITY_STATS_ZOOM_THRESHOLD = 10;
+
 export function computeStats(points: MapPoint[]): ViewportStats {
-  const s: ViewportStats = { total: points.length, victims: 0, bySubtype: {}, byState: {}, byPeriod: {}, trend: {} };
+  const s: ViewportStats = {
+    total: points.length,
+    victims: 0,
+    bySubtype: {},
+    byState: {},
+    byCity: {},
+    byPeriod: {},
+    trend: {},
+  };
   for (const p of points) {
     s.victims += p.v ?? 0;
     const subtype = pointSubtype(p);
     s.bySubtype[subtype] = (s.bySubtype[subtype] ?? 0) + 1;
     if (p.st) s.byState[p.st] = (s.byState[p.st] ?? 0) + 1;
+    if (p.c) s.byCity[p.c] = (s.byCity[p.c] ?? 0) + 1;
     if (p.p) s.byPeriod[p.p] = (s.byPeriod[p.p] ?? 0) + 1;
     if (p.d) {
       const d = new Date(p.d);

@@ -37,6 +37,7 @@ import {
   buildTrendMonths,
   sortPeriods,
   trendChartScale,
+  CITY_STATS_ZOOM_THRESHOLD,
   type PortalFilters,
   type PortalMode,
 } from './types';
@@ -44,6 +45,8 @@ import {
 interface RightPanelProps {
   mode: PortalMode;
   pointsInView: MapPoint[];
+  /** Current map zoom — drives state vs. city stats breakdown. */
+  mapZoom: number;
   viewportReady: boolean;
   filteredCount: number;
   filters: PortalFilters;
@@ -142,11 +145,12 @@ function PanelContent(props: RightPanelProps) {
 
 function StatsMode(props: RightPanelProps) {
   const { t, lang } = useI18n();
-  const { pointsInView, hasFilters, viewportReady } = props;
+  const { pointsInView, hasFilters, viewportReady, mapZoom } = props;
 
   const stats = useMemo(() => computeStats(pointsInView), [pointsInView]);
   const last24h = useMemo(() => computeLast24hStats(pointsInView), [pointsInView]);
   const months = useMemo(() => buildTrendMonths(pointsInView), [pointsInView]);
+  const cityMode = mapZoom >= CITY_STATS_ZOOM_THRESHOLD;
 
   const scopeNote = viewportReady
     ? t.inVisibleArea + (hasFilters ? t.filtersActive : '')
@@ -159,10 +163,10 @@ function StatsMode(props: RightPanelProps) {
   const typeRows = Object.entries(stats.bySubtype)
     .sort((a, b) => b[1] - a[1])
     .map(([subtype, count]) => ({ subtype: subtype as HomicideSubtype, count }));
-  const stateEntries = Object.entries(stats.byState)
+  const placeEntries = Object.entries(cityMode ? stats.byCity : stats.byState)
     .sort((a, b) => b[1] - a[1])
     .slice(0, 6);
-  const stateMax = Math.max(1, ...stateEntries.map((x) => x[1]));
+  const placeMax = Math.max(1, ...placeEntries.map((x) => x[1]));
   const periodVals = sortPeriods(Object.keys(stats.byPeriod)).slice(0, 4);
   const periodMax = Math.max(1, ...periodVals.map((p) => stats.byPeriod[p] ?? 0));
 
@@ -284,28 +288,34 @@ function StatsMode(props: RightPanelProps) {
         {typeRows.length === 0 && <EmptyArea />}
       </div>
 
-      {/* by state */}
-      <SectionLabel>{t.byState}</SectionLabel>
+      {/* by state or city (zoom-dependent) */}
+      <SectionLabel>{cityMode ? t.byCity : t.byState}</SectionLabel>
       <div className="mb-[26px] flex flex-col gap-[9px]">
-        {stateEntries.map(([uf, c]) => (
-          <div key={uf}>
+        {placeEntries.map(([label, c]) => (
+          <div key={label}>
             <div className="mb-1 flex justify-between" style={{ fontSize: 12.5 }}>
               <span style={{ color: 'var(--stone-700)' }}>
-                <span className="mr-1.5 font-mono" style={{ fontSize: 11, color: 'var(--stone-400)' }}>
-                  {uf}
-                </span>
-                {ufName(uf)}
+                {cityMode ? (
+                  label
+                ) : (
+                  <>
+                    <span className="mr-1.5 font-mono" style={{ fontSize: 11, color: 'var(--stone-400)' }}>
+                      {label}
+                    </span>
+                    {ufName(label)}
+                  </>
+                )}
               </span>
               <span className="font-mono" style={{ color: 'var(--stone-500)', fontVariantNumeric: 'tabular-nums' }}>
                 {fmtNumber(c, lang)}
               </span>
             </div>
             <div className="h-[7px] overflow-hidden rounded" style={{ background: 'var(--stone-100)' }}>
-              <div className="h-full rounded transition-[width] duration-300" style={{ background: 'var(--blue-500)', width: `${Math.round((c / stateMax) * 100)}%` }} />
+              <div className="h-full rounded transition-[width] duration-300" style={{ background: 'var(--blue-500)', width: `${Math.round((c / placeMax) * 100)}%` }} />
             </div>
           </div>
         ))}
-        {stateEntries.length === 0 && <EmptyArea />}
+        {placeEntries.length === 0 && <EmptyArea />}
       </div>
 
       {/* time of day */}
