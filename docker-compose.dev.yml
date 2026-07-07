@@ -61,7 +61,7 @@ services:
     build: ./backend
     container_name: arquivo-api-dev
     ports:
-      - "8000:8000"
+      - "8010:8000"
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
     depends_on:
       postgres:
@@ -130,6 +130,7 @@ services:
       - "80:5173"
     environment:
       - VITE_API_URL=http://localhost:8000
+      - VITE_API_PROXY=http://api:8000
     volumes:
       - ./frontend/src:/app/src:ro
       - ./frontend/public:/app/public:ro

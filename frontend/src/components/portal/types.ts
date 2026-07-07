@@ -127,7 +127,7 @@ export interface ViewportStats {
   bySubtype: Record<string, number>;
   byState: Record<string, number>;
   byPeriod: Record<string, number>;
-  trend: Record<string, number>; // key: `${year}-${month}`
+  trend: Record<string, number>; // key: `${year}-${month}` → fatal victims
 }
 
 export function computeStats(points: MapPoint[]): ViewportStats {
@@ -142,7 +142,7 @@ export function computeStats(points: MapPoint[]): ViewportStats {
       const d = new Date(p.d);
       if (!Number.isNaN(d.getTime())) {
         const key = `${d.getUTCFullYear()}-${d.getUTCMonth()}`;
-        s.trend[key] = (s.trend[key] ?? 0) + 1;
+        s.trend[key] = (s.trend[key] ?? 0) + (p.v ?? 0);
       }
     }
   }
