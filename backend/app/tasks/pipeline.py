@@ -584,6 +584,102 @@ async def _run_classify_until_drained(
     return totals
 
 
+async def _run_pipeline_maintenance() -> None:
+    """Recover stuck rows and requeue transient failures. Best-effort, non-fatal."""
+    from app.services.maintenance import (
+        checkpoint_wal,
+        recover_stuck_sources,
+        requeue_retryable_failures,
+    )
+
+    try:
+        await checkpoint_wal()
+        await recover_stuck_sources(older_than_minutes=15)
+        await requeue_retryable_failures()
+    except Exception as e:
+        logger.warning(f"[PIPELINE_MAINTENANCE] Failed (continuing): {e}")
+
+
+async def _process_cities_backlog_steps(ctx: dict) -> dict:
+    """Run classify → download → extract → dedup → enrich → geocode (no ingest)."""
+    classify_result = await _run_classify_until_drained(
+        limit_per_batch=150,
+        max_batches=12,
+        concurrency=15,
+    )
+    download_result = await download_classified_task(ctx, limit=500, chain_next=False)
+    extract_result = await extract_ready_task(ctx, limit=100, chain_next=False)
+    dedup_result = await batch_dedup_task(ctx, limit=200, chain_next=False)
+    enrich_result = await batch_enrich_task(ctx, limit=50, chain_next=False)
+    geocode_result = await batch_geocode_task(ctx, limit=200)
+    return {
+        "classify": classify_result,
+        "download": download_result,
+        "extract": extract_result,
+        "dedup": dedup_result,
+        "enrich": enrich_result,
+        "geocode": geocode_result,
+    }
+
+
+@notify_on_failure("ingest_cities_hourly")
+async def ingest_cities_hourly(
+    ctx: dict,
+    cities: list[str] | None = None,
+    when: str = "1h",
+) -> dict:
+    """
+    Hourly cron: ingest only.
+
+    Kept short so the :05 tick always runs even while backlog processing from
+    a prior hour is still in progress (separate cron at :35).
+    """
+    logger.info("[INGEST_HOURLY] Starting hourly city ingest")
+    await _run_pipeline_maintenance()
+    return await ingest_cities_task(
+        ctx, cities=cities, when=when, enqueue_classify=False
+    )
+
+
+@notify_on_failure("process_cities_backlog")
+async def process_cities_backlog(ctx: dict) -> dict:
+    """
+    Hourly cron: drain classify/download/extract/dedup backlog.
+
+    Runs maintenance first, then processes accumulated sources from ingest and
+    prior runs. May take up to 2 hours at peak load; unique=True prevents overlap.
+    """
+    logger.info("[CITIES_BACKLOG] Starting backlog processing")
+    start_time = time.time()
+
+    await notify_job_started("process_cities_backlog", {})
+    await _run_pipeline_maintenance()
+
+    steps = await _process_cities_backlog_steps(ctx)
+    duration = time.time() - start_time
+
+    classify_result = steps["classify"]
+    download_result = steps["download"]
+    extract_result = steps["extract"]
+    dedup_result = steps["dedup"]
+
+    await notify_pipeline_summary(
+        total_sources=0,
+        sources_classified=classify_result.get("violent_death", 0),
+        sources_downloaded=download_result.get("successful", 0),
+        raw_events_extracted=extract_result.get("raw_events_created", 0),
+        unique_events_created=dedup_result.get("unique_events_created", 0),
+        duration_seconds=duration,
+    )
+
+    return {
+        "status": "completed",
+        "task": "process_cities_backlog",
+        "duration_seconds": duration,
+        **steps,
+    }
+
+
 @notify_on_failure("cities_full_pipeline")
 async def ingest_cities_full_pipeline(
     ctx: dict,
@@ -602,43 +698,21 @@ async def ingest_cities_full_pipeline(
     # Notify job started
     await notify_job_started("cities_full_pipeline", {"when": when})
     
-    # Step 0: Recover any sources stranded in a transient processing state by a
-    # previous run (e.g. due to a crash or DB contention), so they get reprocessed.
-    # Also requeue past failures whose cause was transient (timeouts, 5xx, rate
-    # limits) and that still have retry budget left. This is best-effort
-    # maintenance: a failure here must not abort the rest of the pipeline.
-    from app.services.maintenance import (
-        checkpoint_wal,
-        recover_stuck_sources,
-        requeue_retryable_failures,
-    )
-    try:
-        await checkpoint_wal()
-        await recover_stuck_sources(older_than_minutes=15)
-        await requeue_retryable_failures()
-    except Exception as e:
-        logger.warning(f"[CITIES_PIPELINE] Maintenance step failed (continuing): {e}")
-    
+    await _run_pipeline_maintenance()
+
     # Step 1: Ingest cities (classify runs inline in Step 2 — do not enqueue).
     ingest_result = await ingest_cities_task(
         ctx, cities=cities, when=when, enqueue_classify=False
     )
-    
-    # Steps 2-7 run inline on Postgres (no cross-job lock contention).
-    classify_result = await _run_classify_until_drained(
-        limit_per_batch=150,
-        max_batches=12,
-        concurrency=15,
-    )
-    download_result = await download_classified_task(ctx, limit=500, chain_next=False)
-    extract_result = await extract_ready_task(ctx, limit=100, chain_next=False)
-    dedup_result = await batch_dedup_task(ctx, limit=200, chain_next=False)
-    enrich_result = await batch_enrich_task(ctx, limit=50, chain_next=False)
-    geocode_result = await batch_geocode_task(ctx, limit=200)
-    
+
+    steps = await _process_cities_backlog_steps(ctx)
     duration = time.time() - start_time
-    
-    # Send pipeline summary notification
+
+    classify_result = steps["classify"]
+    download_result = steps["download"]
+    extract_result = steps["extract"]
+    dedup_result = steps["dedup"]
+
     await notify_pipeline_summary(
         total_sources=ingest_result.get("total_sources_created", 0),
         sources_classified=classify_result.get("violent_death", 0),
@@ -647,18 +721,13 @@ async def ingest_cities_full_pipeline(
         unique_events_created=dedup_result.get("unique_events_created", 0),
         duration_seconds=duration,
     )
-    
+
     return {
         "status": "completed",
         "task": "cities_full_pipeline",
         "duration_seconds": duration,
         "ingest": ingest_result,
-        "classify": classify_result,
-        "download": download_result,
-        "extract": extract_result,
-        "dedup": dedup_result,
-        "enrich": enrich_result,
-        "geocode": geocode_result,
+        **steps,
     }
 
 
@@ -673,6 +742,16 @@ ingest_cities_full_pipeline_job = func(
 ingest_cities_task_job = func(
     ingest_cities_task,
     timeout=1800,
+)
+ingest_cities_hourly_job = func(
+    ingest_cities_hourly,
+    timeout=1800,
+    max_tries=1,
+)
+process_cities_backlog_job = func(
+    process_cities_backlog,
+    timeout=7200,
+    max_tries=1,
 )
 
 # List of all task functions for the worker
@@ -691,4 +770,6 @@ TASK_FUNCTIONS = [
     run_full_pipeline,
     ingest_cities_task_job,
     ingest_cities_full_pipeline_job,
+    ingest_cities_hourly_job,
+    process_cities_backlog_job,
 ]

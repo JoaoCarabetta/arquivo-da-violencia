@@ -137,20 +137,25 @@ FROM source_google_news
 WHERE status IN ('classifying', 'downloading', 'extracting')
   AND updated_at > now() - interval '${PIPELINE_ACTIVITY_MINUTES} minutes';
 " 2>/dev/null || echo "error")"
-  if echo "$worker_logs_age" | grep -qE 'cron:ingest_cities_full_pipeline|\[CITIES_PIPELINE\] Starting'; then
+  if echo "$worker_logs_age" | grep -qE 'cron:ingest_cities_hourly|cron:ingest_cities_full_pipeline|\[INGEST_HOURLY\]|\[CITIES_PIPELINE\] Starting|\[INGEST_CITIES\] Starting'; then
       recent_start=true
   fi
-  # Long runs (up to 2h) can outlive the start-log window; treat active stages as healthy.
+  # Long backlog runs (up to 2h) can outlive the start-log window; track processing separately.
   if echo "$worker_logs_activity" | grep -qE \
-      '\[CITIES_PIPELINE\]|cron:ingest_cities_full_pipeline|classify_source:|Classification complete:|\[Batch Dedup\]|\[Ingest\]|\[Download\]|\[Extract\]'; then
+      '\[CITIES_BACKLOG\]|\[CITIES_PIPELINE\]|\[INGEST_HOURLY\]|cron:ingest_cities_hourly|cron:process_cities_backlog|cron:ingest_cities_full_pipeline|classify_source:|Classification complete:|\[Batch Dedup\]|\[Ingest\]|\[Download\]|\[Extract\]'; then
       recent_activity=true
   fi
   if [ "$active_sources" != "error" ] && [ "${active_sources:-0}" -gt 0 ]; then
       recent_activity=true
       DETAILS+=("OK: active_pipeline_sources(${active_sources})")
   fi
-  if [ "$recent_start" = true ] || [ "$recent_activity" = true ]; then
-      DETAILS+=("OK: recent_pipeline_activity")
+  if [ "$recent_start" = true ]; then
+      DETAILS+=("OK: recent_ingest")
+      if [ "$recent_activity" = true ]; then
+          DETAILS+=("OK: recent_pipeline_activity")
+      fi
+  elif [ "$recent_activity" = true ]; then
+      record_failure "backlog_active_but_no_recent_ingest(within_${MAX_PIPELINE_AGE_MINUTES}m)"
   else
       record_failure "no_recent_pipeline_run(within_${MAX_PIPELINE_AGE_MINUTES}m)"
   fi
