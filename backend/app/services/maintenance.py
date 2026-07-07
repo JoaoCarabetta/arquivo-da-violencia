@@ -356,3 +356,220 @@ async def merge_exact_duplicate_unique_events(dry_run: bool = True) -> dict:
             )
 
         return audit
+
+
+async def merge_unique_events_by_ids(
+    survivor_id: int,
+    loser_ids: list[int],
+    *,
+    dry_run: bool = True,
+) -> dict:
+    """Merge explicit UniqueEvent ids (survivor keeps all RawEvent links).
+
+    Use when duplicates differ in title and are missed by exact-title merge.
+    """
+    loser_ids = [lid for lid in loser_ids if lid != survivor_id]
+    if not loser_ids:
+        return {
+            "dry_run": dry_run,
+            "survivor_id": survivor_id,
+            "loser_ids": [],
+            "raw_events_relinked": 0,
+            "events_merged": 0,
+        }
+
+    async with async_session_maker() as session:
+        survivor_result = await session.execute(
+            text("""
+                SELECT id, title, city, event_date, source_count,
+                       latitude, longitude, plus_code, place_id,
+                       formatted_address, location_precision,
+                       geocoding_source, geocoding_confidence
+                FROM unique_event
+                WHERE id = :survivor_id
+            """),
+            {"survivor_id": survivor_id},
+        )
+        survivor_row = survivor_result.fetchone()
+        rows = [dict(survivor_row._mapping)] if survivor_row else []
+        for loser_id in loser_ids:
+            loser_result = await session.execute(
+                text("""
+                    SELECT id, title, city, event_date, source_count,
+                           latitude, longitude, plus_code, place_id,
+                           formatted_address, location_precision,
+                           geocoding_source, geocoding_confidence
+                    FROM unique_event
+                    WHERE id = :loser_id
+                """),
+                {"loser_id": loser_id},
+            )
+            loser_row = loser_result.fetchone()
+            if loser_row:
+                rows.append(dict(loser_row._mapping))
+
+    by_id = {row["id"]: row for row in rows}
+    if survivor_id not in by_id:
+        raise ValueError(f"Survivor UniqueEvent {survivor_id} not found")
+    missing = [lid for lid in loser_ids if lid not in by_id]
+    if missing:
+        logger.warning(
+            "Skipping already-merged or missing UniqueEvent(s): {}",
+            missing,
+        )
+    loser_ids = [lid for lid in loser_ids if lid in by_id]
+    if not loser_ids:
+        return {
+            "dry_run": dry_run,
+            "survivor_id": survivor_id,
+            "loser_ids": [],
+            "raw_events_relinked": 0,
+            "events_merged": 0,
+            "skipped_missing": missing,
+        }
+
+    survivor = by_id[survivor_id]
+    losers = [by_id[lid] for lid in loser_ids]
+
+    audit: dict[str, Any] = {
+        "dry_run": dry_run,
+        "survivor_id": survivor_id,
+        "loser_ids": loser_ids,
+        "events_merged": len(loser_ids),
+        "raw_events_relinked": 0,
+        "title": survivor["title"],
+        "city": survivor["city"],
+        "event_date": _event_date_key(survivor["event_date"]),
+    }
+
+    async with async_session_maker() as session:
+        for loser in losers:
+            count_result = await session.execute(
+                text("""
+                    SELECT COUNT(*) AS cnt
+                    FROM raw_event
+                    WHERE unique_event_id = :loser_id
+                """),
+                {"loser_id": loser["id"]},
+            )
+            audit["raw_events_relinked"] += count_result.scalar_one()
+
+            if dry_run:
+                continue
+
+            await session.execute(
+                text("""
+                    UPDATE raw_event
+                    SET unique_event_id = :survivor_id,
+                        deduplication_status = 'matched',
+                        updated_at = CURRENT_TIMESTAMP
+                    WHERE unique_event_id = :loser_id
+                """),
+                {"survivor_id": survivor_id, "loser_id": loser["id"]},
+            )
+
+            if survivor["latitude"] is None and loser["latitude"] is not None:
+                set_clauses = ", ".join(f"{field} = :{field}" for field in GEOCODING_FIELDS)
+                await session.execute(
+                    text(f"""
+                        UPDATE unique_event
+                        SET {set_clauses},
+                            updated_at = CURRENT_TIMESTAMP
+                        WHERE id = :survivor_id
+                    """),
+                    {field: loser[field] for field in GEOCODING_FIELDS}
+                    | {"survivor_id": survivor_id},
+                )
+                for field in GEOCODING_FIELDS:
+                    survivor[field] = loser[field]
+
+            await session.execute(
+                text("DELETE FROM unique_event WHERE id = :loser_id"),
+                {"loser_id": loser["id"]},
+            )
+
+        if not dry_run:
+            count_result = await session.execute(
+                text("""
+                    SELECT COUNT(*) AS cnt
+                    FROM raw_event
+                    WHERE unique_event_id = :survivor_id
+                """),
+                {"survivor_id": survivor_id},
+            )
+            actual_count = count_result.scalar_one()
+            await session.execute(
+                text("""
+                    UPDATE unique_event
+                    SET source_count = :source_count,
+                        needs_enrichment = true,
+                        updated_at = CURRENT_TIMESTAMP
+                    WHERE id = :survivor_id
+                """),
+                {"source_count": actual_count, "survivor_id": survivor_id},
+            )
+            await session.commit()
+            logger.info(
+                "[MERGE] Merged UniqueEvents {losers} into {survivor} "
+                "({raw} raw_events relinked)",
+                losers=loser_ids,
+                survivor=survivor_id,
+                raw=audit["raw_events_relinked"],
+            )
+        else:
+            logger.info(
+                "[MERGE] Dry-run: would merge {losers} into {survivor} "
+                "({raw} raw_events relinked)",
+                losers=loser_ids,
+                survivor=survivor_id,
+                raw=audit["raw_events_relinked"],
+            )
+
+    return audit
+
+
+async def merge_near_duplicate_unique_events(
+    since: str = "2026-07-04",
+    dry_run: bool = True,
+) -> dict:
+    """Merge UniqueEvent groups detected by fuzzy near-duplicate scan."""
+    from app.services.dedup_scan import find_near_duplicate_groups
+
+    _, group_summaries = await find_near_duplicate_groups(since)
+    audit: dict[str, Any] = {
+        "dry_run": dry_run,
+        "since": since,
+        "groups_found": len(group_summaries),
+        "events_merged": 0,
+        "raw_events_relinked": 0,
+        "merges": [],
+    }
+
+    for group in group_summaries:
+        survivor_id = group["survivor_id"]
+        loser_ids = group["loser_ids"]
+        merge_result = await merge_unique_events_by_ids(
+            survivor_id, loser_ids, dry_run=dry_run
+        )
+        audit["merges"].append(merge_result)
+        audit["events_merged"] += merge_result.get("events_merged", 0)
+        audit["raw_events_relinked"] += merge_result.get("raw_events_relinked", 0)
+
+    if dry_run:
+        logger.info(
+            "[MERGE] Near-dup dry-run since {since}: {groups} groups, "
+            "{events} events would merge",
+            since=since,
+            groups=audit["groups_found"],
+            events=audit["events_merged"],
+        )
+    else:
+        logger.info(
+            "[MERGE] Near-dup merge since {since}: merged {events} events "
+            "across {groups} groups",
+            since=since,
+            groups=audit["groups_found"],
+            events=audit["events_merged"],
+        )
+
+    return audit

@@ -11,6 +11,7 @@ from app.models.unique_event import UniqueEvent
 from app.services.maintenance import (
     duplicate_group_key,
     merge_exact_duplicate_unique_events,
+    merge_unique_events_by_ids,
     normalize_city,
     pick_survivor_id,
 )
@@ -217,3 +218,61 @@ async def test_merge_copies_geocoding_when_survivor_lacks_coords(async_session):
     assert row.latitude is not None
     assert row.place_id == "ChIJplace"
     assert row.formatted_address == "Centro, Belo Horizonte"
+
+
+@pytest.mark.asyncio
+async def test_merge_by_ids_execute_relinks_and_deletes_loser(async_session):
+    survivor = UniqueEvent(
+        title="FEMINICÍDIO - RODOVIA SC-281, SERTÃO DO MARUIM - 06/07/2026",
+        event_date=datetime(2026, 7, 6),
+        city="São José",
+        state="SC",
+        source_count=4,
+    )
+    loser = UniqueEvent(
+        title="HOMICÍDIO - VIA PÚBLICA SERTÃO DO MARUIM - 06/07/2026",
+        event_date=datetime(2026, 7, 6),
+        city="São José",
+        state="SC",
+        source_count=2,
+    )
+    async_session.add_all([survivor, loser])
+    await async_session.commit()
+    await async_session.refresh(survivor)
+    await async_session.refresh(loser)
+    survivor_id = survivor.id
+    loser_id = loser.id
+
+    async_session.add(
+        RawEvent(
+            title=loser.title,
+            event_date=loser.event_date,
+            city=loser.city,
+            state=loser.state,
+            source_google_news_id=1,
+            unique_event_id=loser_id,
+            deduplication_status="clustered",
+        )
+    )
+    await async_session.commit()
+
+    with patch(
+        "app.services.maintenance.async_session_maker",
+        _TestSessionMaker(async_session),
+    ):
+        audit = await merge_unique_events_by_ids(
+            survivor_id, [loser_id], dry_run=False
+        )
+
+    assert audit["events_merged"] == 1
+    assert audit["raw_events_relinked"] == 1
+
+    remaining = await async_session.execute(text("SELECT COUNT(*) FROM unique_event"))
+    assert remaining.scalar_one() == 1
+
+    source_count = await async_session.execute(
+        text("SELECT source_count FROM unique_event WHERE id = :id"),
+        {"id": survivor_id},
+    )
+    assert source_count.scalar_one() == 1
+

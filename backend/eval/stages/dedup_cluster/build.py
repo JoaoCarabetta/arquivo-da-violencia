@@ -35,7 +35,7 @@ DEFAULT_OUT = (
     / "tests"
     / "fixtures"
     / "eval"
-    / "dedup_cluster.json"
+    / "dedup_cluster_seed.json"
 )
 
 MAX_EVENTS_PER_CASE = 8
