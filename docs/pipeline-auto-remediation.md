@@ -144,6 +144,7 @@ Environment variables (optional, in VPS `.env`):
 | Variable | Default | Meaning |
 |----------|---------|---------|
 | `PIPELINE_HEALTH_MAX_PIPELINE_AGE_MINUTES` | 100 | Max age since last pipeline start |
+| `PIPELINE_HEALTH_ACTIVITY_MINUTES` | 30 | Recent worker stage activity window |
 | `PIPELINE_HEALTH_STUCK_SOURCE_MINUTES` | 15 | Stuck transient status threshold |
 | `PIPELINE_HEALTH_READY_BACKLOG_WARN` | 1500 | Warn when backlog exceeds this |
 | `PIPELINE_HEALTH_WEBHOOK_URL` | — | POST JSON alert on failure |
