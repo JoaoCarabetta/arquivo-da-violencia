@@ -11,6 +11,10 @@ name: Pipeline Health
 on:
   schedule:
     - cron: '*/30 * * * *'
+  repository_dispatch:
+    types:
+      - pipeline-remediate
+      - pipeline-diagnose
   workflow_dispatch:
     inputs:
       remediate:
@@ -52,11 +56,16 @@ jobs:
             git checkout -f "$BRANCH"
             git reset --hard "origin/$BRANCH"
             export PIPELINE_HEALTH_WEBHOOK_AUTH="${{ secrets.CURSOR_AUTOMATION_TOKEN }}"
-            ARGS="--notify"
-            if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.remediate }}" = "true" ]; then
+            ARGS="--notify --json"
+            EVENT="${{ github.event_name }}"
+            DISPATCH_ACTION="${{ github.event.action }}"
+            # Tier-A auto-remediation: safe for scheduled checks and on-demand dispatch.
+            if [ "$EVENT" = "schedule" ] \
+              || { [ "$EVENT" = "repository_dispatch" ] && [ "$DISPATCH_ACTION" = "pipeline-remediate" ]; } \
+              || { [ "$EVENT" = "workflow_dispatch" ] && [ "${{ inputs.remediate }}" = "true" ]; }; then
               ARGS="$ARGS --remediate"
             fi
-            if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.test_webhook }}" = "true" ]; then
+            if [ "$EVENT" = "workflow_dispatch" ] && [ "${{ inputs.test_webhook }}" = "true" ]; then
               ARGS="$ARGS --test-webhook"
             fi
             set +e
@@ -64,7 +73,14 @@ jobs:
             HEALTH_EXIT=$?
             set -e
             if [ "$HEALTH_EXIT" -ne 0 ]; then
-              if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.diagnose }}" = "true" ]; then
+              SHOULD_DIAGNOSE=false
+              if [ "$EVENT" = "workflow_dispatch" ] && [ "${{ inputs.diagnose }}" = "true" ]; then
+                SHOULD_DIAGNOSE=true
+              fi
+              if [ "$EVENT" = "repository_dispatch" ] && [ "$DISPATCH_ACTION" = "pipeline-diagnose" ]; then
+                SHOULD_DIAGNOSE=true
+              fi
+              if [ "$SHOULD_DIAGNOSE" = true ]; then
                 echo "=== Worker logs (last 2h, tail 150) ==="
                 docker logs arquivo-worker --since 2h 2>&1 | tail -150 || true
                 echo "=== API errors (last 2h) ==="
