@@ -131,6 +131,12 @@ if echo "$cron_enabled" | grep -q '"cron_enabled": true'; then
   worker_logs_activity="$(docker logs "$WORKER_CONTAINER" --since "${PIPELINE_ACTIVITY_MINUTES}m" 2>&1 || true)"
   recent_start=false
   recent_activity=false
+  active_sources="$(psql_prod "
+SELECT COUNT(*)
+FROM source_google_news
+WHERE status IN ('classifying', 'downloading', 'extracting')
+  AND updated_at > now() - interval '${PIPELINE_ACTIVITY_MINUTES} minutes';
+" 2>/dev/null || echo "error")"
   if echo "$worker_logs_age" | grep -qE 'cron:ingest_cities_full_pipeline|\[CITIES_PIPELINE\] Starting'; then
       recent_start=true
   fi
@@ -138,6 +144,10 @@ if echo "$cron_enabled" | grep -q '"cron_enabled": true'; then
   if echo "$worker_logs_activity" | grep -qE \
       '\[CITIES_PIPELINE\]|cron:ingest_cities_full_pipeline|classify_source:|Classification complete:|\[Batch Dedup\]|\[Ingest\]|\[Download\]|\[Extract\]'; then
       recent_activity=true
+  fi
+  if [ "$active_sources" != "error" ] && [ "${active_sources:-0}" -gt 0 ]; then
+      recent_activity=true
+      DETAILS+=("OK: active_pipeline_sources(${active_sources})")
   fi
   if [ "$recent_start" = true ] || [ "$recent_activity" = true ]; then
       DETAILS+=("OK: recent_pipeline_activity")
