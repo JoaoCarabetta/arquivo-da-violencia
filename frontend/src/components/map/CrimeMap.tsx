@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useRef, useCallback, useState } from 'react';
 import DeckGL from '@deck.gl/react';
 import { Map } from 'react-map-gl/maplibre';
-import { GridLayer } from '@deck.gl/aggregation-layers';
+import { H3HexagonLayer } from '@deck.gl/geo-layers';
 import { ScatterplotLayer } from '@deck.gl/layers';
+import { cellToLatLng } from 'h3-js';
 import {
   WebMercatorViewport,
   type PickingInfo,
@@ -11,8 +12,14 @@ import {
 } from '@deck.gl/core';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import type { MapPoint } from '@/lib/api';
-import { capPoints, pointsInBounds } from '@/components/portal/types';
-import { useIsMobile } from '@/hooks/useMediaQuery';
+import {
+  aggregatePointsToH3Cells,
+  colorForH3Count,
+  h3ResolutionForZoom,
+  peakH3Count,
+  type H3GridCell,
+} from '@/lib/h3Grid';
+import { capPoints, pointsInBounds, SCATTER_ZOOM_THRESHOLD } from '@/components/portal/types';
 import { useI18n } from '@/contexts/I18nContext';
 import { formatPointLabel } from '@/lib/taxonomy';
 
@@ -59,16 +66,8 @@ const COLOR_RANGE: [number, number, number][] = [
 
 /** Debounce panel stats updates — avoids recomputing RightPanel on every zoom frame. */
 const BOUNDS_DEBOUNCE_MS = 200;
-const SCATTER_ZOOM_THRESHOLD = 12;
 /** Skip viewport culling below this count (cheaper to pass all points). */
 const CULL_MIN_POINTS = 1500;
-
-function cellSizeForZoom(zoom: number): number {
-  if (zoom < 5) return 40000;
-  if (zoom < 7) return 15000;
-  if (zoom < 9) return 5000;
-  return 1500;
-}
 
 function boundsFromView(
   vs: MapViewState,
@@ -112,18 +111,6 @@ function viewStateKey(vs: MapViewState): string {
   return `${vs.longitude},${vs.latitude},${vs.zoom},${vs.transitionDuration ?? 0}`;
 }
 
-function prefersReducedGpu(): boolean {
-  if (typeof window === 'undefined') return false;
-  if (window.matchMedia('(max-width: 767px)').matches) return true;
-  if (window.matchMedia('(pointer: coarse)').matches) return true;
-  try {
-    const canvas = document.createElement('canvas');
-    return !canvas.getContext('webgl2');
-  } catch {
-    return true;
-  }
-}
-
 export function CrimeMap({
   points,
   viewState: viewStateProp,
@@ -133,7 +120,6 @@ export function CrimeMap({
   selectedId,
   searchedLocation,
 }: CrimeMapProps) {
-  const isMobile = useIsMobile();
   const { lang, t } = useI18n();
   const containerRef = useRef<HTMLDivElement>(null);
   const sizeRef = useRef<{ width: number; height: number }>({ width: 0, height: 0 });
@@ -164,6 +150,7 @@ export function CrimeMap({
 
   const showScatter = localViewState.zoom >= SCATTER_ZOOM_THRESHOLD;
   const gridZoom = Math.floor(localViewState.zoom);
+  const h3Resolution = h3ResolutionForZoom(gridZoom);
 
   const emitViewportSettled = useCallback((vs: MapViewState) => {
     if (!onViewportSettledRef.current) return;
@@ -206,20 +193,22 @@ export function CrimeMap({
   }, [emitViewportSettled]);
 
   // Layer data updates on viewport settle (not every zoom frame).
-  const gridData = useMemo(
+  const culledGridPoints = useMemo(
     () => (showScatter ? [] : cullPointsToBounds(points, renderBounds)),
-    [points, showScatter, renderBounds, gridZoom]
+    [points, showScatter, renderBounds]
   );
+
+  const aggregatedCells = useMemo(
+    () => (showScatter ? [] : aggregatePointsToH3Cells(culledGridPoints, h3Resolution)),
+    [culledGridPoints, showScatter, h3Resolution]
+  );
+
+  const gridPeakCount = useMemo(() => peakH3Count(aggregatedCells), [aggregatedCells]);
 
   const scatterData = useMemo(() => {
     if (!showScatter) return [];
     return capPoints(cullPointsToBounds(points, renderBounds));
-  }, [points, showScatter, renderBounds, gridZoom]);
-
-  const useGpuAggregation = useMemo(
-    () => !isMobile && !prefersReducedGpu(),
-    [isMobile]
-  );
+  }, [points, showScatter, renderBounds]);
 
   const layers = useMemo(() => {
     const result: Layer[] = [];
@@ -253,20 +242,24 @@ export function CrimeMap({
       );
     } else {
       result.push(
-        new GridLayer<MapPoint>({
+        new H3HexagonLayer<H3GridCell>({
           id: 'events-grid',
-          data: gridData,
-          getPosition: (d) => [d.lng, d.lat],
-          getColorWeight: (d: MapPoint) => d.v ?? 1,
-          colorAggregation: 'SUM',
-          cellSize: cellSizeForZoom(gridZoom),
-          colorRange: COLOR_RANGE,
+          data: aggregatedCells,
+          getHexagon: (d) => d.hexagon,
+          getFillColor: (d) => colorForH3Count(d.count, gridPeakCount, COLOR_RANGE),
           extruded: false,
           pickable: true,
           opacity: 0.78,
-          gpuAggregation: useGpuAggregation,
+          highPrecision: true,
+          updateTriggers: {
+            getFillColor: [gridPeakCount],
+          },
           onClick: (info: PickingInfo) => {
-            if (info.coordinate) onCellClickRef.current?.(info.coordinate as [number, number]);
+            const cell = info.object as H3GridCell | undefined;
+            if (cell?.hexagon) {
+              const [lat, lng] = cellToLatLng(cell.hexagon);
+              onCellClickRef.current?.([lng, lat]);
+            }
             return true;
           },
         })
@@ -292,7 +285,7 @@ export function CrimeMap({
     }
 
     return result;
-  }, [gridData, scatterData, showScatter, gridZoom, searchedLocation, selectedId, useGpuAggregation]);
+  }, [aggregatedCells, scatterData, showScatter, gridPeakCount, searchedLocation, selectedId]);
 
   return (
     <div ref={containerRef} className="absolute inset-0">
@@ -316,8 +309,8 @@ export function CrimeMap({
                 .join('\n'),
             };
           }
-          const cell = object as { colorValue?: number; count?: number; points?: unknown[] };
-          const count = cell.colorValue ?? cell.count ?? cell.points?.length ?? 0;
+          const cell = object as H3GridCell;
+          const count = cell.count ?? 0;
           const unit = count === 1 ? t.victim : t.victimsLower;
           return { text: `${count} ${unit}` };
         }}
