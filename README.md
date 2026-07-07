@@ -19,7 +19,7 @@
 
 ## 📖 Sobre o Projeto
 
-O **Arquivo da Violência** é um sistema automatizado de monitoramento de mortes violentas no Brasil, coletando e estruturando dados em tempo real a partir de fontes jornalísticas.
+O **Arquivo da Violência** é um sistema automatizado de monitoramento de mortes violentas reportadas no Brasil, coletando e estruturando dados em tempo real a partir de fontes jornalísticas.
 
 ### 🎯 O Problema
 
@@ -379,7 +379,7 @@ são sempre bem-vindos!
 
 **Este projeto tem limitações metodológicas importantes:**
 
-1. **Cobertura parcial:** Dependemos de notícias publicadas. Muitos casos não são noticiados.
+1. **Cobertura parcial:** Dependemos de notícias publicadas. Muitos homicídios não são noticiados.
 2. **Viés jornalístico:** A cobertura midiática pode ter vieses geográficos, sociais e econômicos.
 3. **Precisão do LLM:** A extração automática pode conter erros. Sempre verifique a fonte original.
 4. **Deduplicação:** Múltiplas notícias sobre o mesmo evento podem não ser sempre identificadas como duplicatas.
