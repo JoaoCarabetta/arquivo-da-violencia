@@ -149,7 +149,7 @@ classify_errors="$(
         | grep -E 'Classification complete:' \
         | tail -5 \
         | sed -n 's/.*, \([0-9][0-9]*\) errors/\1/p' \
-        | awk '{s+=$1} END {print s+0}'
+        | awk '{s+=$1} END {print s+0}' || true
 )"
 if [ "${classify_errors:-0}" -gt 0 ]; then
     record_failure "classification_errors(last_${LOG_LOOKBACK_MINUTES}m=${classify_errors})"
