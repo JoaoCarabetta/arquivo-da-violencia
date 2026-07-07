@@ -19,7 +19,7 @@ import {
   peakH3Count,
   type H3GridCell,
 } from '@/lib/h3Grid';
-import { capPoints, pointsInBounds, SCATTER_ZOOM_THRESHOLD } from '@/components/portal/types';
+import { capPoints, pointsForHexGrid, pointsInBounds, SCATTER_ZOOM_THRESHOLD } from '@/components/portal/types';
 import { useI18n } from '@/contexts/I18nContext';
 import { formatPointLabel } from '@/lib/taxonomy';
 
@@ -45,6 +45,8 @@ export interface ViewportSnapshot {
 interface CrimeMapProps {
   points: MapPoint[];
   viewState: MapViewState;
+  /** Settled viewport zoom from parent — drives hex/scatter mode without mid-animation swaps. */
+  settledZoom?: number;
   /** Called when the viewport stops moving (debounced). Drives panel stats. */
   onViewportSettled?: (snapshot: ViewportSnapshot) => void;
   onPointClick: (id: number) => void;
@@ -114,6 +116,7 @@ function viewStateKey(vs: MapViewState): string {
 export function CrimeMap({
   points,
   viewState: viewStateProp,
+  settledZoom,
   onViewportSettled,
   onPointClick,
   onCellClick,
@@ -128,7 +131,10 @@ export function CrimeMap({
   const onViewportSettledRef = useRef(onViewportSettled);
   const onPointClickRef = useRef(onPointClick);
   const onCellClickRef = useRef(onCellClick);
+  const selectedIdRef = useRef(selectedId);
   const externalViewKeyRef = useRef(viewStateKey(viewStateProp));
+
+  selectedIdRef.current = selectedId;
 
   // Local view state keeps zoom/pan off the React root — MapExplorer no longer
   // re-renders RightPanel on every animation frame.
@@ -148,8 +154,9 @@ export function CrimeMap({
     }
   }, [viewStateProp]);
 
-  const showScatter = localViewState.zoom >= SCATTER_ZOOM_THRESHOLD;
-  const gridZoom = Math.floor(localViewState.zoom);
+  const layerZoom = settledZoom ?? localViewState.zoom;
+  const showScatter = layerZoom >= SCATTER_ZOOM_THRESHOLD;
+  const gridZoom = Math.floor(layerZoom);
   const h3Resolution = h3ResolutionForZoom(gridZoom);
 
   const emitViewportSettled = useCallback((vs: MapViewState) => {
@@ -192,15 +199,15 @@ export function CrimeMap({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [emitViewportSettled]);
 
-  // Layer data updates on viewport settle (not every zoom frame).
-  const culledGridPoints = useMemo(
-    () => (showScatter ? [] : cullPointsToBounds(points, renderBounds)),
+  // Hex aggregation uses strict viewport bounds (matches side panel stats/feed).
+  const gridPoints = useMemo(
+    () => (showScatter ? [] : pointsForHexGrid(points, renderBounds)),
     [points, showScatter, renderBounds]
   );
 
   const aggregatedCells = useMemo(
-    () => (showScatter ? [] : aggregatePointsToH3Cells(culledGridPoints, h3Resolution)),
-    [culledGridPoints, showScatter, h3Resolution]
+    () => (showScatter ? [] : aggregatePointsToH3Cells(gridPoints, h3Resolution)),
+    [gridPoints, showScatter, h3Resolution]
   );
 
   const gridPeakCount = useMemo(() => peakH3Count(aggregatedCells), [aggregatedCells]);
@@ -210,90 +217,101 @@ export function CrimeMap({
     return capPoints(cullPointsToBounds(points, renderBounds));
   }, [points, showScatter, renderBounds]);
 
+  const scatterLayer = useMemo(
+    () =>
+      showScatter
+        ? new ScatterplotLayer<MapPoint>({
+            id: 'events-scatter',
+            data: scatterData,
+            getPosition: (d) => [d.lng, d.lat],
+            getRadius: (d) => 4 + Math.min(d.v ?? 1, 5) * 1.6,
+            radiusUnits: 'pixels',
+            radiusMinPixels: 3,
+            getFillColor: (d) =>
+              d.id === selectedIdRef.current ? [47, 102, 207, 235] : [200, 71, 63, 225],
+            getLineColor: (d) =>
+              d.id === selectedIdRef.current ? [27, 68, 144, 255] : [255, 255, 255, 220],
+            lineWidthUnits: 'pixels',
+            getLineWidth: (d) => (d.id === selectedIdRef.current ? 2.5 : 1.2),
+            stroked: true,
+            pickable: true,
+            updateTriggers: {
+              getFillColor: [selectedId],
+              getLineColor: [selectedId],
+              getLineWidth: [selectedId],
+            },
+            onClick: (info: PickingInfo) => {
+              if (info.object) onPointClickRef.current((info.object as MapPoint).id);
+              return true;
+            },
+          })
+        : null,
+    [scatterData, showScatter, selectedId]
+  );
+
+  const gridLayer = useMemo(
+    () =>
+      !showScatter
+        ? new H3HexagonLayer<H3GridCell>({
+            id: 'events-grid',
+            data: aggregatedCells,
+            getHexagon: (d) => d.hexagon,
+            getFillColor: (d) => colorForH3Count(d.count, gridPeakCount, COLOR_RANGE),
+            extruded: false,
+            pickable: true,
+            opacity: 0.78,
+            highPrecision: true,
+            updateTriggers: {
+              getFillColor: [gridPeakCount],
+            },
+            onClick: (info: PickingInfo) => {
+              const cell = info.object as H3GridCell | undefined;
+              if (cell?.hexagon) {
+                const [lat, lng] = cellToLatLng(cell.hexagon);
+                onCellClickRef.current?.([lng, lat]);
+              }
+              return true;
+            },
+          })
+        : null,
+    [aggregatedCells, showScatter, gridPeakCount]
+  );
+
+  const searchLayer = useMemo(
+    () =>
+      searchedLocation
+        ? new ScatterplotLayer<{ lat: number; lng: number }>({
+            id: 'search-marker',
+            data: [searchedLocation],
+            getPosition: (d) => [d.lng, d.lat],
+            getRadius: 9,
+            radiusUnits: 'pixels',
+            getFillColor: [47, 102, 207, 255],
+            getLineColor: [255, 255, 255, 255],
+            lineWidthUnits: 'pixels',
+            getLineWidth: 2,
+            stroked: true,
+            pickable: false,
+          })
+        : null,
+    [searchedLocation]
+  );
+
   const layers = useMemo(() => {
     const result: Layer[] = [];
-
-    if (showScatter) {
-      result.push(
-        new ScatterplotLayer<MapPoint>({
-          id: 'events-scatter',
-          data: scatterData,
-          getPosition: (d) => [d.lng, d.lat],
-          getRadius: (d) => 4 + Math.min(d.v ?? 1, 5) * 1.6,
-          radiusUnits: 'pixels',
-          radiusMinPixels: 3,
-          getFillColor: (d) =>
-            d.id === selectedId ? [47, 102, 207, 235] : [200, 71, 63, 225],
-          getLineColor: (d) => (d.id === selectedId ? [27, 68, 144, 255] : [255, 255, 255, 220]),
-          lineWidthUnits: 'pixels',
-          getLineWidth: (d) => (d.id === selectedId ? 2.5 : 1.2),
-          stroked: true,
-          pickable: true,
-          updateTriggers: {
-            getFillColor: [selectedId],
-            getLineColor: [selectedId],
-            getLineWidth: [selectedId],
-          },
-          onClick: (info: PickingInfo) => {
-            if (info.object) onPointClickRef.current((info.object as MapPoint).id);
-            return true;
-          },
-        })
-      );
-    } else {
-      result.push(
-        new H3HexagonLayer<H3GridCell>({
-          id: 'events-grid',
-          data: aggregatedCells,
-          getHexagon: (d) => d.hexagon,
-          getFillColor: (d) => colorForH3Count(d.count, gridPeakCount, COLOR_RANGE),
-          extruded: false,
-          pickable: true,
-          opacity: 0.78,
-          highPrecision: true,
-          updateTriggers: {
-            getFillColor: [gridPeakCount],
-          },
-          onClick: (info: PickingInfo) => {
-            const cell = info.object as H3GridCell | undefined;
-            if (cell?.hexagon) {
-              const [lat, lng] = cellToLatLng(cell.hexagon);
-              onCellClickRef.current?.([lng, lat]);
-            }
-            return true;
-          },
-        })
-      );
-    }
-
-    if (searchedLocation) {
-      result.push(
-        new ScatterplotLayer<{ lat: number; lng: number }>({
-          id: 'search-marker',
-          data: [searchedLocation],
-          getPosition: (d) => [d.lng, d.lat],
-          getRadius: 9,
-          radiusUnits: 'pixels',
-          getFillColor: [47, 102, 207, 255],
-          getLineColor: [255, 255, 255, 255],
-          lineWidthUnits: 'pixels',
-          getLineWidth: 2,
-          stroked: true,
-          pickable: false,
-        })
-      );
-    }
-
+    if (scatterLayer) result.push(scatterLayer);
+    if (gridLayer) result.push(gridLayer);
+    if (searchLayer) result.push(searchLayer);
     return result;
-  }, [aggregatedCells, scatterData, showScatter, gridPeakCount, searchedLocation, selectedId]);
+  }, [scatterLayer, gridLayer, searchLayer]);
 
   return (
     <div ref={containerRef} className="absolute inset-0">
-      {!hasSize ? null : (
       <DeckGL
         viewState={localViewState as unknown as DeckViewState}
         controller={true}
         layers={layers}
+        style={{ visibility: hasSize ? 'visible' : 'hidden' }}
         onViewStateChange={(params) => {
           const vs = params.viewState as unknown as MapViewState;
           setLocalViewState(vs);
@@ -315,9 +333,8 @@ export function CrimeMap({
           return { text: `${count} ${unit}` };
         }}
       >
-        <Map mapStyle={MAP_STYLE} />
+        <Map mapStyle={MAP_STYLE} reuseMaps />
       </DeckGL>
-      )}
     </div>
   );
 }
