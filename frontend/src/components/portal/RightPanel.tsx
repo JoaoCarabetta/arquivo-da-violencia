@@ -81,8 +81,8 @@ export const RightPanel = memo(function RightPanel(props: RightPanelProps) {
   return (
     <aside
       className={cn(
-        'av-scroll z-[1250] flex flex-col overflow-y-auto overflow-x-hidden',
-        embedded ? 'h-full w-full' : 'w-[392px] flex-none',
+        'av-scroll flex flex-col overflow-y-auto overflow-x-hidden',
+        embedded ? 'relative z-0 h-full w-full pt-14' : 'z-[1250] w-[392px] flex-none',
         className
       )}
       style={{ background: 'var(--color-surface)', borderLeft: embedded ? undefined : '1px solid var(--color-border)' }}
@@ -99,9 +99,11 @@ export const RightPanel = memo(function RightPanel(props: RightPanelProps) {
 function PanelModeTabs({
   mode,
   onSetMode,
+  touchFriendly = false,
 }: {
   mode: PortalMode;
   onSetMode: (mode: PortalMode) => void;
+  touchFriendly?: boolean;
 }) {
   const { t } = useI18n();
   const tabs: { id: PortalMode; label: string }[] = [
@@ -124,7 +126,11 @@ function PanelModeTabs({
           role="tab"
           aria-selected={mode === tab.id}
           onClick={() => onSetMode(tab.id)}
-          className={cn('av-panel-tab flex-1 rounded-lg px-2 py-1.5 transition-colors', mode === tab.id && 'av-panel-tab-active')}
+          className={cn(
+            'av-panel-tab flex-1 rounded-lg px-2 py-1.5 transition-colors',
+            touchFriendly && 'min-h-11 py-2.5',
+            mode === tab.id && 'av-panel-tab-active'
+          )}
           style={{
             fontFamily: 'var(--font-mono)',
             fontSize: 9.5,
@@ -140,13 +146,13 @@ function PanelModeTabs({
 }
 
 function PanelContent(props: RightPanelProps) {
-  const { mode } = props;
+  const { mode, embedded = false } = props;
 
   return (
     <div>
       <div className="px-5 pb-[14px] pt-[18px]" style={{ borderBottom: '1px solid var(--color-border)' }}>
-        <PanelModeTabs mode={mode} onSetMode={props.onSetMode} />
-        <StatsHeader {...props} />
+        <PanelModeTabs mode={mode} onSetMode={props.onSetMode} touchFriendly={embedded} />
+        <StatsHeader {...props} touchFriendly={embedded} />
       </div>
 
       {mode === 'stats' && <StatsMode {...props} />}
@@ -220,10 +226,12 @@ function EditableDateField({
   value,
   onChange,
   title,
+  touchFriendly = false,
 }: {
   value: string;
   onChange: (value: string) => void;
   title: string;
+  touchFriendly?: boolean;
 }) {
   const { lang } = useI18n();
   const inputRef = useRef<HTMLInputElement>(null);
@@ -238,7 +246,10 @@ function EditableDateField({
     <span className="av-date-inline group relative inline shrink-0 whitespace-nowrap">
       <button
         type="button"
-        className="av-date-text m-0 cursor-pointer border-0 bg-transparent p-0"
+        className={cn(
+          'av-date-text m-0 cursor-pointer border-0 bg-transparent p-0',
+          touchFriendly && 'inline-flex min-h-10 items-center py-1'
+        )}
         style={HEADER_SERIF}
         title={title}
         aria-label={title}
@@ -259,8 +270,9 @@ function EditableDateField({
   );
 }
 
-function StatsHeader(props: RightPanelProps) {
+function StatsHeader(props: RightPanelProps & { touchFriendly?: boolean }) {
   const { t, lang } = useI18n();
+  const { touchFriendly = false } = props;
 
   const dateRangeInvalid = Boolean(
     props.filters.startDate &&
@@ -269,12 +281,14 @@ function StatsHeader(props: RightPanelProps) {
   );
 
   const dateEditHint = lang === 'pt' ? 'Clique para alterar a data' : 'Click to change the date';
+  const headingLabel = `${t.homicidesBetween} ${fmtDateInline(props.filters.startDate, lang)} ${t.and} ${fmtDateInline(props.filters.endDate, lang)}`;
 
   return (
     <div>
       <h2
         className="m-0"
         style={{ ...HEADER_SERIF, lineHeight: 1.35 }}
+        aria-label={headingLabel}
       >
         <span className="block">{t.homicidesBetween}</span>
         <span className="mt-0.5 flex flex-wrap items-baseline gap-x-1.5">
@@ -282,12 +296,14 @@ function StatsHeader(props: RightPanelProps) {
             value={props.filters.startDate}
             onChange={(startDate) => props.onSetDateRange(startDate, props.filters.endDate)}
             title={dateEditHint}
+            touchFriendly={touchFriendly}
           />
           <span className="shrink-0">{t.and}</span>
           <EditableDateField
             value={props.filters.endDate}
             onChange={(endDate) => props.onSetDateRange(props.filters.startDate, endDate)}
             title={dateEditHint}
+            touchFriendly={touchFriendly}
           />
         </span>
       </h2>
@@ -310,7 +326,10 @@ function StatsHeader(props: RightPanelProps) {
               const range = dateRangeForLastDays(days);
               props.onSetDateRange(range.startDate, range.endDate);
             }}
-            className="rounded-full px-2.5 py-1 transition-colors"
+            className={cn(
+              'rounded-full px-2.5 py-1 transition-colors',
+              touchFriendly && 'min-h-11 py-2'
+            )}
             style={{
               border: '1px solid var(--stone-200)',
               background: 'var(--color-surface)',

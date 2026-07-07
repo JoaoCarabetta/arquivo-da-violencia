@@ -142,7 +142,7 @@ export function EventDetailView({ id, onClose }: EventDetailViewProps) {
     <div className="av-fade px-5 pb-7 pt-[18px]">
       <button
         onClick={onClose}
-        className="mb-4 inline-flex items-center gap-1.5 border-none bg-transparent p-0"
+        className="mb-4 inline-flex min-h-11 items-center gap-1.5 border-none bg-transparent px-1 py-2"
         style={{ color: 'var(--blue-600)', fontFamily: 'var(--font-sans)', fontSize: 13, fontWeight: 500 }}
       >
         <ChevronLeft className="h-4 w-4" />

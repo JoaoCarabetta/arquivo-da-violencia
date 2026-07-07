@@ -115,7 +115,7 @@ export function RawEventDetail() {
 
   if (eventLoading) {
     return (
-      <div className="flex items-center justify-center h-screen">
+      <div className="flex h-dvh items-center justify-center">
         <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
       </div>
     );
@@ -123,7 +123,7 @@ export function RawEventDetail() {
 
   if (eventError || !event) {
     return (
-      <div className="flex flex-col items-center justify-center h-screen gap-4">
+      <div className="flex h-dvh flex-col items-center justify-center gap-4">
         <AlertCircle className="h-12 w-12 text-destructive" />
         <p className="text-lg text-muted-foreground">
           Failed to load raw event. Event may not exist.
@@ -137,7 +137,7 @@ export function RawEventDetail() {
   }
 
   return (
-    <div className="h-screen flex flex-col">
+    <div className="flex h-dvh flex-col">
       {/* Header */}
       <div className="border-b bg-background px-6 py-4 flex items-center justify-between gap-4">
         <div className="flex items-center gap-4 min-w-0">

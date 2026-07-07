@@ -29,7 +29,7 @@ export function DensityLegend({ points, bounds, zoom }: DensityLegendProps) {
 
   return (
     <div
-      className="pointer-events-none absolute bottom-[calc(18px+env(safe-area-inset-bottom,0px))] left-[18px] z-[1200] w-[min(220px,calc(100%-36px))] rounded-xl px-3 py-2.5 shadow-md"
+      className="pointer-events-none absolute bottom-[calc(18px+env(safe-area-inset-bottom,0px))] left-[18px] z-[1200] w-[min(220px,calc(100%-36px))] rounded-xl px-3 py-2.5 shadow-md max-md:bottom-[calc(72px+env(safe-area-inset-bottom,0px))]"
       style={{
         background: 'rgba(255,255,255,0.94)',
         border: '1px solid var(--stone-200)',

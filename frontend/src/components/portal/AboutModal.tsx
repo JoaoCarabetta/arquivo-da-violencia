@@ -12,7 +12,8 @@ export const AboutModal = memo(function AboutModal({
   onClose,
   onOpenMethodology,
 }: AboutModalProps) {
-  const { t } = useI18n();
+  const { t, lang } = useI18n();
+  const closeLabel = lang === 'pt' ? 'Fechar' : 'Close';
 
   useEffect(() => {
     if (!open) return;
@@ -28,22 +29,23 @@ export const AboutModal = memo(function AboutModal({
   return (
     <div
       onClick={onClose}
-      className="av-fade fixed inset-0 z-[2000] flex items-center justify-center p-6"
+      className="av-fade fixed inset-0 z-[2000] flex items-center justify-center p-4 sm:p-6"
       style={{ background: 'var(--color-overlay)' }}
     >
       <div
         onClick={(e) => e.stopPropagation()}
         className="av-scroll w-full max-w-[540px] overflow-y-auto rounded-2xl"
-        style={{ background: 'var(--color-surface)', maxHeight: '88vh', boxShadow: '0 24px 70px rgba(12,14,18,.4)' }}
+        style={{ background: 'var(--color-surface)', maxHeight: '88dvh', boxShadow: '0 24px 70px rgba(12,14,18,.4)' }}
       >
-        <div className="px-[34px] pb-7 pt-[30px]">
+        <div className="px-5 pb-7 pt-[30px] sm:px-[34px]">
           <div className="mb-[18px] flex items-start justify-between">
             <div className="font-mono text-[10px] uppercase tracking-[.14em]" style={{ color: 'var(--blue-600)' }}>
               {t.aboutEyebrow}
             </div>
             <button
               onClick={onClose}
-              className="flex h-[30px] w-[30px] items-center justify-center rounded-lg border-none"
+              aria-label={closeLabel}
+              className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg border-none"
               style={{ background: 'var(--stone-100)', color: 'var(--stone-600)' }}
             >
               <X className="h-4 w-4" />

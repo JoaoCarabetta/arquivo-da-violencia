@@ -308,7 +308,7 @@ export function MapExplorer() {
           <button
             type="button"
             onClick={openPanel}
-            className="absolute bottom-[calc(76px+env(safe-area-inset-bottom,0px))] right-3 z-[700] inline-flex items-center gap-2 rounded-full px-3.5 py-2 shadow-md"
+            className="absolute bottom-[calc(76px+env(safe-area-inset-bottom,0px))] right-3 z-[700] inline-flex min-h-11 items-center gap-2 rounded-full px-3.5 py-2 shadow-md"
             style={{
               border: '1px solid var(--stone-200)',
               background: 'var(--color-surface)',
@@ -322,13 +322,13 @@ export function MapExplorer() {
         )}
       </div>
 
-      <RightPanel {...panelProps} className="hidden md:flex" />
+      {!isMobile && <RightPanel {...panelProps} className="hidden md:flex" />}
 
       {isMobile && (
         <Sheet open={mobilePanelOpen} onOpenChange={setMobilePanelOpen}>
           <SheetContent
             side="bottom"
-            className="h-[min(85vh,720px)] gap-0 overflow-hidden p-0 sm:max-w-none [&>button]:z-10"
+            className="h-[min(85dvh,720px)] gap-0 overflow-hidden p-0 sm:max-w-none [&>button]:z-50 [&>button]:top-3 [&>button]:right-3 [&>button]:flex [&>button]:h-11 [&>button]:w-11 [&>button]:items-center [&>button]:justify-center [&>button]:rounded-lg [&>button]:bg-[var(--color-surface)]"
           >
             <RightPanel {...panelProps} embedded />
           </SheetContent>

@@ -20,7 +20,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
   const location = useLocation();
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="min-h-dvh bg-background">
       {/* Sidebar */}
       <aside className="fixed inset-y-0 left-0 z-50 w-64 border-r bg-card">
         <div className="flex h-16 items-center border-b px-6">
