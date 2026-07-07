@@ -213,6 +213,12 @@ export const MapFilterBar = memo(function MapFilterBar(props: MapFilterBarProps)
         style={{ scrollbarWidth: 'none' }}
       >
         <MenuChip
+          label={t.fTemporal}
+          open={openMenu === 'temporal'}
+          active={temporalActive}
+          onClick={() => toggleMenu('temporal')}
+        />
+        <MenuChip
           label={t.fPeriod}
           open={openMenu === 'periods'}
           active={props.filters.periods.length > 0}
@@ -229,12 +235,6 @@ export const MapFilterBar = memo(function MapFilterBar(props: MapFilterBarProps)
           open={openMenu === 'methods'}
           active={props.filters.methods.length > 0}
           onClick={() => toggleMenu('methods')}
-        />
-        <MenuChip
-          label={t.fTemporal}
-          open={openMenu === 'temporal'}
-          active={temporalActive}
-          onClick={() => toggleMenu('temporal')}
         />
 
         {activeChips.length > 0 && (

@@ -19,6 +19,7 @@ on:
       - 'docker-compose.yml'
       - 'docker-compose.staging.yml'
       - 'scripts/deploy-backend.sh'
+      - 'scripts/check-pipeline-health.sh'
       - 'scripts/sync-staging-db.sh'
       - 'scripts/hash-env-passwords.py'
       - 'scripts/preflight-auth.py'

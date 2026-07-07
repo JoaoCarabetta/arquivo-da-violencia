@@ -35,3 +35,18 @@
   from { opacity: 0; transform: translateY(4px); }
   to { opacity: 1; transform: none; }
 }
+
+/* Live / real-time indicator dot (portal stats) */
+.av-live-dot {
+  display: inline-block;
+  flex-shrink: 0;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--red-500);
+  animation: av-live-pulse 2s ease-in-out infinite;
+}
+@keyframes av-live-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.45; transform: scale(0.82); }
+}
