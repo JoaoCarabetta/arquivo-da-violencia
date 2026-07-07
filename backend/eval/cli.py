@@ -263,6 +263,13 @@ def _add_improvement_commands(sub: argparse._SubParsersAction) -> None:
     p_detect.add_argument("--limit", type=int, default=20, help="Max candidates per stage")
     p_detect.add_argument("--db", default=None, help="SQLite snapshot path (else DATABASE_URL)")
     p_detect.add_argument("--output", default=None, help="Write candidates JSON")
+    p_detect.add_argument("--date-from", default=None, help="Filter incidents from YYYY-MM-DD (fetched/event date)")
+    p_detect.add_argument("--date-to", default=None, help="Filter incidents through YYYY-MM-DD")
+    p_detect.add_argument(
+        "--api-base-url",
+        default=None,
+        help="Pull prod snapshot from API (e.g. https://arquivodaviolencia.com.br) before detect",
+    )
     p_detect.add_argument("--dry-run", action="store_true", help="Alias for detect without side effects")
     p_detect.set_defaults(stage="improvement", handler="detect")
 
@@ -289,6 +296,14 @@ def _add_improvement_commands(sub: argparse._SubParsersAction) -> None:
     p_run_all.add_argument("--no-llm", action="store_true")
     p_run_all.add_argument("--output", default=None)
     p_run_all.set_defaults(stage="improvement", handler="run-all")
+
+    p_pull = imp_sub.add_parser("pull-snapshot", help="Download prod API data into SQLite for detect")
+    p_pull.add_argument("--api-base-url", default="https://arquivodaviolencia.com.br")
+    p_pull.add_argument("--date-from", required=True)
+    p_pull.add_argument("--date-to", required=True)
+    p_pull.add_argument("--output", default="eval/results/proposed/prod-snapshot.db")
+    p_pull.add_argument("--max-source-pages", type=int, default=30)
+    p_pull.set_defaults(stage="improvement", handler="pull-snapshot")
 
     p_compare = imp_sub.add_parser("compare-reports", help="Compare any two stage run reports")
     p_compare.add_argument("--baseline", required=True)
@@ -412,7 +427,22 @@ def _dispatch_improvement(args: argparse.Namespace, handler: str | None) -> None
 
     if handler == "detect":
         db_path = Path(args.db) if args.db else None
-        if db_path and not db_path.exists():
+        if args.api_base_url:
+            from datetime import date as date_cls
+            from eval.improvement.pull_snapshot import pull_snapshot
+
+            date_from = date_cls.fromisoformat(args.date_from) if args.date_from else date_cls.fromisoformat("2026-07-03")
+            date_to = date_cls.fromisoformat(args.date_to) if args.date_to else date_cls.today()
+            snap_path = Path("eval/results/proposed/prod-snapshot.db")
+            meta = pull_snapshot(
+                base_url=args.api_base_url,
+                output=snap_path,
+                date_from=date_from,
+                date_to=date_to,
+            )
+            print(f"Pulled snapshot: {meta}")
+            db_path = snap_path
+        elif db_path and not db_path.exists():
             raise SystemExit(f"DB not found: {db_path}")
         stages = parse_stages(args.only_stage)
         output = Path(args.output) if args.output else None
@@ -472,6 +502,20 @@ def _dispatch_improvement(args: argparse.Namespace, handler: str | None) -> None
             print(f"\nWrote {output}")
         if not payload["summary"]["all_passed"]:
             raise SystemExit(1)
+        return
+
+    if handler == "pull-snapshot":
+        from datetime import date as date_cls
+        from eval.improvement.pull_snapshot import pull_snapshot
+
+        meta = pull_snapshot(
+            base_url=args.api_base_url,
+            output=Path(args.output),
+            date_from=date_cls.fromisoformat(args.date_from),
+            date_to=date_cls.fromisoformat(args.date_to),
+            max_source_pages=args.max_source_pages,
+        )
+        print(json.dumps(meta, indent=2))
         return
 
     if handler == "compare-reports":

@@ -39,7 +39,7 @@ class AnomalyCandidate(BaseModel):
     reason: str
     prod_snapshot: dict[str, Any] = Field(default_factory=dict)
     input: dict[str, Any] = Field(default_factory=dict)
-    record_ids: dict[str, int | str | None] = Field(default_factory=dict)
+    record_ids: dict[str, int | str | list[int] | None] = Field(default_factory=dict)
 
 
 class CandidateBundle(BaseModel):
