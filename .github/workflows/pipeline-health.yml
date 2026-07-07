@@ -44,9 +44,13 @@ jobs:
           script: |
             set -euo pipefail
             cd /root/arquivo-da-violencia
-            git fetch origin master
-            git checkout master
-            git pull --ff-only origin master
+            BRANCH="master"
+            if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+              BRANCH="${{ github.ref_name }}"
+            fi
+            git fetch origin "$BRANCH"
+            git checkout "$BRANCH"
+            git pull --ff-only origin "$BRANCH"
             export PIPELINE_HEALTH_WEBHOOK_AUTH="${{ secrets.CURSOR_AUTOMATION_TOKEN }}"
             ARGS="--notify"
             if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.remediate }}" = "true" ]; then
