@@ -149,7 +149,7 @@ const PT: MethodologyContent = {
       id: 'schedule',
       title: 'Atualização',
       paragraphs: [
-        'Quando ENABLE_CRON=true no worker, o pipeline completo roda automaticamente no minuto 5 de cada hora (:05). Timeout de 60 minutos por execução. Antes de cada run, o sistema recupera fontes presas e re-enfileira falhas transientes.',
+        'Quando ENABLE_CRON=true no worker, a ingestão roda no minuto 5 de cada hora (:05 UTC) e o processamento do backlog (classificar, baixar, extrair, deduplicar) no minuto 35 (:35 UTC), ambos a cada hora. A ingestão é independente do processamento, para que novas fontes entrem mesmo quando um run longo ainda está em andamento.',
         'O mapa público carrega eventos dos últimos 365 dias. A data "desde" exibida na interface corresponde ao evento mais antigo com data registrada no arquivo.',
       ],
     },
@@ -308,7 +308,7 @@ const EN: MethodologyContent = {
     id: 'schedule',
     title: 'Update schedule',
     paragraphs: [
-      'When ENABLE_CRON=true on the worker, the full pipeline runs automatically at minute 5 of every hour (:05). 60-minute timeout per run. Before each run, the system recovers stuck sources and re-queues transient failures.',
+      'When ENABLE_CRON=true on the worker, ingestion runs at minute 5 of every hour (:05 UTC) and backlog processing (classify, download, extract, dedup) at minute 35 (:35 UTC), both hourly. Ingest is decoupled from processing so new sources are fetched even while a long prior run is still in progress.',
       'The public map loads events from the last 365 days. The "since" date shown in the interface corresponds to the oldest dated event in the archive.',
     ],
   },

@@ -10,7 +10,7 @@
 #
 # Environment variables (create .env file):
 #   OPENROUTER_API_KEY=your-api-key
-#   ENABLE_CRON=true  # Enable hourly ingestion
+#   ENABLE_CRON=true  # :05 ingest + :35 backlog (hourly)
 #   TELEGRAM_BOT_TOKEN=your-bot-token  # For notifications
 #   TELEGRAM_CHAT_ID=your-chat-id
 #   GITHUB_TOKEN=your-github-token  # For creating issues on failures

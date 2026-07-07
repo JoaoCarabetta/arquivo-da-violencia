@@ -7,20 +7,20 @@ from datetime import datetime
 import feedparser
 import googlenewsdecoder
 from loguru import logger
+from sqlalchemy.exc import IntegrityError
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.database import async_session_maker
-from app.models import SourceGoogleNews, SourceStatus, CityStats
+from app.models import CityStats, SourceGoogleNews, SourceStatus
 from app.services.cities import (
-    CITIES,
     BRAZILIAN_NEWS_SOURCES,
+    CITIES,
+    DEFAULT_WHEN,
     REQUEST_INTERVAL_SECONDS,
     REQUESTS_PER_MINUTE,
     SHARDING_THRESHOLD,
-    DEFAULT_WHEN,
 )
-
 
 # Google News RSS configuration for Brazil
 GOOGLE_NEWS_BASE_URL = "https://news.google.com/rss/search"
@@ -370,65 +370,68 @@ async def ingest_city(
         # Update city stats (this may enable sharding for next run)
         await update_city_stats(city, total_count, session)
     
-    # Now save the entries to database
+    # Now save the entries to database (one savepoint per row so parallel city
+    # ingests that hit the same google_news_id do not fail the whole batch).
     new_sources = []
-    
+
     async with async_session_maker() as session:
         for entry in all_entries:
-            # Extract Google News ID
             google_news_id = entry.get("id") or entry.get("link", "")
-            
-            # Check if already exists
-            existing = await session.exec(
-                select(SourceGoogleNews).where(
-                    SourceGoogleNews.google_news_id == google_news_id
-                )
-            )
-            if existing.first():
+            if not google_news_id:
                 continue
-            
-            # Parse headline and publisher
+
             title = entry.get("title", "")
             headline, publisher_name = parse_headline_and_publisher(title)
-            
-            # Get publisher URL
+
             source_info = entry.get("source", {})
             publisher_url = source_info.get("href") if isinstance(source_info, dict) else None
-            
-            # Parse publication date
+
             published_at = None
             if hasattr(entry, "published_parsed") and entry.published_parsed:
                 try:
                     published_at = datetime(*entry.published_parsed[:6])
                 except Exception:
                     pass
-            
-            # Resolve URL if requested
+
             google_news_url = entry.get("link", "")
             resolved_url = None
             if resolve_urls:
                 resolved_url = resolve_google_news_url(google_news_url)
 
-            if await _resolved_url_exists(session, resolved_url):
+            try:
+                async with session.begin_nested():
+                    existing = await session.exec(
+                        select(SourceGoogleNews).where(
+                            SourceGoogleNews.google_news_id == google_news_id
+                        )
+                    )
+                    if existing.first():
+                        continue
+
+                    if await _resolved_url_exists(session, resolved_url):
+                        continue
+
+                    source = SourceGoogleNews(
+                        google_news_id=google_news_id,
+                        google_news_url=google_news_url,
+                        resolved_url=resolved_url,
+                        headline=headline,
+                        publisher_name=publisher_name,
+                        publisher_url=publisher_url,
+                        published_at=published_at,
+                        search_query=entry.get("_search_query"),
+                        status=SourceStatus.ready_for_classification,
+                        fetched_at=datetime.utcnow(),
+                    )
+                    session.add(source)
+                    await session.flush()
+                    new_sources.append(source)
+            except IntegrityError:
+                logger.debug(
+                    f"[{city}] Skipping duplicate google_news_id (parallel ingest race)"
+                )
                 continue
-            
-            # Create source record
-            source = SourceGoogleNews(
-                google_news_id=google_news_id,
-                google_news_url=google_news_url,
-                resolved_url=resolved_url,
-                headline=headline,
-                publisher_name=publisher_name,
-                publisher_url=publisher_url,
-                published_at=published_at,
-                search_query=entry.get("_search_query"),
-                status=SourceStatus.ready_for_classification,
-                fetched_at=datetime.utcnow(),
-            )
-            
-            session.add(source)
-            new_sources.append(source)
-        
+
         if new_sources:
             await session.commit()
             for source in new_sources:
@@ -509,7 +512,7 @@ async def ingest_all_cities(
     errors = sum(1 for r in city_results.values() if r["status"] == "error")
     
     logger.info(f"\n{'='*60}")
-    logger.info(f"INGESTION COMPLETE")
+    logger.info("INGESTION COMPLETE")
     logger.info(f"Cities processed: {len(cities)}")
     logger.info(f"Total entries fetched: {total_entries}")
     logger.info(f"Total new sources created: {total_sources}")
