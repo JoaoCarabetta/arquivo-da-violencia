@@ -1,0 +1,12 @@
+global:
+  scrape_interval: 30s
+  evaluation_interval: 30s
+
+scrape_configs:
+  - job_name: arquivo-prod-api
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["77.42.72.111:8000"]
+        labels:
+          environment: production
+          service: api

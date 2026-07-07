@@ -84,6 +84,15 @@ async def startup(ctx: dict) -> None:
     except Exception as e:  # pragma: no cover
         logger.warning(f"Failed to start metrics push loop: {e}")
 
+    if settings.metrics_enabled:
+        try:
+            from prometheus_client import start_http_server
+
+            start_http_server(9091)
+            logger.info("[metrics] Worker metrics HTTP server on :9091/metrics")
+        except Exception as e:  # pragma: no cover
+            logger.warning(f"Failed to start worker metrics HTTP server: {e}")
+
 
 async def shutdown(ctx: dict) -> None:
     """Worker shutdown handler."""

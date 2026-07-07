@@ -115,6 +115,8 @@ services:
     build: ./backend
     container_name: arquivo-worker
     command: arq app.tasks.worker.WorkerSettings
+    ports:
+      - "9091:9091"
     depends_on:
       postgres:
         condition: service_healthy
