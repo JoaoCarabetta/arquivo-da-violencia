@@ -284,6 +284,32 @@ json_array() {
     fi
 }
 
+if [ "$TEST_WEBHOOK" = true ]; then
+    echo_step "🔔 Sending test webhook to Cursor Automation..."
+    if [ -z "${PIPELINE_HEALTH_WEBHOOK_AUTH:-}" ]; then
+        record_failure "webhook_auth_missing(set PIPELINE_HEALTH_WEBHOOK_AUTH or CURSOR_AUTOMATION_TOKEN)"
+    elif ! send_webhook "$(python3 - <<PY
+import json
+print(json.dumps({
+    "status": "${STATUS}",
+    "test": True,
+    "failures": $(json_array ${FAILURES[@]+"${FAILURES[@]}"}),
+    "warnings": $(json_array ${WARNINGS[@]+"${WARNINGS[@]}"}),
+    "host": "$(hostname -s)",
+    "timestamp": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+    "prompt": "TEST: Pipeline health automation check. SSH to hetzner-arv, run: cd /root/arquivo-da-violencia && bash scripts/check-pipeline-health.sh --json && docker logs arquivo-worker --tail 30. Reply with a one-line summary of pipeline status. Do not open PRs for this test.",
+}))
+PY
+)"; then
+        record_failure "webhook_test_failed(${WEBHOOK_LAST_ERROR:-unknown})"
+    else
+        DETAILS+=("OK: test_webhook_sent")
+    fi
+    if [ "${#FAILURES[@]}" -gt 0 ]; then
+        STATUS="unhealthy"
+    fi
+fi
+
 if [ "$JSON" = true ]; then
     python3 - <<PY
 import json
@@ -329,29 +355,6 @@ print(json.dumps({
 PY
 )"; then
         record_warning "webhook_notify_failed(${WEBHOOK_LAST_ERROR:-unknown})"
-    fi
-fi
-
-if [ "$TEST_WEBHOOK" = true ]; then
-    echo_step "🔔 Sending test webhook to Cursor Automation..."
-    if [ -z "${PIPELINE_HEALTH_WEBHOOK_AUTH:-}" ]; then
-        record_failure "webhook_auth_missing(set PIPELINE_HEALTH_WEBHOOK_AUTH or CURSOR_AUTOMATION_TOKEN)"
-    elif ! send_webhook "$(python3 - <<PY
-import json
-print(json.dumps({
-    "status": "${STATUS}",
-    "test": True,
-    "failures": $(json_array ${FAILURES[@]+"${FAILURES[@]}"}),
-    "warnings": $(json_array ${WARNINGS[@]+"${WARNINGS[@]}"}),
-    "host": "$(hostname -s)",
-    "timestamp": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
-    "prompt": "TEST: Pipeline health automation check. SSH to hetzner-arv, run: cd /root/arquivo-da-violencia && bash scripts/check-pipeline-health.sh --json && docker logs arquivo-worker --tail 30. Reply with a one-line summary of pipeline status. Do not open PRs for this test.",
-}))
-PY
-)"; then
-        record_failure "webhook_test_failed(${WEBHOOK_LAST_ERROR:-unknown})"
-    else
-        DETAILS+=("OK: test_webhook_sent")
     fi
 fi
 
