@@ -49,6 +49,20 @@ def parse_datetime(value) -> datetime | None:
     return None
 
 
+def coerce_json_field(value) -> dict | list | None:
+    """Parse JSON columns from Postgres (dict) or SQLite (str)."""
+    if value is None:
+        return None
+    if isinstance(value, (dict, list)):
+        return value
+    if isinstance(value, str):
+        try:
+            return json.loads(value)
+        except json.JSONDecodeError:
+            return None
+    return None
+
+
 # === Configuration ===
 DATE_TOLERANCE_DAYS = 1  # For date+city blocking
 VICTIM_NAME_DATE_TOLERANCE_DAYS = 10  # Wider window when victim name matches
@@ -165,14 +179,7 @@ def extract_victim_names_from_unique_event(unique_event: UniqueEvent) -> list[st
     
     # Also check merged_data for identifiable victims
     if unique_event.merged_data:
-        # Handle case where merged_data is stored as JSON string
-        merged_data = unique_event.merged_data
-        if isinstance(merged_data, str):
-            import json
-            try:
-                merged_data = json.loads(merged_data)
-            except json.JSONDecodeError:
-                merged_data = {}
+        merged_data = coerce_json_field(unique_event.merged_data) or {}
         victims = merged_data.get("victims", {}) if isinstance(merged_data, dict) else {}
         identifiable = victims.get("identifiable_victims", [])
         for victim in identifiable:
@@ -1144,7 +1151,7 @@ async def process_single_raw_event(raw_event_id: int) -> dict:
             homicide_type=row.homicide_type,
             title=row.title,
             chronological_description=row.chronological_description,
-            extraction_data=json.loads(row.extraction_data) if row.extraction_data else None,
+            extraction_data=coerce_json_field(row.extraction_data),
             victim_count=row.victim_count,
             identified_victim_count=row.identified_victim_count,
             perpetrator_count=row.perpetrator_count,
@@ -1256,7 +1263,7 @@ async def process_pending_deduplication(limit: int = 200) -> dict:
             homicide_type=row.homicide_type,
             title=row.title,
             chronological_description=row.chronological_description,
-            extraction_data=json.loads(row.extraction_data) if row.extraction_data else None,
+            extraction_data=coerce_json_field(row.extraction_data),
             victim_count=row.victim_count,
             identified_victim_count=row.identified_victim_count,
             perpetrator_count=row.perpetrator_count,
@@ -1455,7 +1462,7 @@ async def enrich_unique_event(unique_event_id: int) -> bool:
     all_extraction_data = []
     
     for row in source_rows:
-        extraction_data = json.loads(row.extraction_data) if row.extraction_data else {}
+        extraction_data = coerce_json_field(row.extraction_data) or {}
         all_extraction_data.append(extraction_data)
         
         sources_info.append({

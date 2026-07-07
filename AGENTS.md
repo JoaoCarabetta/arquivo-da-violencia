@@ -125,6 +125,10 @@ docker logs arquivo-api --tail 50
 curl -sf http://localhost:8000/health
 curl -sf http://localhost:8000/api/pipeline/status
 
+# Pipeline health (see docs/pipeline-auto-remediation.md)
+bash scripts/check-pipeline-health.sh
+bash scripts/check-pipeline-health.sh --notify --remediate
+
 # Docker Compose (production stack)
 docker compose -p prod ps
 docker compose -p prod up -d --no-deps api worker

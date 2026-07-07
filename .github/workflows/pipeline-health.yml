@@ -1,0 +1,50 @@
+# =============================================================================
+# Production Pipeline Health Check
+# =============================================================================
+# SSH to the VPS every 30 minutes and run scripts/check-pipeline-health.sh.
+# On failure the script notifies Telegram (from VPS .env) and an optional
+# PIPELINE_HEALTH_WEBHOOK_URL (e.g. Cursor Automation).
+# =============================================================================
+
+name: Pipeline Health
+
+on:
+  schedule:
+    - cron: '*/30 * * * *'
+  workflow_dispatch:
+    inputs:
+      remediate:
+        description: 'Run Tier-A remediation (reset stuck sources)'
+        required: false
+        default: false
+        type: boolean
+
+jobs:
+  check-production:
+    name: Check prod pipeline on VPS
+    runs-on: ubuntu-latest
+    steps:
+      - name: Sync check script and run health check
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          script_stop: true
+          script: |
+            set -euo pipefail
+            cd /root/arquivo-da-violencia
+            git fetch origin master
+            git checkout master
+            git pull --ff-only origin master
+            ARGS="--notify"
+            if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.remediate }}" = "true" ]; then
+              ARGS="$ARGS --remediate"
+            fi
+            bash scripts/check-pipeline-health.sh $ARGS
+
+      - name: Summarize failure in GitHub Actions
+        if: failure()
+        run: |
+          echo "::error::Production pipeline health check failed on VPS."
+          echo "Inspect Telegram alert or SSH: bash scripts/check-pipeline-health.sh"

@@ -96,11 +96,11 @@ def get_cron_jobs():
         # Hourly FULL pipeline - runs at minute 5 of every hour
         # Pipeline: ingest -> classify -> download -> extract -> dedup -> enrich
         # cron() requires the raw coroutine; manual enqueues use the func() wrapper
-        # in TASK_FUNCTIONS for the same 3600s timeout.
+        # in TASK_FUNCTIONS for the same 7200s timeout.
         cron(
             ingest_cities_full_pipeline,
             minute=5,  # Run at :05 every hour
-            timeout=3600,  # 60 minutes timeout (full pipeline takes longer)
+            timeout=7200,  # Full pipeline can exceed 60 minutes at peak load
             unique=True,  # Prevent duplicate runs
         ),
     ]

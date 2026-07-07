@@ -148,7 +148,10 @@ async def classify_task(ctx: dict, source_id: int) -> dict:
 
 @notify_on_failure("classify_batch")
 async def classify_pending_task(
-    ctx: dict, limit: int = 50, chain_next: bool = True
+    ctx: dict,
+    limit: int = 50,
+    chain_next: bool = True,
+    concurrency: int = 10,
 ) -> dict:
     """
     Batch task: Classify headlines for all pending sources.
@@ -160,7 +163,7 @@ async def classify_pending_task(
     
     from app.services.classification import classify_pending_sources
     
-    result = await classify_pending_sources(limit=limit)
+    result = await classify_pending_sources(limit=limit, concurrency=concurrency)
     
     logger.info(f"[CLASSIFY_BATCH] Complete: {result}")
     
@@ -549,6 +552,38 @@ async def ingest_cities_task(
     }
 
 
+async def _run_classify_until_drained(
+    *,
+    limit_per_batch: int = 150,
+    max_batches: int = 12,
+    concurrency: int = 15,
+) -> dict:
+    """Classify pending sources in batches until drained or batch cap hit."""
+    from app.services.classification import classify_pending_sources
+
+    totals = {
+        "processed": 0,
+        "violent_death": 0,
+        "discarded": 0,
+        "errors": 0,
+    }
+    for batch in range(1, max_batches + 1):
+        result = await classify_pending_sources(
+            limit=limit_per_batch,
+            concurrency=concurrency,
+        )
+        for key in totals:
+            totals[key] += int(result.get(key, 0))
+        processed = int(result.get("processed", 0))
+        logger.info(
+            f"[CLASSIFY_BATCH] Batch {batch}/{max_batches}: {result} "
+            f"(running total processed={totals['processed']})"
+        )
+        if processed < limit_per_batch:
+            break
+    return totals
+
+
 @notify_on_failure("cities_full_pipeline")
 async def ingest_cities_full_pipeline(
     ctx: dict,
@@ -589,8 +624,12 @@ async def ingest_cities_full_pipeline(
         ctx, cities=cities, when=when, enqueue_classify=False
     )
     
-    # Steps 2-7 run inline — do not enqueue shadow jobs that compete for SQLite locks.
-    classify_result = await classify_pending_task(ctx, limit=500, chain_next=False)
+    # Steps 2-7 run inline on Postgres (no cross-job lock contention).
+    classify_result = await _run_classify_until_drained(
+        limit_per_batch=150,
+        max_batches=12,
+        concurrency=15,
+    )
     download_result = await download_classified_task(ctx, limit=500, chain_next=False)
     extract_result = await extract_ready_task(ctx, limit=100, chain_next=False)
     dedup_result = await batch_dedup_task(ctx, limit=200, chain_next=False)
@@ -628,7 +667,7 @@ from arq.worker import func
 
 ingest_cities_full_pipeline_job = func(
     ingest_cities_full_pipeline,
-    timeout=3600,
+    timeout=7200,
     max_tries=1,
 )
 ingest_cities_task_job = func(
