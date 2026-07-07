@@ -9,7 +9,7 @@
 #   ./scripts/check-pipeline-health.sh
 #   ./scripts/check-pipeline-health.sh --notify          # Telegram + webhook on failure
 #   ./scripts/check-pipeline-health.sh --remediate         # Tier-A fixes for stuck rows
-#   ./scripts/check-pipeline-health.sh --json              # Machine-readable summary
+#   ./scripts/check-pipeline-health.sh --test-webhook    # POST test payload to Cursor webhook
 #
 # Environment (read from $REPO_DIR/.env when present):
 #   TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID
@@ -37,12 +37,14 @@ READY_BACKLOG_WARN="${PIPELINE_HEALTH_READY_BACKLOG_WARN:-1500}"
 NOTIFY=false
 REMEDIATE=false
 JSON=false
+TEST_WEBHOOK=false
 
 for arg in "$@"; do
     case "$arg" in
         --notify) NOTIFY=true ;;
         --remediate) REMEDIATE=true ;;
         --json) JSON=true ;;
+        --test-webhook) TEST_WEBHOOK=true ;;
         -h|--help)
             sed -n '2,20p' "$0"
             exit 0
@@ -303,6 +305,24 @@ print(json.dumps({
 }))
 PY
 )"
+fi
+
+if [ "$TEST_WEBHOOK" = true ]; then
+    echo_step "🔔 Sending test webhook to Cursor Automation..."
+    send_webhook "$(python3 - <<PY
+import json
+print(json.dumps({
+    "status": "${STATUS}",
+    "test": True,
+    "failures": $(json_array ${FAILURES[@]+"${FAILURES[@]}"}),
+    "warnings": $(json_array ${WARNINGS[@]+"${WARNINGS[@]}"}),
+    "host": "$(hostname -s)",
+    "timestamp": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+    "prompt": "TEST: Pipeline health automation check. SSH to hetzner-arv, run: cd /root/arquivo-da-violencia && bash scripts/check-pipeline-health.sh --json && docker logs arquivo-worker --tail 30. Reply with a one-line summary of pipeline status. Do not open PRs for this test.",
+}))
+PY
+)"
+    DETAILS+=("OK: test_webhook_sent")
 fi
 
 if [ "$STATUS" = "unhealthy" ]; then

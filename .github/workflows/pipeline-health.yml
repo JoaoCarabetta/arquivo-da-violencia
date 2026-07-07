@@ -18,6 +18,11 @@ on:
         required: false
         default: false
         type: boolean
+      test_webhook:
+        description: 'POST test payload to Cursor Automation webhook after the check'
+        required: false
+        default: false
+        type: boolean
 
 jobs:
   check-production:
@@ -40,6 +45,9 @@ jobs:
             ARGS="--notify"
             if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.remediate }}" = "true" ]; then
               ARGS="$ARGS --remediate"
+            fi
+            if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.test_webhook }}" = "true" ]; then
+              ARGS="$ARGS --test-webhook"
             fi
             bash scripts/check-pipeline-health.sh $ARGS
 
