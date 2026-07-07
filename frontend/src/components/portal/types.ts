@@ -1,6 +1,11 @@
 import type { MapPoint } from '@/lib/api';
 import { pointSubtype } from '@/lib/taxonomy';
 import type { MapBounds } from '@/components/map/CrimeMap';
+import {
+  aggregatePointsToH3Cells,
+  h3ResolutionForZoom,
+  peakH3Count,
+} from '@/lib/h3Grid';
 
 export type PortalMode = 'stats' | 'feed' | 'data';
 
@@ -355,18 +360,10 @@ export function trendChartScale(peak: number): { scaleMax: number; ticks: number
   return { scaleMax, ticks: [0, scaleMax] };
 }
 
-/** Grid cell size in meters — mirrors `cellSizeForZoom` in CrimeMap. */
-export function gridCellSizeMeters(zoom: number): number {
-  if (zoom < 5) return 40000;
-  if (zoom < 7) return 15000;
-  if (zoom < 9) return 5000;
-  return 1500;
-}
-
 /** Zoom level at which the map switches from density grid to individual markers. */
 export const SCATTER_ZOOM_THRESHOLD = 12;
 
-/** Peak fatal-victim count in any single grid cell for the current viewport and zoom. */
+/** Peak fatal-victim count in any single H3 grid cell for the current viewport and zoom. */
 export function computeGridPeakCount(
   points: MapPoint[],
   bounds: MapBounds | null,
@@ -374,28 +371,9 @@ export function computeGridPeakCount(
 ): number {
   const inView = bounds ? pointsInBounds(points, bounds) : points;
   if (inView.length === 0) return 0;
-
-  const cellMeters = gridCellSizeMeters(zoom);
-  const metersPerDegLat = 111_320;
-  const [[, minLat], [, maxLat]] = bounds ?? [
-    [-180, -90],
-    [180, 90],
-  ];
-  const centerLat = (minLat + maxLat) / 2;
-  const cosLat = Math.cos((centerLat * Math.PI) / 180) || 1;
-  const cellLat = cellMeters / metersPerDegLat;
-  const cellLng = cellMeters / (metersPerDegLat * cosLat);
-
-  const counts = new Map<string, number>();
-  for (const p of inView) {
-    const key = `${Math.floor(p.lat / cellLat)}:${Math.floor(p.lng / cellLng)}`;
-    counts.set(key, (counts.get(key) ?? 0) + (p.v ?? 1));
-  }
-  let peak = 0;
-  for (const n of counts.values()) {
-    if (n > peak) peak = n;
-  }
-  return peak;
+  const resolution = h3ResolutionForZoom(zoom);
+  const cells = aggregatePointsToH3Cells(inView, resolution);
+  return peakH3Count(cells);
 }
 
 /** Round numeric labels for the map density legend (e.g. 0 — 5 — 10). */
