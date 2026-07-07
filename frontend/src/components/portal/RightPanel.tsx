@@ -1,30 +1,17 @@
-import { memo, useMemo, useState, useEffect } from 'react';
-import { useQuery } from '@tanstack/react-query';
-import { ChevronLeft, RotateCcw, MapPin, Clock, Download, ExternalLink } from 'lucide-react';
+import { memo, useMemo, useRef, useState, useEffect } from 'react';
+import { RotateCcw, MapPin, Download } from 'lucide-react';
 import { useI18n } from '@/contexts/I18nContext';
-import { fetchPublicEventById, getExportUrl, type MapPoint } from '@/lib/api';
+import { getExportUrl, type MapPoint } from '@/lib/api';
 import { cn } from '@/lib/utils';
 import {
   fmtNumber,
   fmtDateShort,
-  fmtDateLong,
-  monthShort,
   translateMethod,
   translatePeriod,
-  translateLocationPrecision,
-  fmtCoordinates,
   typeColor,
   ufName,
   dictionaryRows,
 } from '@/lib/i18n';
-import {
-  formatPointLabel,
-  formatTaxonomyFields,
-  formatSubtype,
-  pointSubtype,
-  taxonomyColor,
-  type HomicideSubtype,
-} from '@/lib/taxonomy';
 import {
   DEFAULT_SELECTED_COLUMN_IDS,
   EXPORT_COLUMN_GROUPS,
@@ -34,23 +21,34 @@ import {
   selectedExportFields,
 } from '@/lib/exportColumns';
 import {
+  formatPointLabel,
+  formatSubtype,
+  pointSubtype,
+  type HomicideSubtype,
+} from '@/lib/taxonomy';
+import type { MapBounds } from '@/components/map/CrimeMap';
+import { EventDetailView } from '@/components/portal/EventDetailView';
+import {
   computeStats,
   computeLast24hStats,
-  buildTrendMonths,
+  buildTrendWeeks,
   sortPeriods,
   trendChartScale,
+  dateRangeForLastDays,
+  pointsInViewExcept,
   CITY_STATS_ZOOM_THRESHOLD,
+  type FilterGroup,
   type PortalFilters,
   type PortalMode,
 } from './types';
 
 interface RightPanelProps {
   mode: PortalMode;
+  allPoints: MapPoint[];
+  panelBounds: MapBounds | null;
   pointsInView: MapPoint[];
-  /** Current map zoom — drives state vs. city stats breakdown. */
   mapZoom: number;
   viewportReady: boolean;
-  filteredCount: number;
   filters: PortalFilters;
   hasFilters: boolean;
   selectedId: number | null;
@@ -58,13 +56,17 @@ interface RightPanelProps {
   onCloseDetail: () => void;
   canReset: boolean;
   onResetView: () => void;
+  onToggleFilter: (group: FilterGroup, value: string) => void;
+  onSetDateRange: (startDate: string, endDate: string) => void;
+  onClearFilters: () => void;
+  onGeoSelect: (kind: 'states' | 'cities', value: string) => void;
+  onSetMode: (mode: PortalMode) => void;
+  filteredCount: number;
   /** When true, panel fills its container (e.g. mobile sheet) instead of fixed 392px sidebar. */
   embedded?: boolean;
   className?: string;
 }
 
-const EYEBROW =
-  'font-mono text-[9.5px] uppercase tracking-[.12em] text-[color:var(--color-text-subtle)]';
 
 function SectionLabel({ children }: { children: React.ReactNode }) {
   return (
@@ -86,7 +88,7 @@ export const RightPanel = memo(function RightPanel(props: RightPanelProps) {
       style={{ background: 'var(--color-surface)', borderLeft: embedded ? undefined : '1px solid var(--color-border)' }}
     >
       {selectedId != null ? (
-        <DetailView id={selectedId} onClose={props.onCloseDetail} />
+        <EventDetailView id={selectedId} onClose={props.onCloseDetail} />
       ) : (
         <PanelContent {...props} />
       )}
@@ -94,31 +96,249 @@ export const RightPanel = memo(function RightPanel(props: RightPanelProps) {
   );
 });
 
-function PanelContent(props: RightPanelProps) {
+function PanelModeTabs({
+  mode,
+  onSetMode,
+}: {
+  mode: PortalMode;
+  onSetMode: (mode: PortalMode) => void;
+}) {
   const { t } = useI18n();
-  const { mode } = props;
+  const tabs: { id: PortalMode; label: string }[] = [
+    { id: 'stats', label: t.statistics },
+    { id: 'feed', label: t.navFeed },
+    { id: 'data', label: t.navData },
+  ];
 
-  const eyebrow = mode === 'feed' ? t.navFeed : mode === 'data' ? t.navData : t.statistics;
-  const title = mode === 'feed' ? t.navFeed : mode === 'data' ? t.navData : t.inThisView;
+  return (
+    <div
+      className="mb-3 flex gap-0.5 rounded-[10px] p-1"
+      role="tablist"
+      aria-label={t.statistics}
+      style={{ background: 'var(--stone-100)' }}
+    >
+      {tabs.map((tab) => (
+        <button
+          key={tab.id}
+          type="button"
+          role="tab"
+          aria-selected={mode === tab.id}
+          onClick={() => onSetMode(tab.id)}
+          className={cn('av-panel-tab flex-1 rounded-lg px-2 py-1.5 transition-colors', mode === tab.id && 'av-panel-tab-active')}
+          style={{
+            fontFamily: 'var(--font-mono)',
+            fontSize: 9.5,
+            letterSpacing: '.04em',
+            textTransform: 'uppercase',
+          }}
+        >
+          {tab.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function PanelContent(props: RightPanelProps) {
+  const { mode } = props;
 
   return (
     <div>
       <div className="px-5 pb-[14px] pt-[18px]" style={{ borderBottom: '1px solid var(--color-border)' }}>
-        <div className={`${EYEBROW} mb-[3px]`}>{eyebrow}</div>
-        <div className="flex items-center justify-between gap-2.5">
-          <h2
-            className="m-0"
+        <PanelModeTabs mode={mode} onSetMode={props.onSetMode} />
+        <StatsHeader {...props} />
+      </div>
+
+      {mode === 'stats' && <StatsMode {...props} />}
+      {mode === 'feed' && <FeedMode {...props} />}
+      {mode === 'data' && <DataMode {...props} />}
+    </div>
+  );
+}
+
+const HEADER_SERIF = {
+  fontFamily: 'var(--font-serif)',
+  fontSize: 20,
+  fontWeight: 600,
+  letterSpacing: '-.01em',
+  color: 'var(--stone-900)',
+} as const;
+
+const BAR_PREVIEW_LIMIT = 5;
+const FILTER_BAR_COLOR = 'var(--stone-500)';
+const WEEKLY_BAR_COLOR = 'var(--red-600)';
+
+function visibleBarRows<T>(
+  rows: T[],
+  getKey: (row: T) => string,
+  activeKeys: string[],
+  expanded: boolean,
+): T[] {
+  if (expanded || rows.length <= BAR_PREVIEW_LIMIT) return rows;
+  const preview = rows.slice(0, BAR_PREVIEW_LIMIT);
+  const previewKeys = new Set(preview.map(getKey));
+  const pinned = rows.filter(
+    (row) => activeKeys.includes(getKey(row)) && !previewKeys.has(getKey(row))
+  );
+  return [...preview, ...pinned];
+}
+
+function BarExpandToggle({
+  expanded,
+  total,
+  onToggle,
+}: {
+  expanded: boolean;
+  total: number;
+  onToggle: () => void;
+}) {
+  const { t } = useI18n();
+  if (total <= BAR_PREVIEW_LIMIT) return null;
+
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      className="mt-1 self-start rounded-md px-2 py-1 transition-colors"
+      style={{ fontSize: 11.5, color: 'var(--blue-600)' }}
+      onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--stone-100)')}
+      onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
+    >
+      {expanded ? t.fewer : `${t.more} (${total - BAR_PREVIEW_LIMIT})`}
+    </button>
+  );
+}
+
+function fmtDateInline(iso: string, lang: 'pt' | 'en'): string {
+  const parts = iso.split('-').map(Number);
+  const [y, m, d] = parts;
+  if (!y || !m || !d) return iso;
+  return lang === 'en' ? `${m}/${d}/${y}` : `${d}/${m}/${y}`;
+}
+
+function EditableDateField({
+  value,
+  onChange,
+  title,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  title: string;
+}) {
+  const { lang } = useI18n();
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  const openPicker = () => {
+    const input = inputRef.current;
+    if (!input) return;
+    input.showPicker?.();
+  };
+
+  return (
+    <span className="av-date-inline group relative inline shrink-0 whitespace-nowrap">
+      <button
+        type="button"
+        className="av-date-text m-0 cursor-pointer border-0 bg-transparent p-0"
+        style={HEADER_SERIF}
+        title={title}
+        aria-label={title}
+        onClick={openPicker}
+      >
+        {fmtDateInline(value, lang)}
+      </button>
+      <input
+        ref={inputRef}
+        type="date"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className="absolute h-px w-px overflow-hidden opacity-0"
+        tabIndex={-1}
+        aria-hidden
+      />
+    </span>
+  );
+}
+
+function StatsHeader(props: RightPanelProps) {
+  const { t, lang } = useI18n();
+
+  const dateRangeInvalid = Boolean(
+    props.filters.startDate &&
+      props.filters.endDate &&
+      props.filters.startDate > props.filters.endDate
+  );
+
+  const dateEditHint = lang === 'pt' ? 'Clique para alterar a data' : 'Click to change the date';
+
+  return (
+    <div>
+      <h2
+        className="m-0"
+        style={{ ...HEADER_SERIF, lineHeight: 1.35 }}
+      >
+        <span className="block">{t.homicidesBetween}</span>
+        <span className="mt-0.5 flex flex-wrap items-baseline gap-x-1.5">
+          <EditableDateField
+            value={props.filters.startDate}
+            onChange={(startDate) => props.onSetDateRange(startDate, props.filters.endDate)}
+            title={dateEditHint}
+          />
+          <span className="shrink-0">{t.and}</span>
+          <EditableDateField
+            value={props.filters.endDate}
+            onChange={(endDate) => props.onSetDateRange(props.filters.startDate, endDate)}
+            title={dateEditHint}
+          />
+        </span>
+      </h2>
+      {dateRangeInvalid && (
+        <p className="mt-2" style={{ fontSize: 11.5, color: 'var(--red-700)' }}>
+          {t.exportDateRangeInvalid}
+        </p>
+      )}
+      <div className="mt-2.5 flex flex-wrap items-center justify-between gap-1.5">
+        <div className="flex flex-wrap gap-1.5">
+        {([
+          { days: 30, label: t.temporal30d },
+          { days: 90, label: t.temporal90d },
+          { days: 365, label: t.temporal365d },
+        ] as const).map(({ days, label }) => (
+          <button
+            key={days}
+            type="button"
+            onClick={() => {
+              const range = dateRangeForLastDays(days);
+              props.onSetDateRange(range.startDate, range.endDate);
+            }}
+            className="rounded-full px-2.5 py-1 transition-colors"
             style={{
-              fontFamily: 'var(--font-serif)',
-              fontSize: 22,
-              fontWeight: 600,
-              letterSpacing: '-.01em',
-              color: 'var(--stone-900)',
+              border: '1px solid var(--stone-200)',
+              background: 'var(--color-surface)',
+              fontSize: 11.5,
+              color: 'var(--stone-600)',
             }}
           >
-            {title}
-          </h2>
-          {mode === 'stats' && props.canReset && (
+            {label}
+          </button>
+        ))}
+        </div>
+        <div className="flex shrink-0 items-center gap-1.5">
+          {props.hasFilters && (
+            <button
+              type="button"
+              onClick={props.onClearFilters}
+              className="inline-flex items-center whitespace-nowrap rounded-[7px] px-[9px] py-[5px]"
+              style={{
+                border: '1px solid var(--stone-200)',
+                background: 'var(--color-surface)',
+                fontSize: 11.5,
+                color: 'var(--blue-600)',
+              }}
+            >
+              {t.clear}
+            </button>
+          )}
+          {props.canReset && (
             <button
               onClick={props.onResetView}
               className="inline-flex items-center gap-[5px] whitespace-nowrap rounded-[7px] px-[9px] py-[5px]"
@@ -135,10 +355,94 @@ function PanelContent(props: RightPanelProps) {
           )}
         </div>
       </div>
+    </div>
+  );
+}
 
-      {mode === 'stats' && <StatsMode {...props} />}
-      {mode === 'feed' && <FeedMode {...props} />}
-      {mode === 'data' && <DataMode {...props} />}
+function ClickableBarRow({
+  label,
+  count,
+  max,
+  barColor,
+  active,
+  onClick,
+  lang,
+  hint,
+}: {
+  label: React.ReactNode;
+  count: number;
+  max: number;
+  barColor: string;
+  active: boolean;
+  onClick: () => void;
+  lang: 'pt' | 'en';
+  hint: string;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      title={hint}
+      data-active={active ? 'true' : undefined}
+      className="av-filter-bar w-full rounded-lg px-2 py-1.5 text-left font-sans"
+      style={{ fontFamily: 'var(--font-sans)' }}
+    >
+      <div className="av-filter-bar-label mb-1 flex justify-between" style={{ fontSize: 12.5 }}>
+        <span style={{ color: 'var(--stone-700)' }}>{label}</span>
+        <span
+          className="font-mono tabular-nums"
+          style={{ fontFamily: 'var(--font-mono)', color: 'var(--stone-500)' }}
+        >
+          {fmtNumber(count, lang)}
+        </span>
+      </div>
+      <div className="h-[7px] overflow-hidden rounded" style={{ background: 'var(--stone-100)' }}>
+        <div
+          className="av-filter-bar-fill h-full rounded transition-[width] duration-300"
+          style={{ background: barColor, width: `${Math.round((count / max) * 100)}%` }}
+        />
+      </div>
+    </button>
+  );
+}
+
+function WeekBar({
+  weekKey,
+  count,
+  heightPct,
+  lang,
+}: {
+  weekKey: string;
+  count: number;
+  heightPct: number;
+  lang: 'pt' | 'en';
+}) {
+  const { t } = useI18n();
+  const weekLabel = fmtDateShort(weekKey, lang);
+  const countLabel = `${fmtNumber(count, lang)} ${t.violentDeathsLabel}`;
+
+  return (
+    <div className="group relative flex h-full min-w-0 flex-1 cursor-default flex-col items-center justify-end">
+      <div
+        className="pointer-events-none absolute bottom-full left-1/2 z-20 mb-1 -translate-x-1/2 whitespace-nowrap rounded-md px-2 py-1 font-sans opacity-0 transition-opacity duration-150 group-hover:opacity-100"
+        style={{
+          fontSize: 10,
+          lineHeight: 1.35,
+          background: 'var(--stone-800)',
+          color: '#fff',
+          boxShadow: '0 2px 8px rgba(20,23,28,.18)',
+        }}
+      >
+        <div style={{ fontWeight: 600 }}>{countLabel}</div>
+        <div style={{ opacity: 0.85 }}>{weekLabel}</div>
+      </div>
+      <div
+        className="w-full rounded-t-[2px] transition-[height,filter] duration-300 group-hover:brightness-110"
+        style={{
+          background: count > 0 ? WEEKLY_BAR_COLOR : 'var(--stone-200)',
+          height: `${Math.max(heightPct, 2)}%`,
+        }}
+      />
     </div>
   );
 }
@@ -147,35 +451,77 @@ function PanelContent(props: RightPanelProps) {
 
 function StatsMode(props: RightPanelProps) {
   const { t, lang } = useI18n();
-  const { pointsInView, hasFilters, viewportReady, mapZoom } = props;
+  const { allPoints, panelBounds, pointsInView, viewportReady, mapZoom, filters } = props;
+  const [typesExpanded, setTypesExpanded] = useState(false);
+  const [methodsExpanded, setMethodsExpanded] = useState(false);
+  const [placesExpanded, setPlacesExpanded] = useState(false);
 
   const stats = useMemo(() => computeStats(pointsInView), [pointsInView]);
   const last24h = useMemo(() => computeLast24hStats(pointsInView), [pointsInView]);
-  const months = useMemo(() => buildTrendMonths(pointsInView), [pointsInView]);
+
+  const typeStats = useMemo(
+    () => computeStats(pointsInViewExcept(allPoints, filters, panelBounds, 'types')),
+    [allPoints, filters, panelBounds]
+  );
+  const methodStats = useMemo(
+    () => computeStats(pointsInViewExcept(allPoints, filters, panelBounds, 'methods')),
+    [allPoints, filters, panelBounds]
+  );
   const cityMode = mapZoom >= CITY_STATS_ZOOM_THRESHOLD;
 
-  const scopeNote = viewportReady
-    ? t.inVisibleArea + (hasFilters ? t.filtersActive : '')
-    : t.mapLoadingStats;
+  useEffect(() => {
+    setPlacesExpanded(false);
+  }, [cityMode]);
 
-  const trendCounts = months.map((m) => stats.trend[m.key] ?? 0);
-  const trendPeak = Math.max(0, ...trendCounts);
-  const { scaleMax: trendScaleMax, ticks: trendTicks } = trendChartScale(trendPeak);
-  const typeMax = Math.max(1, ...Object.values(stats.bySubtype));
-  const typeRows = Object.entries(stats.bySubtype)
+  const geoStats = useMemo(
+    () => computeStats(pointsInViewExcept(allPoints, filters, panelBounds, cityMode ? 'cities' : 'states')),
+    [allPoints, filters, panelBounds, cityMode]
+  );
+  const periodStats = useMemo(
+    () => computeStats(pointsInViewExcept(allPoints, filters, panelBounds, 'periods')),
+    [allPoints, filters, panelBounds]
+  );
+
+  const weeks = useMemo(
+    () => buildTrendWeeks(filters.startDate, filters.endDate),
+    [filters.startDate, filters.endDate]
+  );
+
+  const weekCounts = weeks.map((w) => stats.byWeek[w.key] ?? 0);
+  const weekPeak = Math.max(0, ...weekCounts);
+  const { scaleMax: weekScaleMax, ticks: weekTicks } = trendChartScale(weekPeak);
+
+  const typeMax = Math.max(1, ...Object.values(typeStats.bySubtype));
+  const typeRows = Object.entries(typeStats.bySubtype)
     .sort((a, b) => b[1] - a[1])
     .map(([subtype, count]) => ({ subtype: subtype as HomicideSubtype, count }));
-  const placeEntries = Object.entries(cityMode ? stats.byCity : stats.byState)
+
+  const methodMax = Math.max(1, ...Object.values(methodStats.byMethod));
+  const methodRows = Object.entries(methodStats.byMethod)
     .sort((a, b) => b[1] - a[1])
-    .slice(0, 6);
+    .map(([method, count]) => ({ method, count }));
+
+  const placeEntries = Object.entries(cityMode ? geoStats.byCity : geoStats.byState)
+    .sort((a, b) => b[1] - a[1]);
   const placeMax = Math.max(1, ...placeEntries.map((x) => x[1]));
-  const periodVals = sortPeriods(Object.keys(stats.byPeriod)).slice(0, 4);
-  const periodMax = Math.max(1, ...periodVals.map((p) => stats.byPeriod[p] ?? 0));
+
+  const visibleTypeRows = visibleBarRows(typeRows, (r) => r.subtype, filters.types, typesExpanded);
+  const visibleMethodRows = visibleBarRows(methodRows, (r) => r.method, filters.methods, methodsExpanded);
+  const visiblePlaceEntries = visibleBarRows(
+    placeEntries,
+    ([label]) => label,
+    cityMode ? filters.cities : filters.states,
+    placesExpanded,
+  );
+
+  const periodVals = sortPeriods(Object.keys(periodStats.byPeriod));
+  const periodMax = Math.max(1, ...periodVals.map((p) => periodStats.byPeriod[p] ?? 0));
+  const filterHint = lang === 'pt' ? 'Clique para filtrar' : 'Click to filter';
 
   return (
     <div className="px-5 pb-[30px] pt-4">
       {/* headline numbers */}
-      <div className="mb-2 grid grid-cols-3 gap-[9px]">
+      <div className="mb-5 grid grid-cols-3 gap-[9px]">
         <div className="rounded-xl px-3 py-[11px]" style={{ border: '1px solid var(--stone-200)' }}>
           <div
             className="leading-none"
@@ -183,148 +529,181 @@ function StatsMode(props: RightPanelProps) {
           >
             {viewportReady ? fmtNumber(stats.total, lang) : '—'}
           </div>
-          <div className="mt-[5px] leading-snug" style={{ fontSize: 11, color: 'var(--color-text-muted)' }}>
+          <div className="mt-[5px] leading-snug lowercase" style={{ fontSize: 11, color: 'var(--color-text-muted)' }}>
             {t.events}
           </div>
         </div>
-        <div className="rounded-xl px-3 py-[11px]" style={{ border: '1px solid var(--stone-200)', background: 'var(--red-50)' }}>
+        <div className="rounded-xl px-3 py-[11px]" style={{ border: '1px solid var(--stone-200)' }}>
           <div
             className="leading-none"
             style={{ fontSize: 26, fontWeight: 600, letterSpacing: '-.02em', color: 'var(--red-700)', fontVariantNumeric: 'tabular-nums' }}
           >
             {viewportReady ? fmtNumber(stats.victims, lang) : '—'}
           </div>
-          <div className="mt-[5px] leading-snug" style={{ fontSize: 11, color: 'var(--red-700)', opacity: 0.85 }}>
+          <div className="mt-[5px] leading-snug lowercase" style={{ fontSize: 11, color: 'var(--red-700)', opacity: 0.85 }}>
             {t.victims}
           </div>
         </div>
         <div
-          className="rounded-xl px-3 py-[11px]"
-          style={{
-            border: '1px solid color-mix(in oklab, var(--red-500) 32%, var(--stone-200))',
-            background: 'var(--red-50)',
-          }}
+          className="relative rounded-xl px-3 py-[11px]"
+          style={{ border: '1px solid var(--stone-200)', background: 'var(--red-50)' }}
         >
+          <span className="av-live-dot absolute right-2.5 top-2.5" aria-hidden />
           <div
             className="leading-none"
-            style={{ fontSize: 26, fontWeight: 600, letterSpacing: '-.02em', color: 'var(--red-600)', fontVariantNumeric: 'tabular-nums' }}
+            style={{ fontSize: 26, fontWeight: 600, letterSpacing: '-.02em', color: 'var(--red-700)', fontVariantNumeric: 'tabular-nums' }}
           >
-            {viewportReady ? fmtNumber(last24h.total, lang) : '—'}
+            {viewportReady ? fmtNumber(last24h.victims, lang) : '—'}
           </div>
-          <div className="mt-[5px] flex items-center gap-[5px] leading-snug" style={{ fontSize: 11, color: 'var(--red-700)', opacity: 0.85 }}>
-            <span className="av-live-dot" aria-hidden="true" />
-            <span>{t.last24h}</span>
+          <div className="mt-[5px] leading-snug lowercase" style={{ fontSize: 11, color: 'var(--red-700)', opacity: 0.9 }}>
+            {t.last24h}
           </div>
         </div>
-      </div>
-      <div className="mb-5" style={{ fontSize: 11.5, color: 'var(--color-text-subtle)' }}>
-        {scopeNote}
       </div>
 
-      {/* monthly trend */}
-      <SectionLabel>{t.trend}</SectionLabel>
-      <div className="mb-1.5 flex gap-1">
-        {trendTicks.length > 0 && (
-          <div
-            className="flex w-[22px] shrink-0 flex-col font-mono tabular-nums"
-            style={{
-              height: 74,
-              fontSize: 9.5,
-              color: 'var(--stone-400)',
-              justifyContent: trendTicks.length === 1 ? 'flex-start' : 'space-between',
-            }}
-          >
-            {[...trendTicks].sort((a, b) => b - a).map((v) => (
-              <span key={v}>{fmtNumber(v, lang)}</span>
-            ))}
-          </div>
-        )}
-        <div className="relative min-w-0 flex-1" style={{ height: 74 }}>
-          {trendTicks.map((v) => (
-            <div
-              key={v}
-              className="pointer-events-none absolute left-0 right-0"
-              style={{
-                bottom: `${(v / trendScaleMax) * 100}%`,
-                borderTop: '1px dashed var(--stone-200)',
-              }}
-            />
-          ))}
-          <div className="relative z-[1] flex h-full items-end gap-1">
-            {months.map((m) => {
-              const c = stats.trend[m.key] ?? 0;
-              const h = Math.round((c / trendScaleMax) * 100);
-              return (
+      {/* weekly trend */}
+      <SectionLabel>{t.homicideCount}</SectionLabel>
+      {weeks.length > 0 ? (
+        <>
+          <div className="mb-1.5 flex gap-1 pt-6">
+            {weekTicks.length > 0 && (
+              <div
+                className="flex w-[22px] shrink-0 flex-col font-mono tabular-nums"
+                style={{
+                  height: 74,
+                  fontSize: 9.5,
+                  color: 'var(--stone-400)',
+                  justifyContent: weekTicks.length === 1 ? 'flex-start' : 'space-between',
+                }}
+              >
+                {[...weekTicks].sort((a, b) => b - a).map((v) => (
+                  <span key={v}>{fmtNumber(v, lang)}</span>
+                ))}
+              </div>
+            )}
+            <div className="relative min-w-0 flex-1 overflow-visible" style={{ height: 74 }}>
+              {weekTicks.map((v) => (
                 <div
-                  key={m.key}
-                  title={`${monthShort(m.m, lang)}/${String(m.y).slice(2)}: ${fmtNumber(c, lang)}`}
-                  className="flex h-full min-w-0 flex-1 flex-col items-center justify-end"
-                >
-                  <div
-                    className="w-full rounded-t-[3px] transition-[height] duration-300"
-                    style={{
-                      background: c > 0 ? 'var(--blue-500)' : 'var(--stone-200)',
-                      height: `${Math.max(h, 2)}%`,
-                    }}
-                  />
-                </div>
-              );
-            })}
+                  key={v}
+                  className="pointer-events-none absolute left-0 right-0"
+                  style={{
+                    bottom: `${(v / weekScaleMax) * 100}%`,
+                    borderTop: '1px dashed var(--stone-200)',
+                  }}
+                />
+              ))}
+              <div className="relative z-[1] flex h-full items-end gap-px overflow-visible">
+                {weeks.map((w) => {
+                  const c = stats.byWeek[w.key] ?? 0;
+                  const h = Math.round((c / weekScaleMax) * 100);
+                  return (
+                    <WeekBar
+                      key={w.key}
+                      weekKey={w.key}
+                      count={c}
+                      heightPct={h}
+                      lang={lang}
+                    />
+                  );
+                })}
+              </div>
+            </div>
           </div>
+          <div className="mb-[26px] flex justify-between font-mono" style={{ fontSize: 9.5, color: 'var(--stone-400)' }}>
+            <span>{fmtDateShort(weeks[0].key, lang)}</span>
+            <span>{fmtDateShort(weeks[weeks.length - 1].key, lang)}</span>
+          </div>
+        </>
+      ) : (
+        <div className="mb-[26px]">
+          <EmptyArea />
         </div>
-      </div>
-      <div className="mb-[26px] flex justify-between font-mono" style={{ fontSize: 9.5, color: 'var(--stone-400)' }}>
-        <span>{`${monthShort(months[0].m, lang)}/${String(months[0].y).slice(2)}`}</span>
-        <span>{`${monthShort(months[11].m, lang)}/${String(months[11].y).slice(2)}`}</span>
-      </div>
+      )}
 
       {/* by type */}
       <SectionLabel>{t.byType}</SectionLabel>
-      <div className="mb-[26px] flex flex-col gap-[9px]">
-        {typeRows.map((r) => (
-          <div key={r.subtype}>
-            <div className="mb-1 flex justify-between" style={{ fontSize: 12.5 }}>
-              <span style={{ color: 'var(--stone-700)' }}>{formatSubtype(r.subtype, lang)}</span>
-              <span className="font-mono" style={{ color: 'var(--stone-500)', fontVariantNumeric: 'tabular-nums' }}>
-                {fmtNumber(r.count, lang)}
-              </span>
-            </div>
-            <div className="h-[7px] overflow-hidden rounded" style={{ background: 'var(--stone-100)' }}>
-              <div className="h-full rounded transition-[width] duration-300" style={{ background: typeColor(r.subtype), width: `${Math.round((r.count / typeMax) * 100)}%` }} />
-            </div>
-          </div>
+      <div className="mb-[26px] flex flex-col gap-[5px]">
+        {visibleTypeRows.map((r) => (
+          <ClickableBarRow
+            key={r.subtype}
+            label={formatSubtype(r.subtype, lang)}
+            count={r.count}
+            max={typeMax}
+            barColor={FILTER_BAR_COLOR}
+            active={filters.types.includes(r.subtype)}
+            onClick={() => props.onToggleFilter('types', r.subtype)}
+            lang={lang}
+            hint={filterHint}
+          />
         ))}
         {typeRows.length === 0 && <EmptyArea />}
+        <BarExpandToggle
+          expanded={typesExpanded}
+          total={typeRows.length}
+          onToggle={() => setTypesExpanded((v) => !v)}
+        />
       </div>
 
-      {/* by state or city (zoom-dependent) */}
+      {/* by method */}
+      <SectionLabel>{t.byMethod}</SectionLabel>
+      <div className="mb-[26px] flex flex-col gap-[5px]">
+        {visibleMethodRows.map((r) => (
+          <ClickableBarRow
+            key={r.method}
+            label={translateMethod(r.method, lang)}
+            count={r.count}
+            max={methodMax}
+            barColor={FILTER_BAR_COLOR}
+            active={filters.methods.includes(r.method)}
+            onClick={() => props.onToggleFilter('methods', r.method)}
+            lang={lang}
+            hint={filterHint}
+          />
+        ))}
+        {methodRows.length === 0 && <EmptyArea />}
+        <BarExpandToggle
+          expanded={methodsExpanded}
+          total={methodRows.length}
+          onToggle={() => setMethodsExpanded((v) => !v)}
+        />
+      </div>
+
+      {/* by state or city */}
       <SectionLabel>{cityMode ? t.byCity : t.byState}</SectionLabel>
-      <div className="mb-[26px] flex flex-col gap-[9px]">
-        {placeEntries.map(([label, c]) => (
-          <div key={label}>
-            <div className="mb-1 flex justify-between" style={{ fontSize: 12.5 }}>
-              <span style={{ color: 'var(--stone-700)' }}>
-                {cityMode ? (
-                  label
-                ) : (
-                  <>
-                    <span className="mr-1.5 font-mono" style={{ fontSize: 11, color: 'var(--stone-400)' }}>
-                      {label}
-                    </span>
-                    {ufName(label)}
-                  </>
-                )}
-              </span>
-              <span className="font-mono" style={{ color: 'var(--stone-500)', fontVariantNumeric: 'tabular-nums' }}>
-                {fmtNumber(c, lang)}
-              </span>
-            </div>
-            <div className="h-[7px] overflow-hidden rounded" style={{ background: 'var(--stone-100)' }}>
-              <div className="h-full rounded transition-[width] duration-300" style={{ background: 'var(--blue-500)', width: `${Math.round((c / placeMax) * 100)}%` }} />
-            </div>
-          </div>
+      <div className="mb-[26px] flex flex-col gap-[5px]">
+        {visiblePlaceEntries.map(([label, c]) => (
+          <ClickableBarRow
+            key={label}
+            label={
+              cityMode ? (
+                label
+              ) : (
+                <>
+                  <span
+                    className="mr-1.5 font-mono"
+                    style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--stone-400)' }}
+                  >
+                    {label}
+                  </span>
+                  {ufName(label)}
+                </>
+              )
+            }
+            count={c}
+            max={placeMax}
+            barColor={FILTER_BAR_COLOR}
+            active={cityMode ? filters.cities.includes(label) : filters.states.includes(label)}
+            onClick={() => props.onGeoSelect(cityMode ? 'cities' : 'states', label)}
+            lang={lang}
+            hint={filterHint}
+          />
         ))}
         {placeEntries.length === 0 && <EmptyArea />}
+        <BarExpandToggle
+          expanded={placesExpanded}
+          total={placeEntries.length}
+          onToggle={() => setPlacesExpanded((v) => !v)}
+        />
       </div>
 
       {/* time of day */}
@@ -333,19 +712,31 @@ function StatsMode(props: RightPanelProps) {
           <SectionLabel>{t.timeOfDay}</SectionLabel>
           <div className="grid grid-cols-4 gap-2">
             {periodVals.map((p) => {
-              const count = stats.byPeriod[p] ?? 0;
+              const count = periodStats.byPeriod[p] ?? 0;
+              const active = filters.periods.includes(p);
               return (
-                <div key={p} className="rounded-[10px] px-2 py-[10px] text-center" style={{ border: '1px solid var(--stone-200)' }}>
-                  <div style={{ fontSize: 18, fontWeight: 600, color: 'var(--stone-900)', fontVariantNumeric: 'tabular-nums' }}>
+                <button
+                  key={p}
+                  type="button"
+                  title={filterHint}
+                  data-active={active ? 'true' : undefined}
+                  onClick={() => props.onToggleFilter('periods', p)}
+                  className="av-filter-card rounded-[10px] px-2 py-[10px] text-center font-sans"
+                  style={{ fontFamily: 'var(--font-sans)' }}
+                >
+                  <div
+                    className="tabular-nums"
+                    style={{ fontSize: 18, fontWeight: 600, color: 'var(--stone-900)', fontVariantNumeric: 'tabular-nums' }}
+                  >
                     {fmtNumber(count, lang)}
                   </div>
                   <div className="mt-0.5" style={{ fontSize: 10, color: 'var(--color-text-muted)' }}>
                     {translatePeriod(p, lang)}
                   </div>
                   <div className="mt-1.5 h-1 overflow-hidden rounded" style={{ background: 'var(--stone-100)' }}>
-                    <div className="h-full" style={{ background: 'var(--blue-400)', width: `${Math.round((count / periodMax) * 100)}%` }} />
+                    <div className="h-full" style={{ background: FILTER_BAR_COLOR, width: `${Math.round((count / periodMax) * 100)}%` }} />
                   </div>
-                </div>
+                </button>
               );
             })}
           </div>
@@ -467,12 +858,20 @@ function DataMode(props: RightPanelProps) {
       types: props.filters.types,
       methods: props.filters.methods,
       periods: props.filters.periods,
+      states: props.filters.states,
+      cities: props.filters.cities,
       days: 365,
       columns: selectedExportFields(selectedColumnIds),
       startDate: props.filters.startDate || undefined,
       endDate: props.filters.endDate || undefined,
     }),
     [props.filters, selectedColumnIds]
+  );
+
+  const exportDateRangeInvalid = Boolean(
+    props.filters.startDate &&
+      props.filters.endDate &&
+      props.filters.startDate > props.filters.endDate
   );
 
   const toggleColumn = (id: string) => {
@@ -484,7 +883,7 @@ function DataMode(props: RightPanelProps) {
   };
 
   return (
-    <div className="px-5 pb-[30px] pt-[18px]">
+    <div className="px-5 pb-[30px] pt-4">
       <p className="mb-[18px] text-pretty" style={{ fontSize: 14, lineHeight: 1.6, color: 'var(--stone-700)' }}>
         {t.dataIntro}
       </p>
@@ -511,17 +910,28 @@ function DataMode(props: RightPanelProps) {
             </div>
           </div>
         </div>
-        <a
-          href={getExportUrl(exportFilters)}
-          download="eventos.csv"
-          className="flex w-full items-center justify-center gap-2 rounded-[10px] p-3 transition-colors"
-          style={{ background: 'var(--blue-500)', color: '#fff', fontSize: 14, fontWeight: 500 }}
-          onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--blue-600)')}
-          onMouseLeave={(e) => (e.currentTarget.style.background = 'var(--blue-500)')}
-        >
-          <Download className="h-[17px] w-[17px]" />
-          {t.downloadCsv}
-        </a>
+        {exportDateRangeInvalid ? (
+          <div
+            className="flex w-full cursor-not-allowed items-center justify-center gap-2 rounded-[10px] p-3"
+            style={{ background: 'var(--stone-300)', color: '#fff', fontSize: 14, fontWeight: 500 }}
+            title={t.exportDateRangeInvalid}
+          >
+            <Download className="h-[17px] w-[17px]" />
+            {t.downloadCsv}
+          </div>
+        ) : (
+          <a
+            href={getExportUrl(exportFilters)}
+            download="eventos.csv"
+            className="flex w-full items-center justify-center gap-2 rounded-[10px] p-3 transition-colors"
+            style={{ background: 'var(--blue-500)', color: '#fff', fontSize: 14, fontWeight: 500 }}
+            onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--blue-600)')}
+            onMouseLeave={(e) => (e.currentTarget.style.background = 'var(--blue-500)')}
+          >
+            <Download className="h-[17px] w-[17px]" />
+            {t.downloadCsv}
+          </a>
+        )}
         <div className="mt-2 text-center" style={{ fontSize: 11, color: 'var(--color-text-subtle)' }}>
           {props.hasFilters ? t.dataNote : t.allEvents}
         </div>
@@ -588,254 +998,6 @@ function DataMode(props: RightPanelProps) {
               <span style={{ fontSize: 12, color: 'var(--stone-600)', lineHeight: 1.35 }}>{d.desc}</span>
             </div>
           ))
-        )}
-      </div>
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------- Detail view
-
-function DetailMetaRow({ label, value }: { label: string; value: React.ReactNode }) {
-  return (
-    <div className="flex gap-2.5 px-[13px] py-[11px]" style={{ borderBottom: '1px solid var(--stone-100)' }}>
-      <div className="w-[108px] flex-none font-mono text-[9px] uppercase tracking-[.08em]" style={{ color: 'var(--color-text-subtle)' }}>
-        {label}
-      </div>
-      <div className="min-w-0 flex-1" style={{ fontSize: 13, color: 'var(--stone-800)', lineHeight: 1.4 }}>
-        {value}
-      </div>
-    </div>
-  );
-}
-
-function DetailView({ id, onClose }: { id: number; onClose: () => void }) {
-  const { t, lang } = useI18n();
-  const { data: event, isLoading } = useQuery({
-    queryKey: ['public-event', id],
-    queryFn: () => fetchPublicEventById(id),
-  });
-
-  if (isLoading) {
-    return (
-      <div className="flex flex-col items-center gap-3.5 px-5 py-20" style={{ color: 'var(--color-text-muted)' }}>
-        <span className="font-mono text-[11px] uppercase tracking-[.1em]">{t.loadingEvent}</span>
-      </div>
-    );
-  }
-  if (!event) {
-    return (
-      <div className="px-5 py-20 text-center" style={{ fontSize: 13, color: 'var(--color-text-muted)' }}>
-        <button onClick={onClose} className="mb-4 inline-flex items-center gap-1.5" style={{ color: 'var(--blue-600)', fontSize: 13, fontWeight: 500 }}>
-          <ChevronLeft className="h-4 w-4" />
-          {t.back}
-        </button>
-        <div>{t.eventNotFound}</div>
-      </div>
-    );
-  }
-
-  const typeLabel = formatTaxonomyFields(
-    event.event_family,
-    event.event_subtype,
-    event.homicide_type,
-    lang
-  );
-  const tColor = taxonomyColor(event.event_family, event.event_subtype, event.homicide_type);
-  const place = [event.neighborhood, event.city].filter(Boolean).join(', ');
-  const locationLine = [event.city, ufName(event.state), event.country].filter(Boolean).join(' · ');
-  const coordinates = fmtCoordinates(event.latitude, event.longitude);
-  const showStreet = Boolean(event.street && event.street !== event.formatted_address);
-  const sources = event.sources ?? [];
-  const srcCount = Math.max(event.source_count ?? 0, sources.length);
-  const hasSourcesSection = srcCount > 0 || sources.length > 0;
-
-  return (
-    <div className="av-fade px-5 pb-7 pt-[18px]">
-      <button onClick={onClose} className="mb-4 inline-flex items-center gap-1.5 border-none bg-transparent p-0" style={{ color: 'var(--blue-600)', fontFamily: 'var(--font-sans)', fontSize: 13, fontWeight: 500 }}>
-        <ChevronLeft className="h-4 w-4" />
-        {t.back}
-      </button>
-
-      <div className="mb-[13px] flex flex-wrap gap-2">
-        <span className="inline-flex items-center gap-1.5 rounded-md px-[9px] py-1 font-mono uppercase" style={{ fontSize: 10.5, letterSpacing: '.04em', color: '#fff', background: tColor }}>
-          {typeLabel}
-        </span>
-        {event.security_force_involved && (
-          <span className="inline-flex items-center gap-1.5 rounded-md px-2 py-[3px] font-mono uppercase" style={{ fontSize: 10.5, letterSpacing: '.04em', color: 'var(--gold-700)', background: 'var(--gold-50)', border: '1px solid var(--gold-500)' }}>
-            {t.securityForce}
-          </span>
-        )}
-      </div>
-
-      <h2 className="mb-1.5" style={{ fontFamily: 'var(--font-serif)', fontSize: 23, lineHeight: 1.18, fontWeight: 600, letterSpacing: '-.01em', color: 'var(--stone-900)' }}>
-        {event.title || `${typeLabel}${event.neighborhood ? ` — ${event.neighborhood}` : ''}`}
-      </h2>
-      <div className="mb-[18px]" style={{ fontSize: 13, color: 'var(--color-text-muted)' }}>
-        {event.event_date ? fmtDateLong(event.event_date, lang) : ''}
-      </div>
-
-      <div className="mb-[18px] grid grid-cols-2 gap-2.5">
-        <div className="rounded-[10px] px-[13px] py-[11px]" style={{ background: 'var(--stone-50)', border: '1px solid var(--stone-200)' }}>
-          <div className="mb-[3px] font-mono text-[9px] uppercase tracking-[.1em]" style={{ color: 'var(--color-text-subtle)' }}>
-            {t.victims}
-          </div>
-          <div style={{ fontSize: 22, fontWeight: 600, color: 'var(--red-600)', fontVariantNumeric: 'tabular-nums' }}>
-            {fmtNumber(event.victim_count ?? 0, lang)}
-          </div>
-        </div>
-        {event.perpetrator_count != null && event.perpetrator_count > 0 ? (
-          <div className="rounded-[10px] px-[13px] py-[11px]" style={{ background: 'var(--stone-50)', border: '1px solid var(--stone-200)' }}>
-            <div className="mb-[3px] font-mono text-[9px] uppercase tracking-[.1em]" style={{ color: 'var(--color-text-subtle)' }}>
-              {t.detailPerpetrators}
-            </div>
-            <div style={{ fontSize: 22, fontWeight: 600, color: 'var(--stone-900)', fontVariantNumeric: 'tabular-nums' }}>
-              {fmtNumber(event.perpetrator_count, lang)}
-            </div>
-          </div>
-        ) : (
-          <div className="rounded-[10px] px-[13px] py-[11px]" style={{ background: 'var(--stone-50)', border: '1px solid var(--stone-200)' }}>
-            <div className="mb-[3px] font-mono text-[9px] uppercase tracking-[.1em]" style={{ color: 'var(--color-text-subtle)' }}>
-              {t.method}
-            </div>
-            <div style={{ fontSize: 14, fontWeight: 500, color: 'var(--stone-900)', lineHeight: 1.3 }}>
-              {translateMethod(event.method_of_death, lang)}
-            </div>
-          </div>
-        )}
-      </div>
-
-      {event.perpetrator_count != null && event.perpetrator_count > 0 && (
-        <div className="mb-[18px] rounded-[10px] px-[13px] py-[11px]" style={{ background: 'var(--stone-50)', border: '1px solid var(--stone-200)' }}>
-          <div className="mb-[3px] font-mono text-[9px] uppercase tracking-[.1em]" style={{ color: 'var(--color-text-subtle)' }}>
-            {t.method}
-          </div>
-          <div style={{ fontSize: 14, fontWeight: 500, color: 'var(--stone-900)', lineHeight: 1.3 }}>
-            {translateMethod(event.method_of_death, lang)}
-          </div>
-        </div>
-      )}
-
-      {event.victims_summary && (
-        <>
-          <div className="mb-[7px] font-mono text-[9.5px] uppercase tracking-[.1em]" style={{ color: 'var(--color-text-subtle)' }}>
-            {t.detailVictimsSummary}
-          </div>
-          <p className="mb-[18px] text-pretty" style={{ fontSize: 14, lineHeight: 1.6, color: 'var(--stone-700)' }}>
-            {event.victims_summary}
-          </p>
-        </>
-      )}
-
-      <div className="mb-[18px] flex flex-col overflow-hidden rounded-[10px]" style={{ border: '1px solid var(--stone-200)' }}>
-        <div className="flex gap-2.5 px-[13px] py-[11px]" style={{ borderBottom: '1px solid var(--stone-100)' }}>
-          <MapPin className="mt-px h-4 w-4 flex-none" style={{ color: 'var(--stone-500)' }} />
-          <div>
-            <div style={{ fontSize: 13.5, fontWeight: 500, color: 'var(--stone-900)' }}>{event.formatted_address || place || '—'}</div>
-            <div style={{ fontSize: 12, color: 'var(--color-text-muted)' }}>{locationLine}</div>
-            {showStreet && (
-              <div className="mt-1" style={{ fontSize: 12, color: 'var(--color-text-muted)' }}>
-                {`${t.detailStreet}: ${event.street}`}
-              </div>
-            )}
-            {event.location_precision && (
-              <div className="mt-1" style={{ fontSize: 11.5, color: 'var(--color-text-subtle)' }}>
-                {`${t.detailLocationPrecision}: ${translateLocationPrecision(event.location_precision, lang)}`}
-              </div>
-            )}
-            {coordinates && (
-              <div className="mt-1 font-mono" style={{ fontSize: 11, color: 'var(--color-text-subtle)' }}>
-                {`${t.detailCoordinates}: ${coordinates}`}
-              </div>
-            )}
-          </div>
-        </div>
-        {event.time_of_day && (
-          <div className="flex gap-2.5 px-[13px] py-[11px]">
-            <Clock className="mt-px h-4 w-4 flex-none" style={{ color: 'var(--stone-500)' }} />
-            <div>
-              <div style={{ fontSize: 13.5, fontWeight: 500, color: 'var(--stone-900)' }}>{translatePeriod(event.time_of_day, lang)}</div>
-              <div style={{ fontSize: 12, color: 'var(--color-text-muted)' }}>{t.timeNote}</div>
-            </div>
-          </div>
-        )}
-      </div>
-
-      {event.chronological_description && (
-        <>
-          <div className="mb-[7px] font-mono text-[9.5px] uppercase tracking-[.1em]" style={{ color: 'var(--color-text-subtle)' }}>
-            {t.summary}
-          </div>
-          <p className="mb-[18px] text-pretty" style={{ fontSize: 14, lineHeight: 1.6, color: 'var(--stone-700)' }}>
-            {event.chronological_description}
-          </p>
-        </>
-      )}
-
-      {hasSourcesSection && (
-        <>
-          <div className="mb-[7px] font-mono text-[9.5px] uppercase tracking-[.1em]" style={{ color: 'var(--color-text-subtle)' }}>
-            {`${t.sourcesSection}${srcCount > 0 ? ` (${fmtNumber(srcCount, lang)})` : ''}`}
-          </div>
-          {sources.length > 0 ? (
-            <ul className="mb-[18px] flex flex-col overflow-hidden rounded-[10px]" style={{ border: '1px solid var(--stone-200)' }}>
-              {sources.map((source) => {
-                const title = source.headline || source.publisher_name || t.sourceFallback;
-                const showPublisher = Boolean(source.publisher_name && source.headline);
-                const content = (
-                  <>
-                    <ExternalLink className="mt-0.5 h-4 w-4 flex-none" style={{ color: source.url ? 'var(--blue-600)' : 'var(--stone-400)' }} />
-                    <div className="min-w-0 flex-1">
-                      <div style={{ fontSize: 13.5, fontWeight: 500, color: source.url ? 'var(--blue-600)' : 'var(--stone-800)', lineHeight: 1.35 }}>
-                        {title}
-                      </div>
-                      {showPublisher && (
-                        <div style={{ fontSize: 12, color: 'var(--color-text-muted)' }}>{source.publisher_name}</div>
-                      )}
-                      {source.published_at && (
-                        <div style={{ fontSize: 11.5, color: 'var(--color-text-subtle)' }}>
-                          {fmtDateShort(source.published_at, lang)}
-                        </div>
-                      )}
-                      {!source.url && (
-                        <div style={{ fontSize: 11.5, color: 'var(--color-text-subtle)' }}>{t.sourceNoLink}</div>
-                      )}
-                    </div>
-                  </>
-                );
-                return (
-                  <li key={source.id} style={{ borderBottom: '1px solid var(--stone-100)' }} className="last:border-b-0">
-                    {source.url ? (
-                      <a
-                        href={source.url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="flex items-start gap-2.5 px-[13px] py-[11px] no-underline transition-colors hover:bg-[var(--stone-50)]"
-                      >
-                        {content}
-                      </a>
-                    ) : (
-                      <div className="flex items-start gap-2.5 px-[13px] py-[11px]">{content}</div>
-                    )}
-                  </li>
-                );
-              })}
-            </ul>
-          ) : (
-            <div className="mb-[18px] rounded-[10px] px-[13px] py-[11px]" style={{ border: '1px solid var(--stone-200)', fontSize: 13, color: 'var(--color-text-muted)' }}>
-              {t.sourcesUnavailable}
-            </div>
-          )}
-        </>
-      )}
-
-      <div className="overflow-hidden rounded-[10px]" style={{ border: '1px solid var(--stone-200)' }}>
-        <DetailMetaRow label={t.detailEventId} value={`#${event.id}`} />
-        {event.updated_at && (
-          <DetailMetaRow
-            label={t.detailRecordUpdated}
-            value={fmtDateLong(event.updated_at, lang)}
-          />
         )}
       </div>
     </div>

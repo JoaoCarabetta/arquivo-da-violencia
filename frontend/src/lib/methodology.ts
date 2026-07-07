@@ -70,7 +70,7 @@ const PT: MethodologyContent = {
         'Antes de baixar a matéria completa, um modelo de linguagem (gemini-2.5-flash-lite) analisa apenas a manchete para decidir se trata de morte violenta. Manchetes classificadas como irrelevantes são descartadas; as relevantes seguem para download.',
       ],
       bullets: [
-        'TRUE: homicídio, assassinato, tiroteio com mortos, corpo encontrado, operação policial com morte, feminicídio, latrocínio',
+        'TRUE: morte violenta, assassinato, tiroteio com mortos, corpo encontrado, operação policial com morte, feminicídio, latrocínio',
         'FALSE: prisões, feridos sem morte, apreensões, políticas de segurança sem evento concreto',
       ],
     },
@@ -92,17 +92,17 @@ const PT: MethodologyContent = {
         'Local: bairro, rua, estabelecimento, cidade, estado, país',
         'Tempo: data, precisão, hora, período do dia (madrugada, manhã, tarde, noite)',
         'Pessoas: vítimas, autores, envolvimento de força de segurança',
-        'Dinâmica: tipo de homicídio, método de morte, descrição cronológica',
+        'Dinâmica: subtipo de morte violenta, método de morte, descrição cronológica',
       ],
     },
     {
       id: 'taxonomy',
       title: 'Taxonomia de eventos',
       paragraphs: [
-        'O arquivo público registra homicídios (mortes violentas intencionais). Cada evento recebe uma família (event_family) e um subtipo (event_subtype). Tentativas de homicídio e acidentes fatais culposos são classificados no pipeline, mas não entram no mapa nem nas estatísticas públicas.',
+        'O arquivo público registra mortes violentas intencionais. Cada evento recebe uma família (event_family) e um subtipo (event_subtype). Tentativas de morte violenta e acidentes fatais culposos são classificados no pipeline, mas não entram no mapa nem nas estatísticas públicas.',
       ],
       bullets: [
-        'Família homicídio (público): simples, qualificado, feminicídio, latrocínio, infanticídio, intervenção policial, morte dolosa no trânsito',
+        'Subtipos no arquivo público: simples, qualificado, feminicídio, latrocínio, infanticídio, intervenção policial, morte dolosa no trânsito',
         'Fora do arquivo público: tentativa, acidente fatal, não classificado',
         'Métodos: Arma de fogo, Arma branca, Estrangulamento, Asfixia, Espancamento, Atropelamento, Envenenamento, Objeto contundente, Incêndio, Queda, Outro',
       ],
@@ -172,7 +172,7 @@ const PT: MethodologyContent = {
     },
   ],
   disclaimer:
-    'Os dados são extraídos automaticamente de reportagens jornalísticas e podem conter imprecisões. Use-os como referência, não como registro oficial. Consulte a aba Dados para o dicionário completo de campos.',
+    'Os dados são extraídos automaticamente de reportagens jornalísticas e podem conter imprecisões. Use-os como referência, não como registro oficial. Use a aba Dados no painel lateral direito para exportar o CSV com todos os campos.',
 };
 
 const EN: MethodologyContent = {
@@ -229,7 +229,7 @@ const EN: MethodologyContent = {
       'Before downloading the full article, a language model (gemini-2.5-flash-lite) analyzes only the headline to decide if it concerns a violent death. Irrelevant headlines are discarded; relevant ones proceed to download.',
     ],
     bullets: [
-      'TRUE: homicide, murder, shootout with deaths, body found, police operation with death, femicide, robbery-homicide',
+      'TRUE: violent death, murder, shootout with deaths, body found, police operation with death, femicide, robbery-homicide',
       'FALSE: arrests, injuries without death, seizures, security policy without a concrete event',
     ],
   },
@@ -251,17 +251,17 @@ const EN: MethodologyContent = {
       'Location: neighborhood, street, establishment, city, state, country',
       'Time: date, precision, time, period of day (dawn, morning, afternoon, night)',
       'People: victims, perpetrators, security-force involvement',
-      'Dynamics: homicide type, method of death, chronological description',
+      'Dynamics: violent death subtype, method of death, chronological description',
     ],
   },
   {
     id: 'taxonomy',
     title: 'Event taxonomy',
     paragraphs: [
-      'The public archive records homicides (intentional violent deaths). Each event has an event_family and event_subtype. Attempted homicides and culpable fatal accidents are classified in the pipeline but excluded from the public map and statistics.',
+      'The public archive records intentional violent deaths. Each event has an event_family and event_subtype. Attempted violent deaths and culpable fatal accidents are classified in the pipeline but excluded from the public map and statistics.',
     ],
     bullets: [
-      'Homicide family (public): simple, aggravated, femicide, robbery-homicide, infanticide, police intervention, intentional vehicular death',
+      'Public archive subtypes: simple, aggravated, femicide, robbery-homicide, infanticide, police intervention, intentional vehicular death',
       'Outside public archive: attempt, fatal accident, unclassified',
       'Methods: Firearm, Bladed weapon, Strangulation, Asphyxiation, Beating, Vehicle, Poisoning, Blunt object, Fire, Fall, Other',
     ],
@@ -331,7 +331,7 @@ const EN: MethodologyContent = {
   },
   ],
   disclaimer:
-    'Data is automatically extracted from news reporting and may contain inaccuracies. Use it as a reference, not as an official record. See the Data tab for the full field dictionary.',
+    'Data is automatically extracted from news reporting and may contain inaccuracies. Use it as a reference, not as an official record. Use the Data tab in the right panel to export a CSV with all fields.',
 };
 
 export function methodologyContent(lang: Lang): MethodologyContent {

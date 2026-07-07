@@ -9,7 +9,6 @@ import { CrimeMap, type MapViewState, type MapBounds, type ViewportSnapshot } fr
 import { MapErrorBoundary } from '@/components/map/MapErrorBoundary';
 import { LeftRail } from '@/components/portal/LeftRail';
 import { SearchCard, type LocatedPlace } from '@/components/portal/SearchCard';
-import { MapFilterBar } from '@/components/portal/MapFilterBar';
 import { RightPanel } from '@/components/portal/RightPanel';
 import { AboutModal } from '@/components/portal/AboutModal';
 import { MethodologyPanel } from '@/components/portal/MethodologyPanel';
@@ -17,15 +16,16 @@ import { DensityLegend } from '@/components/portal/DensityLegend';
 import { Sheet, SheetContent } from '@/components/ui/sheet';
 import { useIsMobile } from '@/hooks/useMediaQuery';
 import {
-  EMPTY_FILTERS,
+  DEFAULT_FILTERS,
   applyFilters,
   pointsInBounds,
-  distinctValues,
   hasActiveFilters,
+  computeGeoCentroid,
+  geoFlyZoom,
+  type FilterGroup,
   type PortalFilters,
   type PortalMode,
 } from '@/components/portal/types';
-import { distinctSubtypes } from '@/lib/taxonomy';
 
 /** Default map data window — keeps initial payload bounded. */
 const MAP_DAYS = 365;
@@ -38,8 +38,6 @@ const BRAZIL_VIEW: MapViewState = {
   bearing: 0,
 };
 
-type FilterGroup = 'types' | 'methods' | 'periods';
-
 const PATH_FOR: Record<PortalMode, string> = {
   stats: '/',
   feed: '/eventos',
@@ -47,8 +45,8 @@ const PATH_FOR: Record<PortalMode, string> = {
 };
 
 function modeFromPath(pathname: string): PortalMode {
-  if (pathname.startsWith('/eventos')) return 'feed';
   if (pathname === '/dados') return 'data';
+  if (pathname.startsWith('/eventos')) return 'feed';
   return 'stats';
 }
 
@@ -68,7 +66,7 @@ export function MapExplorer() {
   const [panelBounds, setPanelBounds] = useState<MapBounds | null>(null);
   const [panelZoom, setPanelZoom] = useState(BRAZIL_VIEW.zoom);
   const [panelLng, setPanelLng] = useState(BRAZIL_VIEW.longitude);
-  const [filters, setFilters] = useState<PortalFilters>(EMPTY_FILTERS);
+  const [filters, setFilters] = useState<PortalFilters>(DEFAULT_FILTERS);
   const [searchedLocation, setSearchedLocation] = useState<{ lat: number; lng: number } | null>(null);
   const [aboutOpen, setAboutOpen] = useState(aboutFromRoute);
   const [methodologyOpen, setMethodologyOpen] = useState(methodologyFromRoute);
@@ -80,10 +78,6 @@ export function MapExplorer() {
   });
 
   const allPoints = useMemo(() => data?.points ?? [], [data]);
-
-  const availableTypes = useMemo(() => distinctSubtypes(allPoints), [allPoints]);
-  const availableMethods = useMemo(() => distinctValues(allPoints, 'm'), [allPoints]);
-  const availablePeriods = useMemo(() => distinctValues(allPoints, 'p'), [allPoints]);
 
   const filteredPoints = useMemo(() => applyFilters(allPoints, filters), [allPoints, filters]);
   const pointsInView = useMemo(() => {
@@ -109,24 +103,6 @@ export function MapExplorer() {
     });
   }, []);
 
-  const clearFilters = useCallback(() => {
-    setFilters(EMPTY_FILTERS);
-  }, []);
-
-  const setDateRange = useCallback((startDate: string, endDate: string) => {
-    setFilters((prev) => ({ ...prev, startDate, endDate }));
-  }, []);
-
-  const onMode = useCallback(
-    (next: PortalMode) => {
-      navigate(PATH_FOR[next]);
-      if (isMobile) {
-        setMobilePanelOpen(true);
-      }
-    },
-    [navigate, isMobile]
-  );
-
   const flyTo = useCallback((lat: number, lng: number, zoom: number) => {
     setViewState((prev) => ({
       ...prev,
@@ -137,6 +113,39 @@ export function MapExplorer() {
       transitionInterpolator: new FlyToInterpolator({ speed: 1.4 }),
     }));
   }, []);
+
+  const clearFilters = useCallback(() => {
+    setFilters(DEFAULT_FILTERS);
+  }, []);
+
+  const setDateRange = useCallback((startDate: string, endDate: string) => {
+    setFilters((prev) => ({ ...prev, startDate, endDate }));
+  }, []);
+
+  const onGeoSelect = useCallback(
+    (kind: 'states' | 'cities', value: string) => {
+      const adding = !filters[kind].includes(value);
+      if (adding) {
+        const centroid = computeGeoCentroid(filteredPoints, kind, value);
+        if (centroid) {
+          flyTo(centroid.lat, centroid.lng, geoFlyZoom(kind));
+        }
+      }
+      toggleFilter(kind, value);
+    },
+    [filters, filteredPoints, flyTo, toggleFilter]
+  );
+
+  const onSetMode = useCallback(
+    (next: PortalMode) => {
+      navigate(PATH_FOR[next]);
+    },
+    [navigate]
+  );
+
+  const openPanel = useCallback(() => {
+    if (isMobile) setMobilePanelOpen(true);
+  }, [isMobile]);
 
   const onSelect = useCallback(
     (eventId: number) => {
@@ -228,8 +237,16 @@ export function MapExplorer() {
     }
   }, [isMobile, selectedId]);
 
+  useEffect(() => {
+    if (isMobile && (mode === 'data' || mode === 'feed')) {
+      setMobilePanelOpen(true);
+    }
+  }, [isMobile, mode]);
+
   const panelProps = {
     mode,
+    allPoints,
+    panelBounds,
     pointsInView,
     mapZoom: panelZoom,
     viewportReady,
@@ -241,6 +258,11 @@ export function MapExplorer() {
     onCloseDetail,
     canReset,
     onResetView,
+    onToggleFilter: toggleFilter,
+    onSetDateRange: setDateRange,
+    onClearFilters: clearFilters,
+    onGeoSelect,
+    onSetMode,
   };
 
   return (
@@ -248,7 +270,7 @@ export function MapExplorer() {
       className="fixed inset-0 flex overflow-hidden max-md:flex-col"
       style={{ background: 'var(--stone-100)', color: 'var(--color-text)' }}
     >
-      <LeftRail mode={mode} onMode={onMode} onAbout={openAbout} onMethodology={openMethodology} />
+      <LeftRail onAbout={openAbout} onMethodology={openMethodology} />
 
       <div className="relative min-h-0 min-w-0 flex-1 max-md:pb-[calc(60px+env(safe-area-inset-bottom,0px))]">
         <MapErrorBoundary>
@@ -275,22 +297,9 @@ export function MapExplorer() {
           </div>
         )}
 
-        <div className="pointer-events-none absolute left-[18px] right-[18px] top-[18px] z-[1200] flex flex-col gap-1.5 md:flex-row md:items-start md:gap-2">
+        <div className="pointer-events-none absolute left-[18px] right-[18px] top-[18px] z-[1200]">
           <div className="pointer-events-auto w-full shrink-0 md:w-[min(380px,calc(100%-36px))]">
             <SearchCard points={allPoints} onLocate={onLocate} />
-          </div>
-          <div className="pointer-events-auto min-w-0 flex-1">
-            <MapFilterBar
-              filters={filters}
-              availableTypes={availableTypes}
-              availableMethods={availableMethods}
-              availablePeriods={availablePeriods}
-              dataLoading={isLoading}
-              hasFilters={filtersActive}
-              onToggleFilter={toggleFilter}
-              onSetDateRange={setDateRange}
-              onClearFilters={clearFilters}
-            />
           </div>
         </div>
         <DensityLegend points={filteredPoints} bounds={panelBounds} zoom={panelZoom} />
@@ -298,7 +307,7 @@ export function MapExplorer() {
         {isMobile && !mobilePanelOpen && selectedId == null && (
           <button
             type="button"
-            onClick={() => setMobilePanelOpen(true)}
+            onClick={openPanel}
             className="absolute bottom-[calc(76px+env(safe-area-inset-bottom,0px))] right-3 z-[700] inline-flex items-center gap-2 rounded-full px-3.5 py-2 shadow-md"
             style={{
               border: '1px solid var(--stone-200)',
@@ -327,7 +336,7 @@ export function MapExplorer() {
       )}
 
       <AboutModal open={aboutOpen} onClose={closeAbout} onOpenMethodology={openMethodology} />
-      <MethodologyPanel open={methodologyOpen} onClose={closeMethodology} />
+      <MethodologyPanel open={methodologyOpen} onClose={closeMethodology} onSetMode={onSetMode} />
     </div>
   );
 }

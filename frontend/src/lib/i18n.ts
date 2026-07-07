@@ -7,7 +7,8 @@ import { formatSubtype, isHomicideSubtype, legacyLabelToSubtype, subtypeColor } 
 export type Lang = 'pt' | 'en';
 
 export interface Strings {
-  tagline: string;
+  appTitle: string;
+  appSubtitle: string;
   searchPlaceholder: string;
   noResults: string;
   geocodeFailed: string;
@@ -34,9 +35,15 @@ export interface Strings {
   temporalCustom: string;
   temporalApply: string;
   trend: string;
+  homicidesBetween: string;
+  and: string;
+  homicideCount: string;
+  violentDeathsLabel: string;
+  byMethod: string;
+  byCity: string;
+  weeklyTrend: string;
   byType: string;
   byState: string;
-  byCity: string;
   timeOfDay: string;
   reset: string;
   emptyArea: string;
@@ -80,15 +87,17 @@ export interface Strings {
   sourcesSection: string;
   sourceFallback: string;
   sourceNoLink: string;
-  sourcesUnavailable: string;
+  sourcesCountMismatch: string;
+  detailVictims: string;
+  detailLocation: string;
+  detailRecord: string;
   detailPerpetrators: string;
   detailVictimsSummary: string;
+  detailCoordinates: string;
   detailStreet: string;
   detailCountry: string;
-  detailLocationPrecision: string;
-  detailCoordinates: string;
-  detailRecordUpdated: string;
-  detailEventId: string;
+  yes: string;
+  no: string;
   victim: string;
   victimsLower: string;
   loadingEvent: string;
@@ -102,8 +111,9 @@ export interface Strings {
 }
 
 const PT: Strings = {
-  tagline: 'Veja os homicídios da sua região em tempo real',
-  searchPlaceholder: 'Cidade, bairro, estado ou CEP',
+  appTitle: 'Arquivo da Violência',
+  appSubtitle: 'Mortes violentas noticiadas no Brasil',
+  searchPlaceholder: 'Busque por cidade, bairro, estado ou CEP',
   noResults: 'Nenhum local encontrado',
   geocodeFailed: 'Não foi possível localizar esse endereço',
   navMap: 'Mapa',
@@ -114,12 +124,12 @@ const PT: Strings = {
   temporalScope: 'No recorte atual desde {date}',
   aboutMethodologyLink: 'Leia a metodologia completa',
   langSwitch: 'English',
-  events: 'Homicídios registrados',
+  events: 'eventos registrados',
   victims: 'vítimas fatais',
-  last24h: 'Vítimas fatais nas últimas 24h',
+  last24h: 'vítimas fatais nas últimas 24h',
   filters: 'Filtros',
   clear: 'Limpar',
-  fType: 'Tipo de Homicídio',
+  fType: 'Subtipo de homicídio',
   fMethod: 'Método',
   fPeriod: 'Período do dia',
   fTemporal: 'Período',
@@ -129,17 +139,23 @@ const PT: Strings = {
   temporalCustom: 'Intervalo personalizado',
   temporalApply: 'Aplicar',
   trend: 'Tendência mensal de vítimas fatais',
-  byType: 'Homicídios',
-  byState: 'Por estado',
+  homicidesBetween: 'Mortes violentas entre',
+  and: 'e',
+  homicideCount: 'Mortes violentas por semana',
+  violentDeathsLabel: 'mortes violentas',
+  byMethod: 'Por método',
   byCity: 'Por cidade',
+  weeklyTrend: 'Por semana',
+  byType: 'Por tipo',
+  byState: 'Por estado',
   timeOfDay: 'Período do dia',
   reset: 'Brasil',
   emptyArea: 'Nenhum evento nesta área.',
   fewer: 'menos',
   more: 'mais',
   loadingMap: 'Carregando mapa',
-  legendTitle: 'Número de Homicídios',
-  legendSubtitle: 'Eventos por célula do mapa',
+  legendTitle: 'Número de vítimas',
+  legendSubtitle: 'Vítimas por célula do mapa',
   back: 'Voltar',
   summary: 'Resumo do caso',
   method: 'Método',
@@ -162,7 +178,7 @@ const PT: Strings = {
   exportDateRangeInvalid: 'A data inicial não pode ser posterior à data final.',
   exportDateRangeOptional: 'Opcional — deixe em branco para usar o recorte padrão de 365 dias.',
   statistics: 'Estatísticas',
-  inThisView: 'Homicídios nesta área',
+  inThisView: 'Nesta área',
   mapLoadingStats: 'Aguardando área do mapa…',
   filtersActive: ' · filtros ativos',
   filtersLoading: 'Carregando opções…',
@@ -175,16 +191,18 @@ const PT: Strings = {
   newsSources: ' fontes jornalísticas',
   sourcesSection: 'Fontes jornalísticas',
   sourceFallback: 'Matéria jornalística',
-  sourceNoLink: 'Link indisponível',
-  sourcesUnavailable: 'As fontes deste evento não puderam ser carregadas.',
+  sourceNoLink: 'Sem link disponível',
+  sourcesCountMismatch: 'Algumas fontes registradas não puderam ser vinculadas a uma matéria.',
+  detailVictims: 'Vítimas e método',
+  detailLocation: 'Localização',
+  detailRecord: 'Registro',
   detailPerpetrators: 'Perpetradores',
   detailVictimsSummary: 'Resumo das vítimas',
+  detailCoordinates: 'Coordenadas',
   detailStreet: 'Logradouro',
   detailCountry: 'País',
-  detailLocationPrecision: 'Precisão da localização',
-  detailCoordinates: 'Coordenadas',
-  detailRecordUpdated: 'Atualizado em',
-  detailEventId: 'ID do evento',
+  yes: 'Sim',
+  no: 'Não',
   victim: 'vítima',
   victimsLower: 'vítimas',
   loadingEvent: 'Carregando evento',
@@ -201,8 +219,9 @@ const PT: Strings = {
 };
 
 const EN: Strings = {
-  tagline: 'See homicides in your area in real time',
-  searchPlaceholder: 'City, neighborhood, state or ZIP',
+  appTitle: 'Arquivo da Violência',
+  appSubtitle: 'Violent deaths reported in the news across Brazil',
+  searchPlaceholder: 'Search by city, neighborhood, state or ZIP',
   noResults: 'No place found',
   geocodeFailed: 'Could not locate that address',
   navMap: 'Map',
@@ -213,12 +232,12 @@ const EN: Strings = {
   temporalScope: 'In the current view since {date}',
   aboutMethodologyLink: 'Read the full methodology',
   langSwitch: 'Português',
-  events: 'Registered homicides',
+  events: 'recorded events',
   victims: 'fatal victims',
-  last24h: 'Fatal victims in the last 24h',
+  last24h: 'fatal victims in the last 24h',
   filters: 'Filters',
   clear: 'Clear',
-  fType: 'Homicide type',
+  fType: 'Homicide subtype',
   fMethod: 'Method',
   fPeriod: 'Time of day',
   fTemporal: 'Date range',
@@ -228,17 +247,23 @@ const EN: Strings = {
   temporalCustom: 'Custom range',
   temporalApply: 'Apply',
   trend: 'Monthly fatal victim trend',
-  byType: 'Homicides',
-  byState: 'By state',
+  homicidesBetween: 'Violent deaths between',
+  and: 'and',
+  homicideCount: 'Violent deaths per week',
+  violentDeathsLabel: 'violent deaths',
+  byMethod: 'By method',
   byCity: 'By city',
+  weeklyTrend: 'By week',
+  byType: 'By type',
+  byState: 'By state',
   timeOfDay: 'Time of day',
   reset: 'Brazil',
   emptyArea: 'No events in this area.',
   fewer: 'fewer',
   more: 'more',
   loadingMap: 'Loading map',
-  legendTitle: 'Number of homicides',
-  legendSubtitle: 'Events per map cell',
+  legendTitle: 'Number of victims',
+  legendSubtitle: 'Victims per map cell',
   back: 'Back',
   summary: 'Case summary',
   method: 'Method',
@@ -261,7 +286,7 @@ const EN: Strings = {
   exportDateRangeInvalid: 'Start date cannot be after end date.',
   exportDateRangeOptional: 'Optional — leave blank to use the default 365-day window.',
   statistics: 'Statistics',
-  inThisView: 'Homicides in this area',
+  inThisView: 'In this view',
   mapLoadingStats: 'Waiting for map area…',
   filtersActive: ' · filters active',
   filtersLoading: 'Loading options…',
@@ -274,16 +299,18 @@ const EN: Strings = {
   newsSources: ' news sources',
   sourcesSection: 'News sources',
   sourceFallback: 'News article',
-  sourceNoLink: 'Link unavailable',
-  sourcesUnavailable: 'Sources for this event could not be loaded.',
+  sourceNoLink: 'No link available',
+  sourcesCountMismatch: 'Some recorded sources could not be linked to an article.',
+  detailVictims: 'Victims and method',
+  detailLocation: 'Location',
+  detailRecord: 'Record',
   detailPerpetrators: 'Perpetrators',
   detailVictimsSummary: 'Victims summary',
+  detailCoordinates: 'Coordinates',
   detailStreet: 'Street',
   detailCountry: 'Country',
-  detailLocationPrecision: 'Location precision',
-  detailCoordinates: 'Coordinates',
-  detailRecordUpdated: 'Updated',
-  detailEventId: 'Event ID',
+  yes: 'Yes',
+  no: 'No',
   victim: 'victim',
   victimsLower: 'victims',
   loadingEvent: 'Loading event',
@@ -371,30 +398,25 @@ export function translatePeriod(value: string | null | undefined, lang: Lang): s
   return titleCasePt(value);
 }
 
-const LOCATION_PRECISION_PT: Record<string, string> = {
-  exact: 'Endereço exato',
-  approximate: 'Aproximada',
-  neighborhood_center: 'Centro do bairro',
-  city_center: 'Centro da cidade',
-};
-
 const LOCATION_PRECISION_EN: Record<string, string> = {
-  exact: 'Exact address',
+  exact: 'Exact',
   approximate: 'Approximate',
   neighborhood_center: 'Neighborhood center',
   city_center: 'City center',
 };
 
-export function translateLocationPrecision(value: string | null | undefined, lang: Lang): string {
-  if (!value) return '—';
-  const key = value.toLowerCase();
-  const table = lang === 'pt' ? LOCATION_PRECISION_PT : LOCATION_PRECISION_EN;
-  return table[key] ?? value.replace(/_/g, ' ');
-}
+const LOCATION_PRECISION_PT: Record<string, string> = {
+  exact: 'Exata',
+  approximate: 'Aproximada',
+  neighborhood_center: 'Centro do bairro',
+  city_center: 'Centro da cidade',
+};
 
-export function fmtCoordinates(lat: number | null | undefined, lng: number | null | undefined): string | null {
-  if (lat == null || lng == null) return null;
-  return `${lat.toFixed(6)}, ${lng.toFixed(6)}`;
+export function translateLocationPrecision(value: string | null | undefined, lang: Lang): string {
+  if (!value) return '';
+  const key = value.toLowerCase();
+  const map = lang === 'pt' ? LOCATION_PRECISION_PT : LOCATION_PRECISION_EN;
+  return map[key] ?? value;
 }
 
 /** Color for a homicide subtype slug or legacy label. */
@@ -456,7 +478,7 @@ export interface DictionaryRow {
 export function dictionaryRows(lang: Lang): DictionaryRow[] {
   const pt: [string, string][] = [
     ['id', 'Identificador único do evento'],
-    ['event_family', 'Família do evento (homicidio no arquivo público)'],
+    ['event_family', 'Família do evento (morte violenta no arquivo público)'],
     ['event_subtype', 'Subtipo canônico (simples, feminicidio, latrocinio, …)'],
     ['homicide_type', 'Rótulo legado derivado de família + subtipo'],
     ['method_of_death', 'Método (arma de fogo, etc.)'],
@@ -477,7 +499,7 @@ export function dictionaryRows(lang: Lang): DictionaryRow[] {
   ];
   const en: [string, string][] = [
     ['id', 'Unique event identifier'],
-    ['event_family', 'Event family (homicidio in the public archive)'],
+    ['event_family', 'Event family (violent death in the public archive)'],
     ['event_subtype', 'Canonical subtype (simples, feminicidio, latrocinio, …)'],
     ['homicide_type', 'Legacy display label derived from family + subtype'],
     ['method_of_death', 'Method (firearm, etc.)'],

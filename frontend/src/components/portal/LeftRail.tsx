@@ -1,25 +1,22 @@
 import { memo } from 'react';
-import { LayoutGrid, List, Download, Info, Globe, MapPin, BookOpen } from 'lucide-react';
+import { Info, Globe, BookOpen } from 'lucide-react';
 import { useI18n } from '@/contexts/I18nContext';
+import { ArchiveLogo } from '@/components/portal/ArchiveLogo';
 import { cn } from '@/lib/utils';
-import type { PortalMode } from './types';
 
 interface LeftRailProps {
-  mode: PortalMode;
-  onMode: (mode: PortalMode) => void;
   onAbout: () => void;
   onMethodology: () => void;
 }
 
 interface RailButtonProps {
-  active: boolean;
   title: string;
   onClick: () => void;
   children: React.ReactNode;
   variant?: 'desktop' | 'mobile';
 }
 
-function RailButton({ active, title, onClick, children, variant = 'desktop' }: RailButtonProps) {
+function RailButton({ title, onClick, children, variant = 'desktop' }: RailButtonProps) {
   const isMobile = variant === 'mobile';
 
   return (
@@ -32,28 +29,18 @@ function RailButton({ active, title, onClick, children, variant = 'desktop' }: R
         isMobile ? 'h-11 min-w-0 flex-1 flex-col gap-0.5 px-1 py-1.5' : 'h-[46px] w-[46px]'
       )}
       style={{
-        background: active ? 'rgba(47,102,207,.16)' : 'transparent',
-        color: active ? '#fff' : 'rgba(255,255,255,.62)',
+        background: 'transparent',
+        color: 'rgba(255,255,255,.62)',
       }}
       onMouseEnter={(e) => {
-        if (!active) {
-          e.currentTarget.style.background = 'rgba(255,255,255,.08)';
-          e.currentTarget.style.color = '#fff';
-        }
+        e.currentTarget.style.background = 'rgba(255,255,255,.08)';
+        e.currentTarget.style.color = '#fff';
       }}
       onMouseLeave={(e) => {
-        if (!active) {
-          e.currentTarget.style.background = 'transparent';
-          e.currentTarget.style.color = 'rgba(255,255,255,.62)';
-        }
+        e.currentTarget.style.background = 'transparent';
+        e.currentTarget.style.color = 'rgba(255,255,255,.62)';
       }}
     >
-      {!isMobile && (
-        <span
-          className="absolute left-[-13px] top-[11px] bottom-[11px] w-[3px] rounded-r"
-          style={{ background: 'var(--blue-400)', opacity: active ? 1 : 0 }}
-        />
-      )}
       {children}
       {isMobile && (
         <span
@@ -67,7 +54,7 @@ function RailButton({ active, title, onClick, children, variant = 'desktop' }: R
   );
 }
 
-function DesktopRail({ mode, onMode, onAbout, onMethodology }: LeftRailProps) {
+function DesktopRail({ onAbout, onMethodology }: LeftRailProps) {
   const { t, lang, toggleLang } = useI18n();
 
   return (
@@ -76,37 +63,32 @@ function DesktopRail({ mode, onMode, onAbout, onMethodology }: LeftRailProps) {
       style={{ background: 'var(--ink-900)', borderRight: '1px solid rgba(255,255,255,.06)' }}
     >
       <div
-        className="mb-1.5 flex h-10 w-10 items-center justify-center rounded-[11px]"
-        style={{ background: 'var(--blue-500)', boxShadow: '0 4px 14px rgba(47,102,207,.4)' }}
+        className="mb-2 flex items-center justify-center rounded-[12px] px-1 py-1"
+        style={{
+          background: 'rgba(255,255,255,0.08)',
+          border: '1px solid rgba(255,255,255,0.12)',
+        }}
       >
-        <MapPin className="h-[22px] w-[22px]" strokeWidth={2.1} color="#fff" />
+        <ArchiveLogo size={40} variant="onDark" mark="monogram" />
       </div>
       <div
-        className="mb-[22px] uppercase"
+        className="mb-[22px] max-w-[56px] text-center text-pretty"
         style={{
           fontFamily: 'var(--font-mono)',
-          fontSize: 8,
-          letterSpacing: '.16em',
+          fontSize: 7,
+          lineHeight: 1.35,
+          letterSpacing: '.04em',
           color: 'rgba(255,255,255,.4)',
         }}
       >
-        Arquivo
+        Arquivo da Violência
       </div>
 
       <div className="flex w-full flex-col items-center gap-1.5">
-        <RailButton active={mode === 'stats'} title={t.navMap} onClick={() => onMode('stats')}>
-          <LayoutGrid className="h-[21px] w-[21px]" strokeWidth={1.9} />
-        </RailButton>
-        <RailButton active={mode === 'feed'} title={t.navFeed} onClick={() => onMode('feed')}>
-          <List className="h-[21px] w-[21px]" strokeWidth={1.9} />
-        </RailButton>
-        <RailButton active={mode === 'data'} title={t.navData} onClick={() => onMode('data')}>
-          <Download className="h-[21px] w-[21px]" strokeWidth={1.9} />
-        </RailButton>
-        <RailButton active={false} title={t.navMethodology} onClick={onMethodology}>
+        <RailButton title={t.navMethodology} onClick={onMethodology}>
           <BookOpen className="h-[21px] w-[21px]" strokeWidth={1.9} />
         </RailButton>
-        <RailButton active={false} title={t.navAbout} onClick={onAbout}>
+        <RailButton title={t.navAbout} onClick={onAbout}>
           <Info className="h-[21px] w-[21px]" strokeWidth={1.9} />
         </RailButton>
       </div>
@@ -136,7 +118,7 @@ function DesktopRail({ mode, onMode, onAbout, onMethodology }: LeftRailProps) {
   );
 }
 
-function MobileRail({ mode, onMode, onAbout, onMethodology }: LeftRailProps) {
+function MobileRail({ onAbout, onMethodology }: LeftRailProps) {
   const { t, lang, toggleLang } = useI18n();
 
   return (
@@ -149,19 +131,10 @@ function MobileRail({ mode, onMode, onAbout, onMethodology }: LeftRailProps) {
       }}
     >
       <div className="flex w-full items-stretch gap-0.5 px-1 py-1.5">
-        <RailButton active={mode === 'stats'} title={t.navMap} variant="mobile" onClick={() => onMode('stats')}>
-          <LayoutGrid className="h-[18px] w-[18px]" strokeWidth={1.9} />
-        </RailButton>
-        <RailButton active={mode === 'feed'} title={t.navFeed} variant="mobile" onClick={() => onMode('feed')}>
-          <List className="h-[18px] w-[18px]" strokeWidth={1.9} />
-        </RailButton>
-        <RailButton active={mode === 'data'} title={t.navData} variant="mobile" onClick={() => onMode('data')}>
-          <Download className="h-[18px] w-[18px]" strokeWidth={1.9} />
-        </RailButton>
-        <RailButton active={false} title={t.navMethodology} variant="mobile" onClick={onMethodology}>
+        <RailButton title={t.navMethodology} variant="mobile" onClick={onMethodology}>
           <BookOpen className="h-[18px] w-[18px]" strokeWidth={1.9} />
         </RailButton>
-        <RailButton active={false} title={t.navAbout} variant="mobile" onClick={onAbout}>
+        <RailButton title={t.navAbout} variant="mobile" onClick={onAbout}>
           <Info className="h-[18px] w-[18px]" strokeWidth={1.9} />
         </RailButton>
         <button
