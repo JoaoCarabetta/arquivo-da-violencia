@@ -14,7 +14,12 @@ on:
   workflow_dispatch:
     inputs:
       remediate:
-        description: 'Run Tier-A remediation (reset stuck sources)'
+        description: 'Run Tier-A remediation (stuck sources, missing pipeline, worker restart)'
+        required: false
+        default: false
+        type: boolean
+      diagnose:
+        description: 'Print worker/API logs and pipeline_attempt failures on unhealthy check'
         required: false
         default: false
         type: boolean
@@ -50,7 +55,26 @@ jobs:
             if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.test_webhook }}" = "true" ]; then
               ARGS="$ARGS --test-webhook"
             fi
+            set +e
             bash scripts/check-pipeline-health.sh $ARGS
+            HEALTH_EXIT=$?
+            set -e
+            if [ "$HEALTH_EXIT" -ne 0 ]; then
+              if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.diagnose }}" = "true" ]; then
+                echo "=== Worker logs (last 2h, tail 150) ==="
+                docker logs arquivo-worker --since 2h 2>&1 | tail -150 || true
+                echo "=== API errors (last 2h) ==="
+                docker logs arquivo-api --since 2h 2>&1 | grep -i error | tail -30 || true
+                echo "=== pipeline_attempt failures (last 2h) ==="
+                docker compose -p prod exec -T postgres psql -U arquivo -d arquivo_prod -c "
+                  SELECT stage, failure_reason, COUNT(*)
+                  FROM pipeline_attempt
+                  WHERE created_at > now() - interval '2 hours' AND outcome = 'failure'
+                  GROUP BY 1,2 ORDER BY 3 DESC LIMIT 10;
+                " || true
+              fi
+              exit "$HEALTH_EXIT"
+            fi
 
       - name: Summarize failure in GitHub Actions
         if: failure()

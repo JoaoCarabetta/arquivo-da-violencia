@@ -184,14 +184,70 @@ fi
 
 # --- Tier-A remediation -------------------------------------------------------
 
+tier_a_enqueue_pipeline() {
+    echo_step "🔧 Tier-A: re-enqueueing ingest_cities_full_pipeline..."
+    if ! docker compose $COMPOSE_PROD exec -T api python - <<'PY' >/dev/null 2>&1
+import asyncio
+from arq import create_pool
+from arq.connections import RedisSettings
+
+async def main():
+    redis = await create_pool(RedisSettings(host="redis", port=6379))
+    job = await redis.enqueue_job("ingest_cities_full_pipeline", None, "1h")
+    print(job.job_id)
+    await redis.close()
+
+asyncio.run(main())
+PY
+    then
+        record_failure "remediate_enqueue_pipeline_failed"
+        return 1
+    fi
+    DETAILS+=("REMEDIATE: enqueued_ingest_cities_full_pipeline")
+    filtered=()
+    for f in "${FAILURES[@]}"; do
+        [[ "$f" == no_recent_pipeline_run* ]] && continue
+        filtered+=("$f")
+    done
+    FAILURES=("${filtered[@]}")
+    return 0
+}
+
+tier_a_restart_worker() {
+    echo_step "🔧 Tier-A: restarting worker (heartbeat missing)..."
+    if ! docker compose $COMPOSE_PROD restart worker >/dev/null 2>&1; then
+        record_failure "remediate_restart_worker_failed"
+        return 1
+    fi
+    DETAILS+=("REMEDIATE: worker_restarted")
+    filtered=()
+    for f in "${FAILURES[@]}"; do
+        [[ "$f" == worker_heartbeat_missing* ]] && continue
+        filtered+=("$f")
+    done
+    FAILURES=("${filtered[@]}")
+    return 0
+}
+
 if [ "$REMEDIATE" = true ]; then
     had_stuck=false
+    had_no_pipeline=false
+    had_no_heartbeat=false
     for f in "${FAILURES[@]:-}"; do
         if [[ "$f" == stuck_sources* ]]; then
             had_stuck=true
-            break
+        elif [[ "$f" == no_recent_pipeline_run* ]]; then
+            had_no_pipeline=true
+        elif [[ "$f" == worker_heartbeat_missing* ]]; then
+            had_no_heartbeat=true
         fi
     done
+    if [ "$had_no_heartbeat" = true ]; then
+        tier_a_restart_worker || true
+    fi
+    if [ "$had_no_pipeline" = true ]; then
+        tier_a_enqueue_pipeline || true
+    fi
     if [ "$had_stuck" = true ]; then
         echo_step "🔧 Tier-A: resetting stuck transient source statuses..."
         if ! psql_prod "
