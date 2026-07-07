@@ -148,3 +148,13 @@ Environment variables (optional, in VPS `.env`):
 | `PIPELINE_HEALTH_STUCK_SOURCE_MINUTES` | 15 | Stuck transient status threshold |
 | `PIPELINE_HEALTH_READY_BACKLOG_WARN` | 1500 | Warn when backlog exceeds this |
 | `PIPELINE_HEALTH_WEBHOOK_URL` | — | POST JSON alert on failure |
+
+Scheduled checks and `repository_dispatch` type `pipeline-remediate` run
+`--remediate` automatically (Tier-A: re-enqueue pipeline, restart worker,
+reset stuck sources). Cloud agents without VPS SSH can trigger remediation via:
+
+```bash
+gh api repos/JoaoCarabetta/arquivo-da-violencia/dispatches -f event_type=pipeline-remediate
+```
+
+Use `pipeline-diagnose` for the same run plus worker/API logs on failure.
