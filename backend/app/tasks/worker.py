@@ -21,7 +21,8 @@ HEALTH_CHECK_KEY = default_queue_name + health_check_key_suffix
 # Redis key the worker publishes its own config to on startup, so the API
 # (which runs in a different container and may not share ENABLE_CRON) can report
 # whether cron is actually enabled on the running worker.
-WORKER_INFO_KEY = "arquivo:worker:info"
+# Namespaced by environment so staging/prod workers sharing Redis do not clash.
+WORKER_INFO_KEY = f"arquivo:worker:info:{settings.environment}"
 
 
 def is_cron_enabled() -> bool:
