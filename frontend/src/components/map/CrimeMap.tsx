@@ -134,7 +134,7 @@ export function CrimeMap({
   searchedLocation,
 }: CrimeMapProps) {
   const isMobile = useIsMobile();
-  const { lang } = useI18n();
+  const { lang, t } = useI18n();
   const containerRef = useRef<HTMLDivElement>(null);
   const sizeRef = useRef<{ width: number; height: number }>({ width: 0, height: 0 });
   const [hasSize, setHasSize] = useState(false);
@@ -257,6 +257,8 @@ export function CrimeMap({
           id: 'events-grid',
           data: gridData,
           getPosition: (d) => [d.lng, d.lat],
+          getColorWeight: (d: MapPoint) => d.v ?? 1,
+          colorAggregation: 'SUM',
           cellSize: cellSizeForZoom(gridZoom),
           colorRange: COLOR_RANGE,
           extruded: false,
@@ -314,9 +316,10 @@ export function CrimeMap({
                 .join('\n'),
             };
           }
-          const cell = object as { count?: number; points?: unknown[] };
-          const count = cell.count ?? cell.points?.length ?? 0;
-          return { text: `${count} ${count === 1 ? 'evento' : 'eventos'}` };
+          const cell = object as { colorValue?: number; count?: number; points?: unknown[] };
+          const count = cell.colorValue ?? cell.count ?? cell.points?.length ?? 0;
+          const unit = count === 1 ? t.victim : t.victimsLower;
+          return { text: `${count} ${unit}` };
         }}
       >
         <Map mapStyle={MAP_STYLE} />

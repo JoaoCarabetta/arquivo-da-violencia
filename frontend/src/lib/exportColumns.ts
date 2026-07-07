@@ -1,4 +1,6 @@
-/** Export column groups for the data tab and CSV download. */
+/** Export column groups for CSV download. */
+
+import { getExportUrl } from '@/lib/api';
 
 const STORAGE_KEY = 'arv_export_columns';
 
@@ -82,4 +84,22 @@ export function selectedExportFields(ids: string[]): string[] {
 
 export function countSelectedFields(ids: string[]): number {
   return selectedExportFields(ids).length;
+}
+
+/** CSV export URL for the portal with active filters and default columns. */
+export function buildPortalExportUrl(filters: {
+  types: string[];
+  methods: string[];
+  periods: string[];
+  startDate: string;
+  endDate: string;
+}): string {
+  return getExportUrl({
+    types: filters.types,
+    methods: filters.methods,
+    periods: filters.periods,
+    startDate: filters.startDate || undefined,
+    endDate: filters.endDate || undefined,
+    columns: selectedExportFields(DEFAULT_SELECTED_COLUMN_IDS),
+  });
 }

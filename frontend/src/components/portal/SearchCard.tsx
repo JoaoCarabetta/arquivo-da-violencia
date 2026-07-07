@@ -162,21 +162,20 @@ export const SearchCard = memo(function SearchCard({ points, onLocate }: SearchC
       }}
     >
         <div className="px-[15px] pb-[11px] pt-[13px]" style={{ borderBottom: '1px solid var(--stone-100)' }}>
-          <div className="flex items-baseline gap-2">
-            <span
-              style={{
-                fontFamily: 'var(--font-serif)',
-                fontSize: 18,
-                fontWeight: 600,
-                letterSpacing: '-.01em',
-                color: 'var(--stone-900)',
-              }}
-            >
-              Arquivo da Violência
-            </span>
+          <div
+            style={{
+              fontFamily: 'var(--font-serif)',
+              fontSize: 18,
+              fontWeight: 600,
+              letterSpacing: '-.01em',
+              color: 'var(--stone-900)',
+              lineHeight: 1.25,
+            }}
+          >
+            {t.appTitle}
           </div>
-          <div className="mt-px" style={{ fontSize: 11.5, color: 'var(--color-text-muted)' }}>
-            {t.tagline}
+          <div className="mt-0.5 text-pretty" style={{ fontSize: 11.5, color: 'var(--color-text-muted)', lineHeight: 1.4 }}>
+            {t.appSubtitle}
           </div>
         </div>
 

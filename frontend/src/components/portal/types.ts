@@ -4,23 +4,42 @@ import type { MapBounds } from '@/components/map/CrimeMap';
 
 export type PortalMode = 'stats' | 'feed' | 'data';
 
+export type FilterGroup = 'types' | 'methods' | 'periods' | 'states' | 'cities';
+
 export interface PortalFilters {
   /** Homicide subtype slugs (e.g. feminicidio, latrocinio). */
   types: string[];
   methods: string[];
   periods: string[];
+  /** UF codes, e.g. "SP". */
+  states: string[];
+  /** City names from MapPoint.c. */
+  cities: string[];
   /** Inclusive ISO date (YYYY-MM-DD), empty = no lower bound. */
   startDate: string;
   /** Inclusive ISO date (YYYY-MM-DD), empty = no upper bound. */
   endDate: string;
 }
 
+export const DEFAULT_DATE_RANGE_DAYS = 90;
+
 export const EMPTY_FILTERS: PortalFilters = {
   types: [],
   methods: [],
   periods: [],
+  states: [],
+  cities: [],
   startDate: '',
   endDate: '',
+};
+
+export const DEFAULT_FILTERS: PortalFilters = {
+  types: [],
+  methods: [],
+  periods: [],
+  states: [],
+  cities: [],
+  ...dateRangeForLastDays(DEFAULT_DATE_RANGE_DAYS),
 };
 
 const PERIOD_ORDER = ['madrugada', 'manhã', 'manha', 'tarde', 'noite'];
@@ -36,6 +55,26 @@ export function sortPeriods(values: string[]): string[] {
 function pointDateKey(iso: string | null): string | null {
   if (!iso) return null;
   return iso.slice(0, 10);
+}
+
+function parseIsoDate(iso: string): Date {
+  const [y, m, d] = iso.split('-').map(Number);
+  return new Date(y, m - 1, d);
+}
+
+function mondayOfWeek(d: Date): Date {
+  const day = d.getDay();
+  const diff = day === 0 ? -6 : 1 - day;
+  const monday = new Date(d);
+  monday.setDate(d.getDate() + diff);
+  monday.setHours(0, 0, 0, 0);
+  return monday;
+}
+
+function weekKeyForIso(iso: string): string | null {
+  const key = pointDateKey(iso);
+  if (!key) return null;
+  return formatIsoDate(mondayOfWeek(parseIsoDate(key)));
 }
 
 function matchesDateFilter(iso: string | null, startDate: string, endDate: string): boolean {
@@ -62,6 +101,11 @@ export function dateRangeForLastDays(days: number): { startDate: string; endDate
   return { startDate: formatIsoDate(start), endDate: formatIsoDate(end) };
 }
 
+function datesMatchDefault(f: PortalFilters): boolean {
+  const def = dateRangeForLastDays(DEFAULT_DATE_RANGE_DAYS);
+  return f.startDate === def.startDate && f.endDate === def.endDate;
+}
+
 /** Canonical period key — merges spelling variants. */
 export function normalizePeriodKey(value: string): string {
   const lower = value.toLowerCase();
@@ -84,22 +128,51 @@ function matchesPeriodFilter(pointPeriod: string | null, selected: string[]): bo
 
 export function hasActiveFilters(f: PortalFilters): boolean {
   return (
-    f.types.length +
-      f.methods.length +
-      f.periods.length +
-      (f.startDate ? 1 : 0) +
-      (f.endDate ? 1 : 0) >
-    0
+    f.types.length > 0 ||
+    f.methods.length > 0 ||
+    f.periods.length > 0 ||
+    f.states.length > 0 ||
+    f.cities.length > 0 ||
+    !datesMatchDefault(f)
   );
+}
+
+/** Apply filters while ignoring one or more dimensions (for filter-option charts). */
+export function applyFiltersExcept(
+  points: MapPoint[],
+  f: PortalFilters,
+  except: FilterGroup | FilterGroup[]
+): MapPoint[] {
+  const skip = new Set(Array.isArray(except) ? except : [except]);
+  return applyFilters(points, {
+    ...f,
+    types: skip.has('types') ? [] : f.types,
+    methods: skip.has('methods') ? [] : f.methods,
+    periods: skip.has('periods') ? [] : f.periods,
+    states: skip.has('states') ? [] : f.states,
+    cities: skip.has('cities') ? [] : f.cities,
+  });
+}
+
+/** Viewport-clipped points with one filter dimension omitted (multi-select bar charts). */
+export function pointsInViewExcept(
+  allPoints: MapPoint[],
+  f: PortalFilters,
+  bounds: MapBounds | null,
+  except: FilterGroup
+): MapPoint[] {
+  if (!bounds) return [];
+  return pointsInBounds(applyFiltersExcept(allPoints, f, except), bounds);
 }
 
 /** Apply the multi-select filters to a list of points. */
 export function applyFilters(points: MapPoint[], f: PortalFilters): MapPoint[] {
-  if (!hasActiveFilters(f)) return points;
   return points.filter(
     (p) =>
       (f.types.length === 0 || f.types.includes(pointSubtype(p))) &&
       (f.methods.length === 0 || (p.m != null && f.methods.includes(p.m))) &&
+      (f.states.length === 0 || (p.st != null && f.states.includes(p.st))) &&
+      (f.cities.length === 0 || (p.c != null && f.cities.includes(p.c))) &&
       matchesPeriodFilter(p.p, f.periods) &&
       matchesDateFilter(p.d, f.startDate, f.endDate)
   );
@@ -125,20 +198,40 @@ export interface ViewportStats {
   total: number;
   victims: number;
   bySubtype: Record<string, number>;
+  byMethod: Record<string, number>;
   byState: Record<string, number>;
+  byCity: Record<string, number>;
   byPeriod: Record<string, number>;
+  byWeek: Record<string, number>;
   trend: Record<string, number>; // key: `${year}-${month}` → fatal victims
 }
 
+/** Zoom at which the stats sidebar switches from state to city breakdown. */
+export const CITY_STATS_ZOOM_THRESHOLD = 8;
+
 export function computeStats(points: MapPoint[]): ViewportStats {
-  const s: ViewportStats = { total: points.length, victims: 0, bySubtype: {}, byState: {}, byPeriod: {}, trend: {} };
+  const s: ViewportStats = {
+    total: points.length,
+    victims: 0,
+    bySubtype: {},
+    byMethod: {},
+    byState: {},
+    byCity: {},
+    byPeriod: {},
+    byWeek: {},
+    trend: {},
+  };
   for (const p of points) {
     s.victims += p.v ?? 0;
     const subtype = pointSubtype(p);
     s.bySubtype[subtype] = (s.bySubtype[subtype] ?? 0) + 1;
+    if (p.m) s.byMethod[p.m] = (s.byMethod[p.m] ?? 0) + 1;
     if (p.st) s.byState[p.st] = (s.byState[p.st] ?? 0) + 1;
+    if (p.c) s.byCity[p.c] = (s.byCity[p.c] ?? 0) + 1;
     if (p.p) s.byPeriod[p.p] = (s.byPeriod[p.p] ?? 0) + 1;
     if (p.d) {
+      const wk = weekKeyForIso(p.d);
+      if (wk) s.byWeek[wk] = (s.byWeek[wk] ?? 0) + (p.v ?? 0);
       const d = new Date(p.d);
       if (!Number.isNaN(d.getTime())) {
         const key = `${d.getUTCFullYear()}-${d.getUTCMonth()}`;
@@ -169,6 +262,46 @@ export function computeLast24hStats(points: MapPoint[]): Last24hStats {
     victims += p.v ?? 0;
   }
   return { total, victims };
+}
+
+export interface TrendWeek {
+  key: string;
+}
+
+/** ISO-week buckets (Monday start) covering an inclusive date range. */
+export function buildTrendWeeks(startDate: string, endDate: string): TrendWeek[] {
+  if (!startDate || !endDate) return [];
+  const start = parseIsoDate(startDate);
+  const end = parseIsoDate(endDate);
+  if (start > end) return [];
+
+  let cur = mondayOfWeek(start);
+  const endMonday = mondayOfWeek(end);
+  const out: TrendWeek[] = [];
+
+  while (cur <= endMonday) {
+    out.push({ key: formatIsoDate(cur) });
+    const next = new Date(cur);
+    next.setDate(next.getDate() + 7);
+    cur = next;
+  }
+  return out;
+}
+
+export function computeGeoCentroid(
+  points: MapPoint[],
+  kind: 'states' | 'cities',
+  value: string
+): { lat: number; lng: number } | null {
+  const matching = points.filter((p) => (kind === 'states' ? p.st === value : p.c === value));
+  if (matching.length === 0) return null;
+  const lat = matching.reduce((sum, p) => sum + p.lat, 0) / matching.length;
+  const lng = matching.reduce((sum, p) => sum + p.lng, 0) / matching.length;
+  return { lat, lng };
+}
+
+export function geoFlyZoom(kind: 'states' | 'cities'): number {
+  return kind === 'states' ? 6.5 : 11;
 }
 
 export interface TrendMonth {
@@ -212,7 +345,7 @@ function niceCeil(value: number): number {
   return nice * magnitude;
 }
 
-/** Round reference ticks (1–2 lines) and scale ceiling for the monthly trend chart. */
+/** Round reference ticks (1–2 lines) and scale ceiling for bar charts. */
 export function trendChartScale(peak: number): { scaleMax: number; ticks: number[] } {
   if (peak <= 0) return { scaleMax: 1, ticks: [] };
   const scaleMax = niceCeil(peak);
@@ -233,7 +366,7 @@ export function gridCellSizeMeters(zoom: number): number {
 /** Zoom level at which the map switches from density grid to individual markers. */
 export const SCATTER_ZOOM_THRESHOLD = 12;
 
-/** Peak event count in any single grid cell for the current viewport and zoom. */
+/** Peak fatal-victim count in any single grid cell for the current viewport and zoom. */
 export function computeGridPeakCount(
   points: MapPoint[],
   bounds: MapBounds | null,
@@ -244,7 +377,7 @@ export function computeGridPeakCount(
 
   const cellMeters = gridCellSizeMeters(zoom);
   const metersPerDegLat = 111_320;
-  const [[minLng, minLat], [maxLng, maxLat]] = bounds ?? [
+  const [[, minLat], [, maxLat]] = bounds ?? [
     [-180, -90],
     [180, 90],
   ];
@@ -256,7 +389,7 @@ export function computeGridPeakCount(
   const counts = new Map<string, number>();
   for (const p of inView) {
     const key = `${Math.floor(p.lat / cellLat)}:${Math.floor(p.lng / cellLng)}`;
-    counts.set(key, (counts.get(key) ?? 0) + 1);
+    counts.set(key, (counts.get(key) ?? 0) + (p.v ?? 1));
   }
   let peak = 0;
   for (const n of counts.values()) {
