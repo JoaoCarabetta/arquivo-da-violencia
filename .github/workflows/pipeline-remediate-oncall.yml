@@ -18,19 +18,17 @@ jobs:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
-          script_stop: true
+          script_stop: false
           script: |
-            set -euo pipefail
+            set -uo pipefail
             cd /root/arquivo-da-violencia
             BRANCH="${{ github.ref_name }}"
             git fetch origin "$BRANCH"
             git checkout "$BRANCH"
             git pull --ff-only origin "$BRANCH"
             export PIPELINE_HEALTH_WEBHOOK_AUTH="${{ secrets.CURSOR_AUTOMATION_TOKEN }}"
-            set +e
-            bash scripts/check-pipeline-health.sh --remediate --json
-            HEALTH_EXIT=$?
-            set -e
+            HEALTH_EXIT=0
+            bash scripts/check-pipeline-health.sh --remediate --json || HEALTH_EXIT=$?
             echo "=== Worker logs (last 2h, tail 150) ==="
             docker logs arquivo-worker --since 2h 2>&1 | tail -150 || true
             echo "=== API errors (last 2h) ==="
