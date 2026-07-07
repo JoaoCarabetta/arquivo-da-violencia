@@ -197,8 +197,8 @@ export const SearchCard = memo(function SearchCard({ points, onLocate }: SearchC
                   setGeocodeError(false);
                 }}
                 placeholder={t.searchPlaceholder}
-                className="min-w-0 flex-1 border-none bg-transparent outline-none"
-                style={{ fontFamily: 'var(--font-sans)', fontSize: 14, color: 'var(--stone-900)' }}
+                className="min-w-0 flex-1 border-none bg-transparent text-base outline-none md:text-sm"
+                style={{ fontFamily: 'var(--font-sans)', color: 'var(--stone-900)' }}
               />
               {query.length > 0 && (
                 <button

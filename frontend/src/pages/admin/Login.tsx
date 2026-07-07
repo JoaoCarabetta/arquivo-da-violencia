@@ -35,7 +35,7 @@ export function Login() {
   };
 
   return (
-    <div className="min-h-screen bg-background flex items-center justify-center px-6">
+    <div className="min-h-dvh bg-background flex items-center justify-center px-6">
       <div className="w-full max-w-md">
         {/* Logo */}
         <div className="flex items-center justify-center mb-8">
@@ -77,7 +77,7 @@ export function Login() {
                   </div>
                 )}
               </div>
-              <Button type="submit" className="w-full" disabled={loading}>
+              <Button type="submit" size="lg" className="w-full min-h-11" disabled={loading}>
                 {loading ? 'Entrando...' : 'Entrar'}
               </Button>
             </form>
