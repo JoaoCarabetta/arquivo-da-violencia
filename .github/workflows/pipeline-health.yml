@@ -49,8 +49,8 @@ jobs:
               BRANCH="${{ github.ref_name }}"
             fi
             git fetch origin "$BRANCH"
-            git checkout "$BRANCH"
-            git pull --ff-only origin "$BRANCH"
+            git checkout -f "$BRANCH"
+            git reset --hard "origin/$BRANCH"
             export PIPELINE_HEALTH_WEBHOOK_AUTH="${{ secrets.CURSOR_AUTOMATION_TOKEN }}"
             ARGS="--notify"
             if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.remediate }}" = "true" ]; then

@@ -8,7 +8,7 @@
 # Usage (on VPS):
 #   ./scripts/check-pipeline-health.sh
 #   ./scripts/check-pipeline-health.sh --notify          # Telegram + webhook on failure
-#   ./scripts/check-pipeline-health.sh --remediate         # Tier-A fixes for stuck rows
+#   ./scripts/check-pipeline-health.sh --remediate         # Tier-A fixes (stuck rows, re-enqueue pipeline, restart worker)
 #   ./scripts/check-pipeline-health.sh --test-webhook    # POST test payload to Cursor webhook
 #
 # Environment (read from $REPO_DIR/.env when present):
@@ -30,6 +30,7 @@ WORKER_INFO_KEY="${PIPELINE_HEALTH_WORKER_INFO_KEY:-}"
 
 # How long since the last hourly cron may have started (minute :05 UTC).
 MAX_PIPELINE_AGE_MINUTES="${PIPELINE_HEALTH_MAX_PIPELINE_AGE_MINUTES:-100}"
+PIPELINE_ACTIVITY_MINUTES="${PIPELINE_HEALTH_ACTIVITY_MINUTES:-30}"
 STUCK_SOURCE_MINUTES="${PIPELINE_HEALTH_STUCK_SOURCE_MINUTES:-15}"
 LOG_LOOKBACK_MINUTES="${PIPELINE_HEALTH_LOG_LOOKBACK_MINUTES:-120}"
 READY_BACKLOG_WARN="${PIPELINE_HEALTH_READY_BACKLOG_WARN:-1500}"
@@ -126,8 +127,19 @@ fi
 
 cron_enabled="$(docker compose $COMPOSE_PROD exec -T redis redis-cli GET "$WORKER_INFO_KEY" 2>/dev/null | tr -d '\r' || true)"
 if echo "$cron_enabled" | grep -q '"cron_enabled": true'; then
-  if docker logs "$WORKER_CONTAINER" --since "${MAX_PIPELINE_AGE_MINUTES}m" 2>&1 \
-      | grep -qE 'cron:ingest_cities_full_pipeline|CITIES_PIPELINE\] Starting'; then
+  worker_logs_age="$(docker logs "$WORKER_CONTAINER" --since "${MAX_PIPELINE_AGE_MINUTES}m" 2>&1 || true)"
+  worker_logs_activity="$(docker logs "$WORKER_CONTAINER" --since "${PIPELINE_ACTIVITY_MINUTES}m" 2>&1 || true)"
+  recent_start=false
+  recent_activity=false
+  if echo "$worker_logs_age" | grep -qE 'cron:ingest_cities_full_pipeline|\[CITIES_PIPELINE\] Starting'; then
+      recent_start=true
+  fi
+  # Long runs (up to 2h) can outlive the start-log window; treat active stages as healthy.
+  if echo "$worker_logs_activity" | grep -qE \
+      '\[CITIES_PIPELINE\]|cron:ingest_cities_full_pipeline|classify_source:|Classification complete:|\[Batch Dedup\]|\[Ingest\]|\[Download\]|\[Extract\]'; then
+      recent_activity=true
+  fi
+  if [ "$recent_start" = true ] || [ "$recent_activity" = true ]; then
       DETAILS+=("OK: recent_pipeline_activity")
   else
       record_failure "no_recent_pipeline_run(within_${MAX_PIPELINE_AGE_MINUTES}m)"
@@ -186,7 +198,8 @@ fi
 
 tier_a_enqueue_pipeline() {
     echo_step "🔧 Tier-A: re-enqueueing ingest_cities_full_pipeline..."
-    if ! docker compose $COMPOSE_PROD exec -T api python - <<'PY' >/dev/null 2>&1
+    local job_id
+    if ! job_id="$(docker compose $COMPOSE_PROD exec -T api python - <<'PY'
 import asyncio
 from arq import create_pool
 from arq.connections import RedisSettings
@@ -199,11 +212,11 @@ async def main():
 
 asyncio.run(main())
 PY
-    then
+)"; then
         record_failure "remediate_enqueue_pipeline_failed"
         return 1
     fi
-    DETAILS+=("REMEDIATE: enqueued_ingest_cities_full_pipeline")
+    DETAILS+=("REMEDIATE: enqueued_ingest_cities_full_pipeline(job_id=${job_id})")
     filtered=()
     for f in "${FAILURES[@]}"; do
         [[ "$f" == no_recent_pipeline_run* ]] && continue

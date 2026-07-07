@@ -1,0 +1,28 @@
+# Temporary: verify pipeline health fix on VPS (remove after merge to develop).
+name: Pipeline On-Call Verify
+
+on:
+  push:
+    branches:
+      - 'fix/pipeline-no-recent-run'
+
+jobs:
+  verify-production:
+    name: Verify prod pipeline health
+    runs-on: ubuntu-latest
+    steps:
+      - name: Health check on VPS
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          script_stop: false
+          script: |
+            set -uo pipefail
+            cd /root/arquivo-da-violencia
+            BRANCH="${{ github.ref_name }}"
+            git fetch origin "$BRANCH"
+            git checkout -f "$BRANCH"
+            git reset --hard "origin/$BRANCH"
+            bash scripts/check-pipeline-health.sh --json
