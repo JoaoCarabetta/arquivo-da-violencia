@@ -1,0 +1,47 @@
+# One-shot on-call remediation: runs when fix/pipeline-* branches are pushed.
+# Removes or narrows this trigger after merge to develop.
+name: Pipeline On-Call Remediate
+
+on:
+  push:
+    branches:
+      - 'fix/pipeline-*'
+
+jobs:
+  remediate-production:
+    name: Tier-A remediate on VPS
+    runs-on: ubuntu-latest
+    steps:
+      - name: Run health check with remediation and diagnostics
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          script_stop: true
+          script: |
+            set -euo pipefail
+            cd /root/arquivo-da-violencia
+            BRANCH="${{ github.ref_name }}"
+            git fetch origin "$BRANCH"
+            git checkout "$BRANCH"
+            git pull --ff-only origin "$BRANCH"
+            export PIPELINE_HEALTH_WEBHOOK_AUTH="${{ secrets.CURSOR_AUTOMATION_TOKEN }}"
+            set +e
+            bash scripts/check-pipeline-health.sh --remediate --json
+            HEALTH_EXIT=$?
+            set -e
+            echo "=== Worker logs (last 2h, tail 150) ==="
+            docker logs arquivo-worker --since 2h 2>&1 | tail -150 || true
+            echo "=== API errors (last 2h) ==="
+            docker logs arquivo-api --since 2h 2>&1 | grep -i error | tail -30 || true
+            echo "=== pipeline_attempt failures (last 2h) ==="
+            docker compose -p prod exec -T postgres psql -U arquivo -d arquivo_prod -c "
+              SELECT stage, failure_reason, COUNT(*)
+              FROM pipeline_attempt
+              WHERE created_at > now() - interval '2 hours' AND outcome = 'failure'
+              GROUP BY 1,2 ORDER BY 3 DESC LIMIT 10;
+            " || true
+            echo "=== Post-remediation health check ==="
+            bash scripts/check-pipeline-health.sh --json || true
+            exit "$HEALTH_EXIT"
