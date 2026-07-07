@@ -14,7 +14,7 @@ PASSWORD_KEYS = ("ADMIN_PASSWORD", "STAGING_ADMIN_PASSWORD")
 
 
 def is_bcrypt(value: str) -> bool:
-    normalized = value.replace("$$", "$")
+    normalized = normalize_docker_value(unquote(value))
     return normalized.startswith(BCRYPT_PREFIXES)
 
 
@@ -27,56 +27,55 @@ def unquote(value: str) -> str:
 
 def normalize_docker_value(value: str) -> str:
     """Undo Docker Compose .env escaping before hashing or validation."""
-    return value.replace("$$", "$")
+    return unquote(value).replace("$$", "$")
 
 
 def escape_for_docker_compose(value: str) -> str:
-  return value.replace("$", "$$")
+    return normalize_docker_value(value).replace("$", "$$")
 
 
 def hash_password(value: str) -> str:
     return bcrypt.hashpw(value.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
 
 
-def quote_env_value(value: str) -> str:
-    escaped = value.replace("'", "'\"'\"'")
-    return f"'{escaped}'"
+def format_env_value(value: str) -> str:
+    return escape_for_docker_compose(value)
 
 
 def upgrade_password_value(raw: str) -> tuple[str, bool]:
-    value = normalize_docker_value(unquote(raw))
-    if not value or is_bcrypt(value):
-        escaped = escape_for_docker_compose(value) if value else value
-        quoted = quote_env_value(escaped) if escaped else escaped
-        return quoted, escaped != raw
-    hashed = hash_password(value)
-    return quote_env_value(escape_for_docker_compose(hashed)), True
+    normalized = normalize_docker_value(raw)
+    if not normalized:
+        return raw, False
+    if is_bcrypt(normalized):
+        formatted = format_env_value(normalized)
+        return formatted, formatted != raw.strip()
+    hashed = format_env_value(hash_password(normalized))
+    return hashed, True
 
 
 def upgrade_admin_users(raw: str) -> tuple[str, int]:
     changed = 0
     pairs: list[str] = []
-    for chunk in unquote(raw.strip()).split(","):
+    for chunk in normalize_docker_value(raw).split(","):
         chunk = chunk.strip()
         if not chunk or ":" not in chunk:
             continue
         user, pwd_raw = chunk.split(":", 1)
-        pwd_value = unquote(pwd_raw)
-        normalized = normalize_docker_value(pwd_value)
+        normalized = normalize_docker_value(pwd_raw)
         if not normalized:
             pairs.append(f"{user.strip()}:{pwd_raw}")
             continue
         if is_bcrypt(normalized):
-            escaped = escape_for_docker_compose(normalized)
-            if escaped != normalize_docker_value(unquote(pwd_raw)):
+            escaped = format_env_value(normalized)
+            if escaped != pwd_raw.strip():
                 changed += 1
             pairs.append(f"{user.strip()}:{escaped}")
             continue
-        hashed = escape_for_docker_compose(hash_password(normalized))
-        pairs.append(f"{user.strip()}:{hashed}")
+        pairs.append(f"{user.strip()}:{format_env_value(hash_password(normalized))}")
         changed += 1
-    upgraded = quote_env_value(",".join(pairs)) if pairs else raw
-    return upgraded, changed
+    if not pairs:
+        return raw, 0
+    return ",".join(pairs), changed
 
 
 def upgrade_env_file(path: Path) -> int:

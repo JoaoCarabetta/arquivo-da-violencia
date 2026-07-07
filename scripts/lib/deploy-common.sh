@@ -82,8 +82,10 @@ ensure_bcrypt_env_passwords() {
 
 preflight_api_config() {
     echo "🔍 Preflight: validating API auth config..."
-    if docker compose $COMPOSE_FILES run --rm --no-deps api \
-        python -c "from app.auth import validate_auth_config; validate_auth_config()"; then
+    if docker compose $COMPOSE_FILES run --rm --no-deps \
+        -v "$REPO_DIR/.env:/run/deploy.env:ro" \
+        -v "$REPO_DIR/scripts/preflight-auth.py:/tmp/preflight-auth.py:ro" \
+        api python /tmp/preflight-auth.py /run/deploy.env; then
         echo "   ✅ API config is valid"
         return 0
     fi

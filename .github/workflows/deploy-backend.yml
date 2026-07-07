@@ -21,6 +21,7 @@ on:
       - 'scripts/deploy-backend.sh'
       - 'scripts/sync-staging-db.sh'
       - 'scripts/hash-env-passwords.py'
+      - 'scripts/preflight-auth.py'
       - 'scripts/lib/**'
       - 'infra/postgres/**'
       - 'infra/nginx/**'
