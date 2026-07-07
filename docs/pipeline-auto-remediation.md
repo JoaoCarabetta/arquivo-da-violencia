@@ -19,8 +19,11 @@ Operational guide for the production pipeline health checker and how an agent
 2. Optional — Cursor Automation webhook:
    ```bash
    # In .env on VPS
-   PIPELINE_HEALTH_WEBHOOK_URL=https://…  # your automation inbound URL
+   PIPELINE_HEALTH_WEBHOOK_URL=https://api2.cursor.sh/automations/webhook/…
+   PIPELINE_HEALTH_WEBHOOK_AUTH=crsr_…   # Cursor → Automations → Generate auth header
    ```
+
+   GitHub: repo secret `CURSOR_AUTOMATION_TOKEN` = same `crsr_…` token.
 
 3. Manual test:
    ```bash

@@ -42,6 +42,7 @@ jobs:
             git fetch origin master
             git checkout master
             git pull --ff-only origin master
+            export PIPELINE_HEALTH_WEBHOOK_AUTH="${{ secrets.CURSOR_AUTOMATION_TOKEN }}"
             ARGS="--notify"
             if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.remediate }}" = "true" ]; then
               ARGS="$ARGS --remediate"

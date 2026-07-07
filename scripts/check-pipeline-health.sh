@@ -13,7 +13,7 @@
 #
 # Environment (read from $REPO_DIR/.env when present):
 #   TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID
-#   PIPELINE_HEALTH_WEBHOOK_URL  (optional Cursor Automation / custom webhook)
+#   PIPELINE_HEALTH_WEBHOOK_URL, PIPELINE_HEALTH_WEBHOOK_AUTH (Cursor Bearer crsr_…)
 # =============================================================================
 
 set -euo pipefail
@@ -73,6 +73,8 @@ read_env_var() {
 TELEGRAM_BOT_TOKEN="${TELEGRAM_BOT_TOKEN:-$(read_env_var TELEGRAM_BOT_TOKEN)}"
 TELEGRAM_CHAT_ID="${TELEGRAM_CHAT_ID:-$(read_env_var TELEGRAM_CHAT_ID)}"
 PIPELINE_HEALTH_WEBHOOK_URL="${PIPELINE_HEALTH_WEBHOOK_URL:-$(read_env_var PIPELINE_HEALTH_WEBHOOK_URL)}"
+PIPELINE_HEALTH_WEBHOOK_AUTH="${PIPELINE_HEALTH_WEBHOOK_AUTH:-$(read_env_var PIPELINE_HEALTH_WEBHOOK_AUTH)}"
+PIPELINE_HEALTH_WEBHOOK_AUTH="${PIPELINE_HEALTH_WEBHOOK_AUTH:-$(read_env_var CURSOR_AUTOMATION_TOKEN)}"
 ENVIRONMENT="${ENVIRONMENT:-$(read_env_var ENVIRONMENT)}"
 ENVIRONMENT="${ENVIRONMENT:-production}"
 WORKER_INFO_KEY="${WORKER_INFO_KEY:-arquivo:worker:info:${ENVIRONMENT}}"
@@ -241,9 +243,30 @@ send_telegram() {
 send_webhook() {
     local payload="$1"
     [ -n "${PIPELINE_HEALTH_WEBHOOK_URL:-}" ] || return 0
-    curl -sf -X POST "$PIPELINE_HEALTH_WEBHOOK_URL" \
-        -H "Content-Type: application/json" \
-        -d "$payload" >/dev/null || true
+
+    local token="${PIPELINE_HEALTH_WEBHOOK_AUTH:-}"
+    token="${token#Bearer }"
+
+    local -a curl_args=(
+        -s -w "%{http_code}" -o /tmp/pipeline_health_webhook_resp.txt
+        -X POST "$PIPELINE_HEALTH_WEBHOOK_URL"
+        -H "Content-Type: application/json"
+        -d "$payload"
+    )
+    if [ -n "$token" ]; then
+        curl_args+=(-H "Authorization: Bearer ${token}")
+    fi
+
+    local http_code
+    http_code=$(curl "${curl_args[@]}" 2>/dev/null || echo "000")
+    if [ "$http_code" -lt 200 ] || [ "$http_code" -ge 300 ]; then
+        local body
+        body="$(tr -d '\n' </tmp/pipeline_health_webhook_resp.txt 2>/dev/null | head -c 200)"
+        WEBHOOK_LAST_ERROR="http_${http_code}${body:+:${body}}"
+        return 1
+    fi
+    WEBHOOK_LAST_ERROR=""
+    return 0
 }
 
 # --- Summary ------------------------------------------------------------------
@@ -293,7 +316,7 @@ Failures: $(IFS=, ; echo "${FAILURES[*]}")"
 Warnings: $(IFS=, ; echo "${WARNINGS[*]}")"
     fi
     send_telegram "$summary"
-    send_webhook "$(python3 - <<PY
+    if ! send_webhook "$(python3 - <<PY
 import json
 print(json.dumps({
     "status": "unhealthy",
@@ -304,12 +327,16 @@ print(json.dumps({
     "prompt": "Production pipeline unhealthy. SSH to hetzner-arv, run scripts/check-pipeline-health.sh, inspect docker logs arquivo-worker --since 2h and pipeline_attempt in arquivo_prod. Apply Tier-A remediation if safe; otherwise open a PR to develop with a minimal fix. Do not push master directly.",
 }))
 PY
-)"
+)"; then
+        record_warning "webhook_notify_failed(${WEBHOOK_LAST_ERROR:-unknown})"
+    fi
 fi
 
 if [ "$TEST_WEBHOOK" = true ]; then
     echo_step "🔔 Sending test webhook to Cursor Automation..."
-    send_webhook "$(python3 - <<PY
+    if [ -z "${PIPELINE_HEALTH_WEBHOOK_AUTH:-}" ]; then
+        record_failure "webhook_auth_missing(set PIPELINE_HEALTH_WEBHOOK_AUTH or CURSOR_AUTOMATION_TOKEN)"
+    elif ! send_webhook "$(python3 - <<PY
 import json
 print(json.dumps({
     "status": "${STATUS}",
@@ -321,8 +348,11 @@ print(json.dumps({
     "prompt": "TEST: Pipeline health automation check. SSH to hetzner-arv, run: cd /root/arquivo-da-violencia && bash scripts/check-pipeline-health.sh --json && docker logs arquivo-worker --tail 30. Reply with a one-line summary of pipeline status. Do not open PRs for this test.",
 }))
 PY
-)"
-    DETAILS+=("OK: test_webhook_sent")
+)"; then
+        record_failure "webhook_test_failed(${WEBHOOK_LAST_ERROR:-unknown})"
+    else
+        DETAILS+=("OK: test_webhook_sent")
+    fi
 fi
 
 if [ "$STATUS" = "unhealthy" ]; then
