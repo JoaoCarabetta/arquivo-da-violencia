@@ -1,6 +1,6 @@
 import { memo, useMemo, useState, useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { ChevronLeft, RotateCcw, MapPin, Clock, FileText, Download, ExternalLink } from 'lucide-react';
+import { ChevronLeft, RotateCcw, MapPin, Clock, Download, ExternalLink } from 'lucide-react';
 import { useI18n } from '@/contexts/I18nContext';
 import { fetchPublicEventById, getExportUrl, type MapPoint } from '@/lib/api';
 import { cn } from '@/lib/utils';
@@ -11,6 +11,8 @@ import {
   monthShort,
   translateMethod,
   translatePeriod,
+  translateLocationPrecision,
+  fmtCoordinates,
   typeColor,
   ufName,
   dictionaryRows,
@@ -594,6 +596,19 @@ function DataMode(props: RightPanelProps) {
 
 // ---------------------------------------------------------------- Detail view
 
+function DetailMetaRow({ label, value }: { label: string; value: React.ReactNode }) {
+  return (
+    <div className="flex gap-2.5 px-[13px] py-[11px]" style={{ borderBottom: '1px solid var(--stone-100)' }}>
+      <div className="w-[108px] flex-none font-mono text-[9px] uppercase tracking-[.08em]" style={{ color: 'var(--color-text-subtle)' }}>
+        {label}
+      </div>
+      <div className="min-w-0 flex-1" style={{ fontSize: 13, color: 'var(--stone-800)', lineHeight: 1.4 }}>
+        {value}
+      </div>
+    </div>
+  );
+}
+
 function DetailView({ id, onClose }: { id: number; onClose: () => void }) {
   const { t, lang } = useI18n();
   const { data: event, isLoading } = useQuery({
@@ -628,10 +643,12 @@ function DetailView({ id, onClose }: { id: number; onClose: () => void }) {
   );
   const tColor = taxonomyColor(event.event_family, event.event_subtype, event.homicide_type);
   const place = [event.neighborhood, event.city].filter(Boolean).join(', ');
-  const cityLine = [event.city, ufName(event.state)].filter(Boolean).join(' · ');
-  const srcCount = event.source_count ?? 0;
-  const sourceWord = srcCount > 1 ? t.newsSources : t.newsSource;
-  const displayableSources = (event.sources ?? []).filter((source) => source.url);
+  const locationLine = [event.city, ufName(event.state), event.country].filter(Boolean).join(' · ');
+  const coordinates = fmtCoordinates(event.latitude, event.longitude);
+  const showStreet = Boolean(event.street && event.street !== event.formatted_address);
+  const sources = event.sources ?? [];
+  const srcCount = Math.max(event.source_count ?? 0, sources.length);
+  const hasSourcesSection = srcCount > 0 || sources.length > 0;
 
   return (
     <div className="av-fade px-5 pb-7 pt-[18px]">
@@ -667,7 +684,29 @@ function DetailView({ id, onClose }: { id: number; onClose: () => void }) {
             {fmtNumber(event.victim_count ?? 0, lang)}
           </div>
         </div>
-        <div className="rounded-[10px] px-[13px] py-[11px]" style={{ background: 'var(--stone-50)', border: '1px solid var(--stone-200)' }}>
+        {event.perpetrator_count != null && event.perpetrator_count > 0 ? (
+          <div className="rounded-[10px] px-[13px] py-[11px]" style={{ background: 'var(--stone-50)', border: '1px solid var(--stone-200)' }}>
+            <div className="mb-[3px] font-mono text-[9px] uppercase tracking-[.1em]" style={{ color: 'var(--color-text-subtle)' }}>
+              {t.detailPerpetrators}
+            </div>
+            <div style={{ fontSize: 22, fontWeight: 600, color: 'var(--stone-900)', fontVariantNumeric: 'tabular-nums' }}>
+              {fmtNumber(event.perpetrator_count, lang)}
+            </div>
+          </div>
+        ) : (
+          <div className="rounded-[10px] px-[13px] py-[11px]" style={{ background: 'var(--stone-50)', border: '1px solid var(--stone-200)' }}>
+            <div className="mb-[3px] font-mono text-[9px] uppercase tracking-[.1em]" style={{ color: 'var(--color-text-subtle)' }}>
+              {t.method}
+            </div>
+            <div style={{ fontSize: 14, fontWeight: 500, color: 'var(--stone-900)', lineHeight: 1.3 }}>
+              {translateMethod(event.method_of_death, lang)}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {event.perpetrator_count != null && event.perpetrator_count > 0 && (
+        <div className="mb-[18px] rounded-[10px] px-[13px] py-[11px]" style={{ background: 'var(--stone-50)', border: '1px solid var(--stone-200)' }}>
           <div className="mb-[3px] font-mono text-[9px] uppercase tracking-[.1em]" style={{ color: 'var(--color-text-subtle)' }}>
             {t.method}
           </div>
@@ -675,14 +714,40 @@ function DetailView({ id, onClose }: { id: number; onClose: () => void }) {
             {translateMethod(event.method_of_death, lang)}
           </div>
         </div>
-      </div>
+      )}
+
+      {event.victims_summary && (
+        <>
+          <div className="mb-[7px] font-mono text-[9.5px] uppercase tracking-[.1em]" style={{ color: 'var(--color-text-subtle)' }}>
+            {t.detailVictimsSummary}
+          </div>
+          <p className="mb-[18px] text-pretty" style={{ fontSize: 14, lineHeight: 1.6, color: 'var(--stone-700)' }}>
+            {event.victims_summary}
+          </p>
+        </>
+      )}
 
       <div className="mb-[18px] flex flex-col overflow-hidden rounded-[10px]" style={{ border: '1px solid var(--stone-200)' }}>
         <div className="flex gap-2.5 px-[13px] py-[11px]" style={{ borderBottom: '1px solid var(--stone-100)' }}>
           <MapPin className="mt-px h-4 w-4 flex-none" style={{ color: 'var(--stone-500)' }} />
           <div>
             <div style={{ fontSize: 13.5, fontWeight: 500, color: 'var(--stone-900)' }}>{event.formatted_address || place || '—'}</div>
-            <div style={{ fontSize: 12, color: 'var(--color-text-muted)' }}>{cityLine}</div>
+            <div style={{ fontSize: 12, color: 'var(--color-text-muted)' }}>{locationLine}</div>
+            {showStreet && (
+              <div className="mt-1" style={{ fontSize: 12, color: 'var(--color-text-muted)' }}>
+                {`${t.detailStreet}: ${event.street}`}
+              </div>
+            )}
+            {event.location_precision && (
+              <div className="mt-1" style={{ fontSize: 11.5, color: 'var(--color-text-subtle)' }}>
+                {`${t.detailLocationPrecision}: ${translateLocationPrecision(event.location_precision, lang)}`}
+              </div>
+            )}
+            {coordinates && (
+              <div className="mt-1 font-mono" style={{ fontSize: 11, color: 'var(--color-text-subtle)' }}>
+                {`${t.detailCoordinates}: ${coordinates}`}
+              </div>
+            )}
           </div>
         </div>
         {event.time_of_day && (
@@ -707,26 +772,21 @@ function DetailView({ id, onClose }: { id: number; onClose: () => void }) {
         </>
       )}
 
-      {displayableSources.length > 0 && (
+      {hasSourcesSection && (
         <>
           <div className="mb-[7px] font-mono text-[9.5px] uppercase tracking-[.1em]" style={{ color: 'var(--color-text-subtle)' }}>
-            {t.sourcesSection}
+            {`${t.sourcesSection}${srcCount > 0 ? ` (${fmtNumber(srcCount, lang)})` : ''}`}
           </div>
-          <ul className="mb-[18px] flex flex-col overflow-hidden rounded-[10px]" style={{ border: '1px solid var(--stone-200)' }}>
-            {displayableSources.map((source) => {
-              const title = source.headline || source.publisher_name || t.sourceFallback;
-              const showPublisher = Boolean(source.publisher_name && source.headline);
-              return (
-                <li key={source.id} style={{ borderBottom: '1px solid var(--stone-100)' }} className="last:border-b-0">
-                  <a
-                    href={source.url!}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="flex items-start gap-2.5 px-[13px] py-[11px] no-underline transition-colors hover:bg-[var(--stone-50)]"
-                  >
-                    <ExternalLink className="mt-0.5 h-4 w-4 flex-none" style={{ color: 'var(--blue-600)' }} />
+          {sources.length > 0 ? (
+            <ul className="mb-[18px] flex flex-col overflow-hidden rounded-[10px]" style={{ border: '1px solid var(--stone-200)' }}>
+              {sources.map((source) => {
+                const title = source.headline || source.publisher_name || t.sourceFallback;
+                const showPublisher = Boolean(source.publisher_name && source.headline);
+                const content = (
+                  <>
+                    <ExternalLink className="mt-0.5 h-4 w-4 flex-none" style={{ color: source.url ? 'var(--blue-600)' : 'var(--stone-400)' }} />
                     <div className="min-w-0 flex-1">
-                      <div style={{ fontSize: 13.5, fontWeight: 500, color: 'var(--blue-600)', lineHeight: 1.35 }}>
+                      <div style={{ fontSize: 13.5, fontWeight: 500, color: source.url ? 'var(--blue-600)' : 'var(--stone-800)', lineHeight: 1.35 }}>
                         {title}
                       </div>
                       {showPublisher && (
@@ -737,21 +797,47 @@ function DetailView({ id, onClose }: { id: number; onClose: () => void }) {
                           {fmtDateShort(source.published_at, lang)}
                         </div>
                       )}
+                      {!source.url && (
+                        <div style={{ fontSize: 11.5, color: 'var(--color-text-subtle)' }}>{t.sourceNoLink}</div>
+                      )}
                     </div>
-                  </a>
-                </li>
-              );
-            })}
-          </ul>
+                  </>
+                );
+                return (
+                  <li key={source.id} style={{ borderBottom: '1px solid var(--stone-100)' }} className="last:border-b-0">
+                    {source.url ? (
+                      <a
+                        href={source.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="flex items-start gap-2.5 px-[13px] py-[11px] no-underline transition-colors hover:bg-[var(--stone-50)]"
+                      >
+                        {content}
+                      </a>
+                    ) : (
+                      <div className="flex items-start gap-2.5 px-[13px] py-[11px]">{content}</div>
+                    )}
+                  </li>
+                );
+              })}
+            </ul>
+          ) : (
+            <div className="mb-[18px] rounded-[10px] px-[13px] py-[11px]" style={{ border: '1px solid var(--stone-200)', fontSize: 13, color: 'var(--color-text-muted)' }}>
+              {t.sourcesUnavailable}
+            </div>
+          )}
         </>
       )}
 
-      {srcCount > 0 && (
-      <div className="flex items-center gap-2 pt-3.5" style={{ borderTop: '1px solid var(--stone-100)', fontSize: 12, color: 'var(--color-text-muted)' }}>
-        <FileText className="h-[15px] w-[15px]" />
-        {`${t.reportedBy}${srcCount}${sourceWord} · #${event.id}`}
+      <div className="overflow-hidden rounded-[10px]" style={{ border: '1px solid var(--stone-200)' }}>
+        <DetailMetaRow label={t.detailEventId} value={`#${event.id}`} />
+        {event.updated_at && (
+          <DetailMetaRow
+            label={t.detailRecordUpdated}
+            value={fmtDateLong(event.updated_at, lang)}
+          />
+        )}
       </div>
-      )}
     </div>
   );
 }

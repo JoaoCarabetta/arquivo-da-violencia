@@ -138,6 +138,49 @@ def _event_to_export_row(event: UniqueEvent, fieldnames: list[str]) -> dict[str,
     return {key: full_row[key] for key in fieldnames}
 
 
+def _event_to_public_detail(event: UniqueEvent) -> dict[str, object | None]:
+    """Public-safe event payload for detail views (excludes internal pipeline fields)."""
+    payload = _event_to_export_row(event, PUBLIC_EXPORT_FIELD_NAMES)
+    payload.update(
+        {
+            "victims_summary": event.victims_summary,
+            "formatted_address": event.formatted_address,
+        }
+    )
+    return payload
+
+
+async def _load_event_sources(session: AsyncSession, event_id: int) -> list[dict[str, object | None]]:
+    """Load deduplicated journalistic sources linked to a unique event."""
+    raw_events_result = await session.execute(
+        select(RawEvent).where(RawEvent.unique_event_id == event_id)
+    )
+    raw_events = raw_events_result.scalars().all()
+    source_ids = list({re.source_google_news_id for re in raw_events if re.source_google_news_id})
+    if not source_ids:
+        return []
+
+    sources_result = await session.execute(
+        select(SourceGoogleNews).where(SourceGoogleNews.id.in_(source_ids))
+    )
+    sources_list = sources_result.scalars().all()
+
+    sources: list[dict[str, object | None]] = []
+    for source in sources_list:
+        sources.append(
+            {
+                "id": source.id,
+                "headline": source.headline,
+                "publisher_name": source.publisher_name,
+                "url": source.resolved_url or source.google_news_url,
+                "published_at": source.published_at.isoformat() if source.published_at else None,
+            }
+        )
+
+    sources.sort(key=lambda item: item["published_at"] or "", reverse=True)
+    return sources
+
+
 def _build_export_query(
     *,
     cutoff: datetime | None,
@@ -772,30 +815,7 @@ async def get_public_events(
     events = result.scalars().all()
     
     # Format events for public consumption (exclude sensitive fields)
-    items = []
-    for event in events:
-        items.append({
-            "id": event.id,
-            "event_date": event.event_date.isoformat() if event.event_date else None,
-            "time_of_day": event.time_of_day,
-            "state": event.state,
-            "city": event.city,
-            "neighborhood": event.neighborhood,
-            "event_family": event.event_family,
-            "event_subtype": event.event_subtype,
-            "homicide_type": event.homicide_type,
-            "method_of_death": event.method_of_death,
-            "victim_count": event.victim_count,
-            "victims_summary": event.victims_summary,
-            "security_force_involved": event.security_force_involved,
-            "title": event.title,
-            "chronological_description": event.chronological_description,
-            "latitude": float(event.latitude) if event.latitude else None,
-            "longitude": float(event.longitude) if event.longitude else None,
-            "source_count": event.source_count,
-            "merged_data": event.merged_data,
-            "created_at": event.created_at.isoformat(),
-        })
+    items = [_event_to_public_detail(event) for event in events]
     
     return {
         "items": items,
@@ -876,56 +896,8 @@ async def get_public_event_by_id(
         from fastapi import HTTPException
         raise HTTPException(status_code=404, detail="Event not found")
     
-    # Fetch all raw events linked to this unique event
-    raw_events_query = select(RawEvent).where(RawEvent.unique_event_id == event_id)
-    raw_events_result = await session.execute(raw_events_query)
-    raw_events = raw_events_result.scalars().all()
-    
-    # Get all source IDs from raw events
-    source_ids = [re.source_google_news_id for re in raw_events if re.source_google_news_id]
-    
-    # Fetch all sources
-    sources = []
-    if source_ids:
-        sources_query = select(SourceGoogleNews).where(SourceGoogleNews.id.in_(source_ids))
-        sources_result = await session.execute(sources_query)
-        sources_list = sources_result.scalars().all()
-        
-        # Format sources for response
-        for source in sources_list:
-            sources.append({
-                "id": source.id,
-                "headline": source.headline,
-                "publisher_name": source.publisher_name,
-                "url": source.resolved_url or source.google_news_url,
-                "published_at": source.published_at.isoformat() if source.published_at else None,
-            })
-    
-    # Format event for public consumption
-    event_data = {
-        "id": event.id,
-        "event_date": event.event_date.isoformat() if event.event_date else None,
-        "time_of_day": event.time_of_day,
-        "state": event.state,
-        "city": event.city,
-        "neighborhood": event.neighborhood,
-        "event_family": event.event_family,
-        "event_subtype": event.event_subtype,
-        "homicide_type": event.homicide_type,
-        "method_of_death": event.method_of_death,
-        "victim_count": event.victim_count,
-        "victims_summary": event.victims_summary,
-        "security_force_involved": event.security_force_involved,
-        "title": event.title,
-        "chronological_description": event.chronological_description,
-        "latitude": float(event.latitude) if event.latitude else None,
-        "longitude": float(event.longitude) if event.longitude else None,
-        "formatted_address": event.formatted_address,
-        "source_count": event.source_count,
-        "merged_data": event.merged_data,
-        "created_at": event.created_at.isoformat(),
-        "sources": sources,
-    }
-    
+    sources = await _load_event_sources(session, event_id)
+    event_data = _event_to_public_detail(event)
+    event_data["sources"] = sources
     return event_data
 

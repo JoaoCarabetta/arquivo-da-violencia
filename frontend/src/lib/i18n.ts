@@ -79,6 +79,16 @@ export interface Strings {
   newsSources: string;
   sourcesSection: string;
   sourceFallback: string;
+  sourceNoLink: string;
+  sourcesUnavailable: string;
+  detailPerpetrators: string;
+  detailVictimsSummary: string;
+  detailStreet: string;
+  detailCountry: string;
+  detailLocationPrecision: string;
+  detailCoordinates: string;
+  detailRecordUpdated: string;
+  detailEventId: string;
   victim: string;
   victimsLower: string;
   loadingEvent: string;
@@ -165,6 +175,16 @@ const PT: Strings = {
   newsSources: ' fontes jornalísticas',
   sourcesSection: 'Fontes jornalísticas',
   sourceFallback: 'Matéria jornalística',
+  sourceNoLink: 'Link indisponível',
+  sourcesUnavailable: 'As fontes deste evento não puderam ser carregadas.',
+  detailPerpetrators: 'Perpetradores',
+  detailVictimsSummary: 'Resumo das vítimas',
+  detailStreet: 'Logradouro',
+  detailCountry: 'País',
+  detailLocationPrecision: 'Precisão da localização',
+  detailCoordinates: 'Coordenadas',
+  detailRecordUpdated: 'Atualizado em',
+  detailEventId: 'ID do evento',
   victim: 'vítima',
   victimsLower: 'vítimas',
   loadingEvent: 'Carregando evento',
@@ -254,6 +274,16 @@ const EN: Strings = {
   newsSources: ' news sources',
   sourcesSection: 'News sources',
   sourceFallback: 'News article',
+  sourceNoLink: 'Link unavailable',
+  sourcesUnavailable: 'Sources for this event could not be loaded.',
+  detailPerpetrators: 'Perpetrators',
+  detailVictimsSummary: 'Victims summary',
+  detailStreet: 'Street',
+  detailCountry: 'Country',
+  detailLocationPrecision: 'Location precision',
+  detailCoordinates: 'Coordinates',
+  detailRecordUpdated: 'Updated',
+  detailEventId: 'Event ID',
   victim: 'victim',
   victimsLower: 'victims',
   loadingEvent: 'Loading event',
@@ -339,6 +369,32 @@ export function translatePeriod(value: string | null | undefined, lang: Lang): s
   if (!value) return lang === 'pt' ? 'Não informado' : 'Unknown';
   if (lang === 'en') return PERIOD_EN[value.toLowerCase()] ?? titleCasePt(value);
   return titleCasePt(value);
+}
+
+const LOCATION_PRECISION_PT: Record<string, string> = {
+  exact: 'Endereço exato',
+  approximate: 'Aproximada',
+  neighborhood_center: 'Centro do bairro',
+  city_center: 'Centro da cidade',
+};
+
+const LOCATION_PRECISION_EN: Record<string, string> = {
+  exact: 'Exact address',
+  approximate: 'Approximate',
+  neighborhood_center: 'Neighborhood center',
+  city_center: 'City center',
+};
+
+export function translateLocationPrecision(value: string | null | undefined, lang: Lang): string {
+  if (!value) return '—';
+  const key = value.toLowerCase();
+  const table = lang === 'pt' ? LOCATION_PRECISION_PT : LOCATION_PRECISION_EN;
+  return table[key] ?? value.replace(/_/g, ' ');
+}
+
+export function fmtCoordinates(lat: number | null | undefined, lng: number | null | undefined): string | null {
+  if (lat == null || lng == null) return null;
+  return `${lat.toFixed(6)}, ${lng.toFixed(6)}`;
 }
 
 /** Color for a homicide subtype slug or legacy label. */
