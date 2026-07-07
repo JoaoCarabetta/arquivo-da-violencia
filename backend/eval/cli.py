@@ -12,7 +12,7 @@ BACKEND_ROOT = Path(__file__).resolve().parents[1]
 if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
 
-from eval.compare import compare_reports, load_report, print_compare
+from eval.compare import compare_generic_reports, compare_reports, load_report, print_compare
 from eval.schemas import load_fixture
 from eval.schemas_extraction import load_extraction_fixture
 from eval.stages.classification.build import DEFAULT_OUT as CLS_DEFAULT_OUT
@@ -254,8 +254,54 @@ def _add_enrichment_commands(sub: argparse._SubParsersAction) -> None:
     p_report.set_defaults(stage="enrichment", handler="report")
 
 
+def _add_improvement_commands(sub: argparse._SubParsersAction) -> None:
+    imp = sub.add_parser("improvement", help="Prod anomaly detect / verify / propose / run-all")
+    imp_sub = imp.add_subparsers(dest="command", required=True)
+
+    p_detect = imp_sub.add_parser("detect", help="Scan prod/staging for pipeline anomalies")
+    p_detect.add_argument("--only-stage", default="all", help="Stage name or 'all'")
+    p_detect.add_argument("--limit", type=int, default=20, help="Max candidates per stage")
+    p_detect.add_argument("--db", default=None, help="SQLite snapshot path (else DATABASE_URL)")
+    p_detect.add_argument("--output", default=None, help="Write candidates JSON")
+    p_detect.add_argument("--dry-run", action="store_true", help="Alias for detect without side effects")
+    p_detect.set_defaults(stage="improvement", handler="detect")
+
+    p_verify = imp_sub.add_parser("verify", help="Re-run production fns to confirm anomalies")
+    p_verify.add_argument("--candidates", required=True)
+    p_verify.add_argument("--output", default=None)
+    p_verify.add_argument("--db", default=None)
+    p_verify.add_argument("--concurrency", type=int, default=3)
+    p_verify.add_argument(
+        "--with-llm-extraction",
+        action="store_true",
+        help="Re-run extraction LLM (expensive)",
+    )
+    p_verify.set_defaults(stage="improvement", handler="verify")
+
+    p_propose = imp_sub.add_parser("propose", help="Draft pending eval cases from verified anomalies")
+    p_propose.add_argument("--verified", required=True)
+    p_propose.add_argument("--output", default=None)
+    p_propose.set_defaults(stage="improvement", handler="propose")
+
+    p_run_all = imp_sub.add_parser("run-all", help="Run all stage evals and aggregate 100% gate")
+    p_run_all.add_argument("--variant", default="baseline")
+    p_run_all.add_argument("--concurrency", type=int, default=4)
+    p_run_all.add_argument("--no-llm", action="store_true")
+    p_run_all.add_argument("--output", default=None)
+    p_run_all.set_defaults(stage="improvement", handler="run-all")
+
+    p_compare = imp_sub.add_parser("compare-reports", help="Compare any two stage run reports")
+    p_compare.add_argument("--baseline", required=True)
+    p_compare.add_argument("--candidate", required=True)
+    p_compare.set_defaults(stage="improvement", handler="compare-reports")
+
+
 def dispatch(args: argparse.Namespace) -> None:
     handler = getattr(args, "handler", None)
+    if args.stage == "improvement":
+        _dispatch_improvement(args, handler)
+        return
+
     if args.stage == "classification":
         if handler == "validate":
             fixture, fixture_path = _load_classification_fixture(args.fixture)
@@ -356,6 +402,84 @@ def dispatch(args: argparse.Namespace) -> None:
         return
 
     raise SystemExit(f"Unknown stage/handler: {args.stage}/{handler}")
+
+
+def _dispatch_improvement(args: argparse.Namespace, handler: str | None) -> None:
+    from eval.improvement.detect import parse_stages, print_detect_summary, run_detect
+    from eval.improvement.propose import print_propose_summary, run_propose
+    from eval.improvement.run_all import print_run_all_summary, run_all_evals
+    from eval.improvement.verify import print_verify_summary, run_verify
+
+    if handler == "detect":
+        db_path = Path(args.db) if args.db else None
+        if db_path and not db_path.exists():
+            raise SystemExit(f"DB not found: {db_path}")
+        stages = parse_stages(args.only_stage)
+        output = Path(args.output) if args.output else None
+        bundle = asyncio.run(
+            run_detect(
+                db_path=db_path,
+                stages=stages,
+                limit=args.limit,
+                output=output,
+                dry_run=args.dry_run,
+            )
+        )
+        print_detect_summary(bundle)
+        if output:
+            print(f"\nWrote {output}")
+        return
+
+    if handler == "verify":
+        db_path = Path(args.db) if args.db else None
+        output = Path(args.output) if args.output else None
+        bundle = asyncio.run(
+            run_verify(
+                candidates_path=Path(args.candidates),
+                output=output,
+                db_path=db_path,
+                with_llm_extraction=args.with_llm_extraction,
+                concurrency=args.concurrency,
+            )
+        )
+        print_verify_summary(bundle)
+        if output:
+            print(f"\nWrote {output}")
+        return
+
+    if handler == "propose":
+        output = Path(args.output) if args.output else None
+        bundle = asyncio.run(
+            run_propose(verified_path=Path(args.verified), output=output)
+        )
+        print_propose_summary(bundle)
+        if output:
+            print(f"\nWrote {output}")
+        return
+
+    if handler == "run-all":
+        output = Path(args.output) if args.output else None
+        payload = asyncio.run(
+            run_all_evals(
+                variant=args.variant,
+                concurrency=args.concurrency,
+                dry_run=args.no_llm,
+                output=output,
+            )
+        )
+        print_run_all_summary(payload)
+        if output:
+            print(f"\nWrote {output}")
+        if not payload["summary"]["all_passed"]:
+            raise SystemExit(1)
+        return
+
+    if handler == "compare-reports":
+        result = compare_generic_reports(Path(args.baseline), Path(args.candidate))
+        print_compare(result)
+        return
+
+    raise SystemExit(f"Unknown improvement handler: {handler}")
 
 
 def _require_db(args: argparse.Namespace) -> Path:
@@ -626,6 +750,7 @@ def main() -> None:
     _add_dedup_match_commands(sub)
     _add_dedup_cluster_commands(sub)
     _add_enrichment_commands(sub)
+    _add_improvement_commands(sub)
     args = parser.parse_args()
     dispatch(args)
 

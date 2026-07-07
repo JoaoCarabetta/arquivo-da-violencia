@@ -130,3 +130,37 @@ every model resolves the same way.
   precision/recall/F1 over same-cluster pairs.
 - **enrichment** — field-level accuracy of the synthesized unique event
   (event_date, city, state, victim_count).
+
+## Eval improvement loop
+
+Interactive workflow (Cursor skill: `.cursor/skills/eval-improvement-loop/`) to
+find production pipeline mistakes, verify them, propose eval cases for human
+approval, and iterate until the full suite passes.
+
+```bash
+# 1. Detect anomalies (read-only SQL; use staging DATABASE_URL or --db snapshot)
+python -m eval improvement detect --only-stage all --limit 20 \
+  --output eval/results/proposed/candidates.json
+
+# 2. Verify with production re-runs (LLM cost)
+python -m eval improvement verify \
+  --candidates eval/results/proposed/candidates.json \
+  --output eval/results/proposed/verified.json
+
+# 3. Propose pending fixture cases (human must approve before merge)
+python -m eval improvement propose \
+  --verified eval/results/proposed/verified.json \
+  --output eval/results/proposed/proposed.json
+
+# 4. Full 100% gate across all configured fixtures
+python -m eval improvement run-all --output eval/results/run-all.json
+
+# 5. Compare any two run reports for regressions
+python -m eval improvement compare-reports \
+  --baseline eval/results/baseline.json \
+  --candidate eval/results/candidate.json
+```
+
+Or: `bash .cursor/skills/eval-improvement-loop/scripts/run-all-eval.sh`
+
+See the skill's `reference.md` for Docker commands and DB snapshot steps.

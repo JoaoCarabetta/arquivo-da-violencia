@@ -167,6 +167,9 @@ frontend/node_modules/*
 
 *.db
 *.cursor/*
+!.cursor/skills/
+!.cursor/skills/**
+!.cursor/skills/**/*
 .venv-notebook/
 
 scripts/*
