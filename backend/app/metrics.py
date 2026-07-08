@@ -137,6 +137,13 @@ pipeline_attempt_failures_24h = Gauge(
     registry=REGISTRY,
 )
 
+pipeline_attempt_discards_24h = Gauge(
+    "pipeline_attempt_discards_24h",
+    "Content-filter discards in the last 24 hours, by stage and reason.",
+    labelnames=["stage", "failure_reason"],
+    registry=REGISTRY,
+)
+
 pipeline_cron_last_success_timestamp = Gauge(
     "pipeline_cron_last_success_timestamp",
     "Unix timestamp of the last successful cron run, by cron name.",
@@ -169,6 +176,7 @@ CRON_TASKS = frozenset({"ingest_cities_hourly", "process_cities_backlog"})
 
 _STUCK_STATUSES = ("classifying", "downloading", "extracting")
 _seen_failure_labels: set[tuple[str, str]] = set()
+_seen_discard_labels: set[tuple[str, str]] = set()
 _seen_inventory_statuses: set[str] = set()
 
 
@@ -177,6 +185,7 @@ def set_pipeline_inventory_metrics(
     status_counts: dict[str, int],
     stuck_counts: dict[str, int],
     failure_counts: dict[tuple[str, str], int],
+    discard_counts: dict[tuple[str, str], int],
     sources_total: int,
     violent_death: int,
     raw_events_total: int,
@@ -212,6 +221,19 @@ def set_pipeline_inventory_metrics(
             ).set(0)
         _seen_failure_labels.clear()
         _seen_failure_labels.update(current_failures)
+
+        current_discards: set[tuple[str, str]] = set()
+        for (stage, reason), count in discard_counts.items():
+            pipeline_attempt_discards_24h.labels(
+                stage=stage, failure_reason=reason
+            ).set(count)
+            current_discards.add((stage, reason))
+        for stage, reason in _seen_discard_labels - current_discards:
+            pipeline_attempt_discards_24h.labels(
+                stage=stage, failure_reason=reason
+            ).set(0)
+        _seen_discard_labels.clear()
+        _seen_discard_labels.update(current_discards)
     except Exception as e:  # pragma: no cover
         logger.warning(f"[metrics] set_pipeline_inventory_metrics failed: {e}")
 

@@ -70,6 +70,26 @@ async def refresh_pipeline_inventory_metrics() -> None:
                 for stage, reason, count in failure_rows
             }
 
+            discard_rows = (
+                await session.execute(
+                    select(
+                        PipelineAttempt.stage,
+                        PipelineAttempt.failure_reason,
+                        func.count(PipelineAttempt.id),
+                    )
+                    .where(
+                        PipelineAttempt.outcome == "discarded",
+                        PipelineAttempt.created_at >= failure_cutoff,
+                        PipelineAttempt.failure_reason.is_not(None),
+                    )
+                    .group_by(PipelineAttempt.stage, PipelineAttempt.failure_reason)
+                )
+            ).all()
+            discard_counts = {
+                (str(stage), str(reason)): int(count)
+                for stage, reason, count in discard_rows
+            }
+
             sources_total = await session.scalar(select(func.count(SourceGoogleNews.id)))
             violent_death = await session.scalar(
                 select(func.count(SourceGoogleNews.id)).where(
@@ -83,6 +103,7 @@ async def refresh_pipeline_inventory_metrics() -> None:
             status_counts=status_counts,
             stuck_counts={status: stuck_counts.get(status, 0) for status in STUCK_STATUSES},
             failure_counts=failure_counts,
+            discard_counts=discard_counts,
             sources_total=int(sources_total or 0),
             violent_death=int(violent_death or 0),
             raw_events_total=int(raw_events_total or 0),

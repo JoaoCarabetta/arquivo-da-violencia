@@ -830,14 +830,14 @@
     {
       "id": 300,
       "type": "row",
-      "title": "Failures (last 24h)",
+      "title": "Pipeline failures (last 24h)",
       "gridPos": { "x": 0, "y": 32, "w": 24, "h": 1 },
       "collapsed": false
     },
     {
       "id": 31,
-      "title": "Attempt failures by stage and reason",
-      "description": "Failed download/extraction attempts in the last 24 hours.",
+      "title": "Pipeline failures by stage and reason",
+      "description": "Download/extraction errors worth investigating (excludes content-filter discards).",
       "type": "table",
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "gridPos": { "x": 0, "y": 33, "w": 14, "h": 10 },
@@ -924,7 +924,7 @@
     },
     {
       "id": 32,
-      "title": "Failures by reason",
+      "title": "Pipeline failures by reason",
       "type": "piechart",
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "gridPos": { "x": 14, "y": 33, "w": 10, "h": 10 },
@@ -949,12 +949,134 @@
       }
     },
     {
+      "id": 301,
+      "type": "row",
+      "title": "Content filter discards (last 24h)",
+      "gridPos": { "x": 0, "y": 43, "w": 24, "h": 1 },
+      "collapsed": false
+    },
+    {
+      "id": 41,
+      "title": "Content filter discards by stage and reason",
+      "description": "Expected filtering — articles rejected by content gate or extraction classifier.",
+      "type": "table",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "x": 0, "y": 44, "w": 14, "h": 10 },
+      "options": {
+        "showHeader": true,
+        "sortBy": [{ "displayName": "Count", "desc": true }]
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "pipeline_attempt_discards_24h{service=\"api\"}",
+          "format": "table",
+          "instant": true,
+          "refId": "count"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "pipeline_attempt_discards_24h{service=\"api\"} / clamp_min(sum(pipeline_attempt_discards_24h{service=\"api\"}), 1) * 100",
+          "format": "table",
+          "instant": true,
+          "refId": "pct"
+        }
+      ],
+      "transformations": [
+        { "id": "merge", "options": {} },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true,
+              "Time 1": true,
+              "Time 2": true,
+              "__name__": true,
+              "__name__ 1": true,
+              "__name__ 2": true,
+              "environment": true,
+              "instance": true,
+              "instance 1": true,
+              "instance 2": true,
+              "job": true,
+              "job 1": true,
+              "job 2": true,
+              "service": true,
+              "service 1": true,
+              "service 2": true
+            },
+            "renameByName": {
+              "stage": "Stage",
+              "failure_reason": "Reason",
+              "Value #count": "Count",
+              "Value #pct": "Share %"
+            }
+          }
+        },
+        {
+          "id": "sortBy",
+          "options": {
+            "fields": {},
+            "sort": [{ "field": "Count", "desc": true }]
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": { "align": "auto", "cellOptions": { "type": "auto" } }
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "Share %" },
+            "properties": [
+              { "id": "unit", "value": "percent" },
+              { "id": "decimals", "value": 1 }
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "Count" },
+            "properties": [
+              { "id": "custom.cellOptions", "value": { "type": "color-background", "mode": "gradient" } },
+              { "id": "color", "value": { "mode": "continuous-BlPu" } }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": 42,
+      "title": "Content filter discards by reason",
+      "description": "Expected filtering — articles rejected by content gate or extraction classifier.",
+      "type": "piechart",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "x": 14, "y": 44, "w": 10, "h": 10 },
+      "options": {
+        "legend": { "displayMode": "table", "placement": "right", "values": ["value", "percent"] },
+        "pieType": "donut",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "sum(pipeline_attempt_discards_24h{service=\"api\"}) by (failure_reason)",
+          "refId": "A",
+          "legendFormat": "{{failure_reason}}",
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "none"
+        }
+      }
+    },
+    {
       "id": 33,
       "title": "Terminal failed statuses",
       "description": "Sources stuck in failed_in_download or failed_in_extraction.",
       "type": "bargauge",
       "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "gridPos": { "x": 0, "y": 43, "w": 12, "h": 6 },
+      "gridPos": { "x": 0, "y": 54, "w": 12, "h": 6 },
       "options": {
         "displayMode": "gradient",
         "orientation": "horizontal",
@@ -991,7 +1113,7 @@
       "description": "Open GitHub issues with label pipeline-failure (polled every 5 min).",
       "type": "stat",
       "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "gridPos": { "x": 12, "y": 43, "w": 6, "h": 6 },
+      "gridPos": { "x": 12, "y": 54, "w": 6, "h": 6 },
       "options": {
         "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
         "colorMode": "value",
@@ -1026,7 +1148,7 @@
       "description": "Share of violent-death sources that ended in a terminal failed status.",
       "type": "gauge",
       "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "gridPos": { "x": 18, "y": 43, "w": 6, "h": 6 },
+      "gridPos": { "x": 18, "y": 54, "w": 6, "h": 6 },
       "options": {
         "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
         "showThresholdLabels": false,

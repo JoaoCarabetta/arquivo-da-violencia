@@ -139,6 +139,7 @@ async def test_extract_source_discards_non_incident_content_class(extraction_db)
     assert source.status == SourceStatus.discarded
     assert "content_class=foreign" in source.classification_reasoning
     mock_record.assert_called_once()
+    assert mock_record.call_args.kwargs["outcome"] == diagnostics.OUTCOME_DISCARDED
     assert mock_record.call_args.kwargs["failure_reason"] == diagnostics.FOREIGN_CONTENT
 
 

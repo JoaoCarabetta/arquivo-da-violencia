@@ -22,8 +22,8 @@ class PipelineAttemptBase(SQLModel):
     )
     raw_event_id: int | None = Field(default=None, index=True)
 
-    stage: str = Field(max_length=20, index=True)  # download | extraction
-    outcome: str = Field(max_length=20, index=True)  # success | failure
+    stage: str = Field(max_length=20, index=True)  # download | content_gate | extraction
+    outcome: str = Field(max_length=20, index=True)  # success | failure | discarded
 
     # Failure classification (null on success)
     failure_reason: str | None = Field(default=None, max_length=40, index=True)

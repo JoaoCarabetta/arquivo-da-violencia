@@ -6,6 +6,7 @@ import pytest
 
 from app.services.classification import ViolentDeathClassification
 from app.services.download import DownloadOutcome, download_source_content
+from app.services import diagnostics
 
 
 class _TestSessionMaker:
@@ -81,7 +82,10 @@ async def test_download_discards_heuristic_aggregate(download_db):
         return_value=(aggregate_content, None),
     ), patch(
         "app.services.download.classify_article_content",
-    ) as mock_llm:
+    ) as mock_llm, patch(
+        "app.services.download.diagnostics.record_attempt",
+        new=AsyncMock(),
+    ) as mock_record:
         outcome = await download_source_content(source.id)
 
     assert outcome == DownloadOutcome.discarded
@@ -89,6 +93,8 @@ async def test_download_discards_heuristic_aggregate(download_db):
     await download_db.refresh(source)
     assert source.status == SourceStatus.discarded
     assert "content_gate=heuristic" in source.classification_reasoning
+    mock_record.assert_called_once()
+    assert mock_record.call_args.kwargs["outcome"] == diagnostics.OUTCOME_DISCARDED
 
 
 @pytest.mark.asyncio
@@ -155,10 +161,16 @@ async def test_download_discards_llm_rejection(download_db):
             content_class_hint="aggregate_statistics",
             reasoning="Article is a statistics roundup",
         ),
-    ):
+    ), patch(
+        "app.services.download.diagnostics.record_attempt",
+        new=AsyncMock(),
+    ) as mock_record:
         outcome = await download_source_content(source.id)
 
     assert outcome == DownloadOutcome.discarded
     await download_db.refresh(source)
     assert source.status == SourceStatus.discarded
     assert "content_gate=llm" in source.classification_reasoning
+    mock_record.assert_called_once()
+    assert mock_record.call_args.kwargs["outcome"] == diagnostics.OUTCOME_DISCARDED
+    assert mock_record.call_args.kwargs["failure_reason"] == diagnostics.LLM_CONTENT_REJECT
