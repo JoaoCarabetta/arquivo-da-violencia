@@ -86,6 +86,15 @@ def create_app() -> FastAPI:
     app.include_router(pipeline.router, prefix=settings.api_prefix)
     app.include_router(stats.router, prefix=settings.api_prefix)
 
+    if settings.metrics_enabled:
+        from prometheus_fastapi_instrumentator import Instrumentator
+
+        from app.metrics import REGISTRY
+
+        Instrumentator(registry=REGISTRY).instrument(app).expose(
+            app, endpoint="/metrics", include_in_schema=False
+        )
+
     return app
 
 
