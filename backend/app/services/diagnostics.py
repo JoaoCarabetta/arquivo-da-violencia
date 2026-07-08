@@ -26,6 +26,7 @@ STAGE_EXTRACTION = "extraction"
 # === Outcomes ===
 OUTCOME_SUCCESS = "success"
 OUTCOME_FAILURE = "failure"
+OUTCOME_DISCARDED = "discarded"  # intentional content-filter reject (not a bug)
 
 # === Download failure reasons ===
 FETCH_TIMEOUT = "fetch_timeout"
@@ -41,6 +42,15 @@ AGGREGATE_CONTENT = "aggregate_content"
 FOREIGN_CONTENT = "foreign_content"
 NON_INCIDENT_CONTENT = "non_incident_content"
 LLM_CONTENT_REJECT = "llm_content_reject"
+
+CONTENT_FILTER_REASONS = frozenset(
+    {
+        AGGREGATE_CONTENT,
+        FOREIGN_CONTENT,
+        NON_INCIDENT_CONTENT,
+        LLM_CONTENT_REJECT,
+    }
+)
 
 # === Extraction failure reasons ===
 LLM_RATE_LIMIT = "llm_rate_limit"  # 429 / RESOURCE_EXHAUSTED (short-term)
@@ -70,6 +80,11 @@ TRANSIENT_REASONS = frozenset(
 def is_transient(reason: str | None) -> bool:
     """Whether a failure reason is worth retrying."""
     return reason in TRANSIENT_REASONS
+
+
+def is_content_filter_reason(reason: str | None) -> bool:
+    """Whether a reason is an expected content-filter discard, not a pipeline bug."""
+    return reason in CONTENT_FILTER_REASONS
 
 
 def domain_of(url: str | None) -> str | None:

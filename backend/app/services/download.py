@@ -130,7 +130,7 @@ async def _discard_after_content_gate(
 
     await diagnostics.record_attempt(
         stage=diagnostics.STAGE_CONTENT_GATE,
-        outcome=diagnostics.OUTCOME_FAILURE,
+        outcome=diagnostics.OUTCOME_DISCARDED,
         source_google_news_id=source_id,
         failure_reason=failure_reason,
         failure_detail=failure_detail,

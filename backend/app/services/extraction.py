@@ -431,7 +431,7 @@ async def extract_source(source_id: int) -> RawEvent | None:
                 await session.commit()
             await diagnostics.record_attempt(
                 stage=diagnostics.STAGE_EXTRACTION,
-                outcome=diagnostics.OUTCOME_FAILURE,
+                outcome=diagnostics.OUTCOME_DISCARDED,
                 source_google_news_id=source_id,
                 failure_reason=reason,
                 failure_detail=str(e),
@@ -466,7 +466,7 @@ async def extract_source(source_id: int) -> RawEvent | None:
             await session.commit()
         await diagnostics.record_attempt(
             stage=diagnostics.STAGE_EXTRACTION,
-            outcome=diagnostics.OUTCOME_FAILURE,
+            outcome=diagnostics.OUTCOME_DISCARDED,
             source_google_news_id=source_id,
             failure_reason=failure_reason,
             failure_detail=reasoning,
