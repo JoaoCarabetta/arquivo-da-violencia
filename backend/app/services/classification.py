@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field
 from sqlmodel import select
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 
+from app.services.classification_heuristics import apply_classification_heuristics
 from app.config import get_settings
 from app.database import async_session_maker
 from app.models import SourceGoogleNews, SourceStatus
@@ -95,6 +96,9 @@ CLASSIFIQUE COMO MORTE VIOLENTA (is_violent_death = true):
   "CPF cancelado" no sentido de pessoa morta)
 - Feminicídio, latrocínio, homicídio, chacina, execução
 - Vítima que MORRE: "não resistiu aos ferimentos", "morre após ser baleado"
+- Letalidade implícita: "crivado de balas", "CPF cancelado", "tombou/tombaram",
+  "não deixa sobreviventes", "linchado até parar de respirar" — trate como morte violenta
+  salvo se a manchete indicar sobrevivência (ferido, hospital, quadro estável)
 
 NÃO CLASSIFIQUE COMO MORTE VIOLENTA (is_violent_death = false):
 - Eventos FORA DO BRASIL (EUA, Europa, Rússia, Ucrânia, México, etc.), mesmo com mortes
@@ -242,7 +246,7 @@ def classify_headline(
         timeout=60,
     )
 
-    return result
+    return apply_classification_heuristics(headline, result)
 
 
 @retry(
