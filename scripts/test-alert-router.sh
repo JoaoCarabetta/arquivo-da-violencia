@@ -77,19 +77,26 @@ AUTH_HEADER="Authorization: Bearer ${ROUTER_SECRET}"
 if [[ "$TARGET" == "obs" ]]; then
   SSH_KEY="${OBS_SSH_KEY:-$HOME/.ssh/hetzner_arquivo_violencia_rsa}"
   echo "Posting test ${SEVERITY} alert to obs-alert-router..."
-  echo "$payload" | ssh -o BatchMode=yes -i "$SSH_KEY" root@62.238.12.182 \
-    "docker exec -i -e AUTH='${ROUTER_SECRET}' obs-alert-router python -c \"
-import json, sys, urllib.request, os
-payload = json.load(sys.stdin)
+  PAYLOAD_B64=$(printf '%s' "$payload" | base64 | tr -d '\n')
+  ssh -o BatchMode=yes -i "$SSH_KEY" root@62.238.12.182 \
+    "PAYLOAD_B64='${PAYLOAD_B64}' bash -s" <<'REMOTE'
+set -euo pipefail
+SECRET=$(grep -E '^ALERT_ROUTER_WEBHOOK_SECRET=' /opt/arquivo-observability/.env | cut -d= -f2-)
+PAYLOAD=$(printf '%s' "$PAYLOAD_B64" | base64 -d)
+printf '%s' "$PAYLOAD" | docker exec -i -e "ROUTER_SECRET=${SECRET}" obs-alert-router python -c "
+import json, os, sys, urllib.request
+payload = json.loads(sys.stdin.read())
+secret = os.environ['ROUTER_SECRET']
 req = urllib.request.Request(
     'http://127.0.0.1:8080/alerts',
     data=json.dumps(payload).encode(),
-    headers={'Content-Type': 'application/json', 'Authorization': f'Bearer {os.environ[\"AUTH\"]}'},
+    headers={'Content-Type': 'application/json', 'Authorization': f'Bearer {secret}'},
     method='POST',
 )
 with urllib.request.urlopen(req) as resp:
     print(resp.read().decode())
-\""
+"
+REMOTE
 else
   PORT="${ALERT_ROUTER_PORT:-8080}"
   echo "Posting test ${SEVERITY} alert to http://127.0.0.1:${PORT}/alerts ..."
