@@ -201,7 +201,7 @@ jobs:
     name: Enqueue Pipeline Jobs (prod)
     needs: sync-staging-db
     runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/master'
+    if: false  # one-shot enqueue after 2026-07-08 backfill; use enqueue_backfill_pipeline.py manually
 
     steps:
       - name: Enqueue requeued sources
