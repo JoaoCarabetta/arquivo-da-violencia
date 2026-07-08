@@ -141,7 +141,7 @@ jobs:
     name: Backfill Staging Data
     needs: deploy-staging
     runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/develop'
+    if: false  # one-shot staging backfill completed 2026-07-08; use scripts/run_prod_backfill.sh
 
     steps:
       - name: Run staging backfill + enqueue
