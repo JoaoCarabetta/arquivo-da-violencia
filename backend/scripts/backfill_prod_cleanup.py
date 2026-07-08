@@ -30,6 +30,46 @@ from app.services.maintenance import (
 )
 
 
+async def run_cleanup(
+    *,
+    dry_run: bool,
+    since: str,
+    since_date: date,
+    reclassify_limit: int,
+    skip_merge: bool,
+    skip_reclassify: bool,
+) -> dict:
+    audit: dict = {"dry_run": dry_run, "since": since, "steps": {}}
+
+    if not skip_merge:
+        exact = await merge_exact_duplicate_unique_events(dry_run=dry_run)
+        near = await merge_near_duplicate_unique_events(since=since, dry_run=dry_run)
+        audit["steps"]["merge_exact"] = exact
+        audit["steps"]["merge_near"] = near
+
+    if not skip_reclassify:
+        candidates = await find_discarded_reclassification_candidates(
+            limit=reclassify_limit,
+            since=since_date,
+            signal="all",
+        )
+        reclassify = await requeue_discarded_sources(
+            [row["id"] for row in candidates],
+            dry_run=dry_run,
+        )
+        reclassify["candidate_count"] = len(candidates)
+        reclassify["sample_headlines"] = [
+            (row.get("headline") or "")[:100] for row in candidates[:10]
+        ]
+        audit["steps"]["reclassify"] = reclassify
+
+    audit["pipeline_hint"] = (
+        "After --execute, enqueue pipeline workers: "
+        "classify_pending_task, download/extract batches, run_pending_enrichments."
+    )
+    return audit
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="Near-dup merge + reclassify discarded sources (staging/prod backfill)."
@@ -63,39 +103,15 @@ def main() -> None:
 
     dry_run = not args.execute
     since_date = date.fromisoformat(args.since)
-    audit: dict = {"dry_run": dry_run, "since": args.since, "steps": {}}
-
-    if not args.skip_merge:
-        exact = asyncio.run(merge_exact_duplicate_unique_events(dry_run=dry_run))
-        near = asyncio.run(
-            merge_near_duplicate_unique_events(since=args.since, dry_run=dry_run)
+    audit = asyncio.run(
+        run_cleanup(
+            dry_run=dry_run,
+            since=args.since,
+            since_date=since_date,
+            reclassify_limit=args.reclassify_limit,
+            skip_merge=args.skip_merge,
+            skip_reclassify=args.skip_reclassify,
         )
-        audit["steps"]["merge_exact"] = exact
-        audit["steps"]["merge_near"] = near
-
-    if not args.skip_reclassify:
-        candidates = asyncio.run(
-            find_discarded_reclassification_candidates(
-                limit=args.reclassify_limit,
-                since=since_date,
-                signal="all",
-            )
-        )
-        reclassify = asyncio.run(
-            requeue_discarded_sources(
-                [row["id"] for row in candidates],
-                dry_run=dry_run,
-            )
-        )
-        reclassify["candidate_count"] = len(candidates)
-        reclassify["sample_headlines"] = [
-            (row.get("headline") or "")[:100] for row in candidates[:10]
-        ]
-        audit["steps"]["reclassify"] = reclassify
-
-    audit["pipeline_hint"] = (
-        "After --execute, enqueue pipeline workers: "
-        "classify_pending_task, download/extract batches, run_pending_enrichments."
     )
 
     if args.json:
