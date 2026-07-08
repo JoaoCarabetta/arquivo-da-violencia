@@ -137,6 +137,33 @@ jobs:
             docker compose -p staging exec -T api \
               python scripts/enqueue_backfill_pipeline.py
 
+  backfill-staging:
+    name: Backfill Staging Data
+    needs: deploy-staging
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/develop'
+
+    steps:
+      - name: Run staging backfill + enqueue
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          script_stop: true
+          script: |
+            set -euo pipefail
+            cd /root/arquivo-da-violencia
+            echo "==> staging backfill dry-run"
+            docker compose -p staging exec -T api \
+              python scripts/backfill_prod_cleanup.py --dry-run --since 2026-01-01
+            echo "==> staging backfill execute"
+            docker compose -p staging exec -T api \
+              python scripts/backfill_prod_cleanup.py --execute --since 2026-01-01
+            echo "==> enqueue pipeline jobs"
+            docker compose -p staging exec -T api \
+              python scripts/enqueue_backfill_pipeline.py
+
   deploy-production:
     name: Deploy to Production
     needs: build
