@@ -135,3 +135,17 @@ docker compose -p prod up -d --no-deps api worker
 ```
 
 Public site: https://arquivodaviolencia.com.br
+
+## Observability (self-hosted)
+
+Pipeline metrics: Prometheus + Grafana on a dedicated VPS (`62.238.12.182`).
+
+| Resource | URL |
+|----------|-----|
+| Grafana dashboard | https://observability.carabetta.xyz/d/arquivo-pipeline |
+| Stack directory on obs VPS | `/opt/arquivo-observability` |
+
+- **Manual deploy:** `bash infra/observability/deploy.sh` (see [docs/observability-self-hosted.md](docs/observability-self-hosted.md))
+- **CI:** [`.github/workflows/deploy-observability.yml`](.github/workflows/deploy-observability.yml) on `master` when `infra/observability/**` changes
+- **Health check:** `bash scripts/check-observability.sh --prod`
+- API `/metrics` = health gauges; worker `:9091/metrics` = task metrics only

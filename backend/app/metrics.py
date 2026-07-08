@@ -1,0 +1,209 @@
+"""Prometheus metrics for the pipeline."""
+
+from __future__ import annotations
+
+import asyncio
+
+import httpx
+from loguru import logger
+from prometheus_client import REGISTRY as DEFAULT_REGISTRY
+from prometheus_client import CollectorRegistry, Counter, Gauge, Histogram, generate_latest
+
+from app.config import get_settings
+
+# API /metrics exposes health gauges (and HTTP metrics via instrumentator).
+REGISTRY: CollectorRegistry = DEFAULT_REGISTRY
+
+# Worker :9091/metrics exposes only task/attempt counters and histograms.
+WORKER_REGISTRY = CollectorRegistry()
+
+pipeline_task_total = Counter(
+    "pipeline_task_total",
+    "Total ARQ tasks executed, by task name and outcome.",
+    labelnames=["task", "outcome"],
+    registry=WORKER_REGISTRY,
+)
+
+pipeline_task_duration_seconds = Histogram(
+    "pipeline_task_duration_seconds",
+    "Wall-clock duration of ARQ tasks, by task name and outcome.",
+    labelnames=["task", "outcome"],
+    buckets=(0.5, 1, 2.5, 5, 10, 30, 60, 120, 300, 600, 1800, 3600),
+    registry=WORKER_REGISTRY,
+)
+
+pipeline_attempts_total = Counter(
+    "pipeline_attempts_total",
+    "Total download/extraction attempts recorded, by stage/outcome/failure_reason.",
+    labelnames=["stage", "outcome", "failure_reason"],
+    registry=WORKER_REGISTRY,
+)
+
+pipeline_attempt_duration_seconds = Histogram(
+    "pipeline_attempt_duration_seconds",
+    "Duration of individual download/extraction attempts, by stage/outcome.",
+    labelnames=["stage", "outcome"],
+    buckets=(0.5, 1, 2.5, 5, 10, 20, 30, 60, 120),
+    registry=WORKER_REGISTRY,
+)
+
+pipeline_attempt_content_length_bytes = Histogram(
+    "pipeline_attempt_content_length_bytes",
+    "Content length (bytes) of downloaded article text, by stage.",
+    labelnames=["stage"],
+    buckets=(512, 2048, 8192, 32768, 131072, 524288, 2097152),
+    registry=WORKER_REGISTRY,
+)
+
+pipeline_queue_depth = Gauge(
+    "pipeline_queue_depth",
+    "Number of jobs waiting in the ARQ queue.",
+    registry=REGISTRY,
+)
+
+pipeline_worker_alive = Gauge(
+    "pipeline_worker_alive",
+    "1 if the ARQ worker heartbeat key is present in Redis, else 0.",
+    registry=REGISTRY,
+)
+
+pipeline_cron_enabled = Gauge(
+    "pipeline_cron_enabled",
+    "1 if the worker has cron scheduling enabled, else 0.",
+    registry=REGISTRY,
+)
+
+pipeline_worker_heartbeat_misses = Gauge(
+    "pipeline_worker_heartbeat_misses",
+    "Consecutive heartbeat misses observed by the API-side worker monitor.",
+    registry=REGISTRY,
+)
+
+pipeline_redis_connected = Gauge(
+    "pipeline_redis_connected",
+    "1 if Redis is reachable from this process, else 0.",
+    registry=REGISTRY,
+)
+
+
+def generate_worker_metrics() -> bytes:
+    """Prometheus exposition format for the worker metrics HTTP server."""
+    return generate_latest(WORKER_REGISTRY)
+
+
+def record_task_outcome(task_name: str, outcome: str, duration_seconds: float) -> None:
+    try:
+        pipeline_task_total.labels(task=task_name, outcome=outcome).inc()
+        pipeline_task_duration_seconds.labels(task=task_name, outcome=outcome).observe(
+            duration_seconds
+        )
+    except Exception as e:  # pragma: no cover
+        logger.warning(f"[metrics] record_task_outcome failed: {e}")
+
+
+def record_attempt_metrics(
+    *,
+    stage: str,
+    outcome: str,
+    failure_reason: str | None = None,
+    duration_ms: int | None = None,
+    content_length: int | None = None,
+) -> None:
+    try:
+        reason = failure_reason or "none"
+        pipeline_attempts_total.labels(
+            stage=stage, outcome=outcome, failure_reason=reason
+        ).inc()
+        if duration_ms is not None:
+            pipeline_attempt_duration_seconds.labels(stage=stage, outcome=outcome).observe(
+                duration_ms / 1000
+            )
+        if content_length is not None:
+            pipeline_attempt_content_length_bytes.labels(stage=stage).observe(content_length)
+    except Exception as e:  # pragma: no cover
+        logger.warning(f"[metrics] record_attempt_metrics failed: {e}")
+
+
+def set_worker_alive(alive: bool) -> None:
+    try:
+        pipeline_worker_alive.set(1 if alive else 0)
+    except Exception as e:  # pragma: no cover
+        logger.warning(f"[metrics] set_worker_alive failed: {e}")
+
+
+def set_heartbeat_misses(misses: int) -> None:
+    try:
+        pipeline_worker_heartbeat_misses.set(misses)
+    except Exception as e:  # pragma: no cover
+        logger.warning(f"[metrics] set_heartbeat_misses failed: {e}")
+
+
+def set_queue_depth(depth: int) -> None:
+    try:
+        pipeline_queue_depth.set(depth)
+    except Exception as e:  # pragma: no cover
+        logger.warning(f"[metrics] set_queue_depth failed: {e}")
+
+
+def set_cron_enabled(enabled: bool) -> None:
+    try:
+        pipeline_cron_enabled.set(1 if enabled else 0)
+    except Exception as e:  # pragma: no cover
+        logger.warning(f"[metrics] set_cron_enabled failed: {e}")
+
+
+def set_redis_connected(connected: bool) -> None:
+    try:
+        pipeline_redis_connected.set(1 if connected else 0)
+    except Exception as e:  # pragma: no cover
+        logger.warning(f"[metrics] set_redis_connected failed: {e}")
+
+
+def _is_push_configured() -> bool:
+    s = get_settings()
+    return bool(
+        s.grafana_cloud_prom_url
+        and s.grafana_cloud_prom_user
+        and s.grafana_cloud_prom_key
+        and s.metrics_enabled
+    )
+
+
+async def push_to_grafana_cloud() -> bool:
+    if not _is_push_configured():
+        return False
+
+    s = get_settings()
+    try:
+        body = generate_latest(WORKER_REGISTRY)
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.post(
+                s.grafana_cloud_prom_url,
+                content=body,
+                headers={"Content-Type": "text/plain; version=0.0.4; charset=utf-8"},
+                auth=(s.grafana_cloud_prom_user, s.grafana_cloud_prom_key),
+            )
+        if resp.status_code >= 400:
+            logger.warning(
+                f"[metrics] Grafana Cloud push failed: HTTP {resp.status_code} {resp.text[:200]}"
+            )
+            return False
+        return True
+    except Exception as e:  # pragma: no cover
+        logger.warning(f"[metrics] push_to_grafana_cloud error: {e}")
+        return False
+
+
+async def push_loop(interval_seconds: int) -> None:
+    if not _is_push_configured():
+        logger.info("[metrics] Grafana Cloud push disabled (no URL/user/key)")
+        return
+    logger.info(f"[metrics] Pushing to Grafana Cloud every {interval_seconds}s")
+    while True:
+        try:
+            await push_to_grafana_cloud()
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:  # pragma: no cover
+            logger.warning(f"[metrics] push_loop error: {e}")
+        await asyncio.sleep(interval_seconds)

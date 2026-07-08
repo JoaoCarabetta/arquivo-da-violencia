@@ -101,6 +101,8 @@ services:
       - ADMIN_USERNAME=${STAGING_ADMIN_USERNAME:-admin}
       - TELEGRAM_BOT_TOKEN=${STAGING_TELEGRAM_BOT_TOKEN:-}
       - TELEGRAM_CHAT_ID=${STAGING_TELEGRAM_CHAT_ID:-}
+    # Prod worker publishes :9091 for Prometheus; staging shares the host — no publish.
+    ports: !override []
     # Allow worker 120s to finish current job before forced shutdown
     stop_grace_period: 120s
 

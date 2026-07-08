@@ -1,0 +1,433 @@
+{
+  "title": "Arquivo da Viol\u00eancia - Pipeline",
+  "uid": "arquivo-pipeline",
+  "schemaVersion": 39,
+  "version": 2,
+  "timezone": "browser",
+  "refresh": "30s",
+  "tags": [
+    "arquivo",
+    "pipeline"
+  ],
+  "time": {
+    "from": "now-24h",
+    "to": "now"
+  },
+  "templating": {
+    "list": [
+      {
+        "name": "stage",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
+        "query": "label_values(pipeline_attempts_total{service=\"worker\"}, stage)",
+        "refresh": 2,
+        "includeAll": true,
+        "multi": true
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "title": "Worker Alive",
+      "type": "stat",
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 4,
+        "h": 4
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "expr": "pipeline_worker_alive{service=\"api\"}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "0": {
+                  "text": "DOWN",
+                  "color": "red"
+                },
+                "1": {
+                  "text": "UP",
+                  "color": "green"
+                }
+              }
+            }
+          ],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 1
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": 2,
+      "title": "Cron Enabled",
+      "type": "stat",
+      "gridPos": {
+        "x": 4,
+        "y": 0,
+        "w": 4,
+        "h": 4
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "expr": "pipeline_cron_enabled{service=\"api\"}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "0": {
+                  "text": "OFF",
+                  "color": "orange"
+                },
+                "1": {
+                  "text": "ON",
+                  "color": "green"
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": 3,
+      "title": "Queue Depth",
+      "type": "stat",
+      "gridPos": {
+        "x": 8,
+        "y": 0,
+        "w": 4,
+        "h": 4
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "expr": "pipeline_queue_depth{service=\"api\"}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "0",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 20
+              },
+              {
+                "color": "red",
+                "value": 50
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": 4,
+      "title": "Redis Connected",
+      "type": "stat",
+      "gridPos": {
+        "x": 12,
+        "y": 0,
+        "w": 4,
+        "h": 4
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "expr": "pipeline_redis_connected{service=\"api\"}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "0": {
+                  "text": "DISCONNECTED",
+                  "color": "red"
+                },
+                "1": {
+                  "text": "OK",
+                  "color": "green"
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": 10,
+      "title": "Task Outcomes (selected range)",
+      "description": "Total tasks completed in the selected time range. Populates once pipeline jobs run.",
+      "type": "bargauge",
+      "gridPos": {
+        "x": 0,
+        "y": 4,
+        "w": 24,
+        "h": 8
+      },
+      "options": {
+        "displayMode": "gradient",
+        "orientation": "horizontal",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showUnfilled": true
+      },
+      "targets": [
+        {
+          "expr": "sum(increase(pipeline_task_total{service=\"worker\"}[$__range])) by (task, outcome)",
+          "refId": "A",
+          "legendFormat": "{{task}} / {{outcome}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "0",
+          "min": 0
+        }
+      }
+    },
+    {
+      "id": 20,
+      "title": "Task Duration p50 / p95 by task",
+      "description": "Requires recent task activity on the worker.",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 0,
+        "y": 12,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.5, sum(rate(pipeline_task_duration_seconds_bucket{service=\"worker\"}[10m])) by (task, le))",
+          "refId": "p50",
+          "legendFormat": "p50 {{task}}"
+        },
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(pipeline_task_duration_seconds_bucket{service=\"worker\"}[10m])) by (task, le))",
+          "refId": "p95",
+          "legendFormat": "p95 {{task}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "noValue": "0"
+        }
+      }
+    },
+    {
+      "id": 30,
+      "title": "Success Rate by Stage",
+      "description": "Share of successful download/extraction attempts in the selected range.",
+      "type": "stat",
+      "gridPos": {
+        "x": 12,
+        "y": 12,
+        "w": 12,
+        "h": 8
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "expr": "sum(increase(pipeline_attempts_total{service=\"worker\",outcome=\"success\"}[$__range])) by (stage) / clamp_min(sum(increase(pipeline_attempts_total{service=\"worker\"}[$__range])) by (stage), 1)",
+          "refId": "A",
+          "legendFormat": "{{stage}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "noValue": "0",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 0.8
+              },
+              {
+                "color": "green",
+                "value": 0.95
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": 40,
+      "title": "Failures by Reason",
+      "type": "piechart",
+      "gridPos": {
+        "x": 0,
+        "y": 20,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "expr": "sum(increase(pipeline_attempts_total{service=\"worker\",outcome=\"failure\"}[$__range])) by (failure_reason)",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "0"
+        }
+      }
+    },
+    {
+      "id": 50,
+      "title": "Attempt Duration p95 by Stage",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 12,
+        "y": 20,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(pipeline_attempt_duration_seconds_bucket{service=\"worker\"}[10m])) by (stage, le))",
+          "refId": "A",
+          "legendFormat": "p95 {{stage}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "noValue": "0"
+        }
+      }
+    },
+    {
+      "id": 60,
+      "title": "Downloaded Content Size",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 0,
+        "y": 28,
+        "w": 24,
+        "h": 8
+      },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.5, sum(rate(pipeline_attempt_content_length_bytes_bucket{service=\"worker\",stage=\"download\"}[15m])) by (le))",
+          "refId": "p50",
+          "legendFormat": "p50 bytes"
+        },
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(pipeline_attempt_content_length_bytes_bucket{service=\"worker\",stage=\"download\"}[15m])) by (le))",
+          "refId": "p95",
+          "legendFormat": "p95 bytes"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "noValue": "0"
+        }
+      }
+    }
+  ]
+}
