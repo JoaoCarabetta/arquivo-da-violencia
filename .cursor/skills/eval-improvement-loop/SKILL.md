@@ -96,8 +96,8 @@ The `*-review.md` file leads with **Fix recommendations** — one row per
 **What will be affected**. This is what the user approves.
 
 1. Open the review file (auto-written when `--output` is used).
-2. Paste the **Fix recommendations** table (Problem | Solution | Affected).
-3. Quote **Real examples** sections — prod titles, victims, and "why this is one incident".
+2. Paste the **Fix recommendations** table (Problem | Elected solution | Score | Eval?).
+3. Quote **root cause hypotheses**, **solution score table**, **real examples**, and **eval recommendation**.
 4. **STOP and wait for explicit `approve-fix:`** before implementing changes.
 
 Example fix table:

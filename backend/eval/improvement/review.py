@@ -242,16 +242,21 @@ def _format_diagnosis_section(
         "",
         "Each row is **one problem → one solution**. All incidents sharing that fix are grouped below.",
         "",
-        "| # | Fix ID | Problem | Solution | Affected |",
-        "|---|--------|---------|----------|----------|",
+        "| # | Fix ID | Problem | Elected solution | Score | Affected | Eval? |",
+        "|---|--------|---------|------------------|-------|----------|-------|",
     ]
 
     for i, cluster in enumerate(report.clusters, start=1):
         problem = cluster.problem.replace("|", "\\|")
-        solution = cluster.solution.replace("|", "\\|")
+        elected = _clip(cluster.solution, 50).replace("|", "\\|")
         impact = cluster.evidence.replace("|", "\\|")
+        score = cluster.context.get("elected_weighted_score")
+        score_str = f"{score:.2f}" if score is not None else "—"
+        eval_flag = "—"
+        if cluster.eval_recommendation:
+            eval_flag = "Yes" if cluster.eval_recommendation.add_to_eval else "No"
         lines.append(
-            f"| {i} | `{cluster.fix_id}` | {problem} | {solution} | {impact} |"
+            f"| {i} | `{cluster.fix_id}` | {problem} | {elected} | {score_str} | {impact} | {eval_flag} |"
         )
 
     lines.extend(["", "### Fix details", ""])
@@ -278,6 +283,93 @@ def _format_diagnosis_section(
             "",
         ]
     )
+    return lines
+
+
+def _format_root_causes(cluster: FixCluster) -> list[str]:
+    if not cluster.root_causes:
+        return []
+    lines = [
+        "**Possible root causes (ranked by likelihood):**",
+        "",
+        "| Likelihood | Hypothesis | Evidence | How to confirm |",
+        "|------------|------------|----------|----------------|",
+    ]
+    for h in sorted(cluster.root_causes, key=lambda x: x.likelihood, reverse=True):
+        desc = h.description.replace("|", "\\|")
+        ev = _clip(h.evidence_for, 80).replace("|", "\\|")
+        conf = _clip(h.how_to_confirm, 60).replace("|", "\\|")
+        lines.append(
+            f"| {h.likelihood:.0%} | {desc} | {ev} | {conf} |"
+        )
+    return lines
+
+
+def _format_solutions(cluster: FixCluster) -> list[str]:
+    if not cluster.solutions:
+        return []
+    weights = cluster.context.get("score_weights") or {}
+    weight_note = ", ".join(f"{k}×{v}" for k, v in weights.items()) if weights else ""
+
+    lines = [
+        "**Solution options (scored 0–10 per dimension):**",
+        "",
+        f"Metric: weighted score = {weight_note}" if weight_note else "",
+        "",
+        "| Rank | Option | Type | Eff | Perm | Effort | Risk | Eval | **Score** |",
+        "|------|--------|------|-----|------|--------|------|------|-----------|",
+    ]
+    for i, opt in enumerate(cluster.solutions, start=1):
+        s = opt.scores
+        elected = " **← elected**" if opt.option_id == cluster.elected_solution_id else ""
+        name = _clip(opt.name, 45).replace("|", "\\|")
+        lines.append(
+            f"| {i} | {name}{elected} | `{opt.change_type}` | "
+            f"{s.get('effectiveness', 0):.1f} | {s.get('permanence', 0):.1f} | "
+            f"{s.get('effort_inverse', 0):.1f} | {s.get('risk_inverse', 0):.1f} | "
+            f"{s.get('eval_signal', 0):.1f} | **{opt.weighted_score:.2f}** |"
+        )
+
+    elected = next(
+        (o for o in cluster.solutions if o.option_id == cluster.elected_solution_id),
+        cluster.solutions[0] if cluster.solutions else None,
+    )
+    if elected:
+        lines.extend(
+            [
+                "",
+                f"**Elected solution:** `{elected.option_id}` (score **{elected.weighted_score:.2f}**)",
+                "",
+                f"- **Pros:** {elected.pros}",
+                f"- **Cons:** {elected.cons}",
+                "",
+            ]
+        )
+    return lines
+
+
+def _format_eval_recommendation(cluster: FixCluster) -> list[str]:
+    rec = cluster.eval_recommendation
+    if not rec:
+        return []
+    yes_no = "**Yes**" if rec.add_to_eval else "**No**"
+    lines = [
+        "**Eval case needed?**",
+        "",
+        f"| | |",
+        f"|---|---|",
+        f"| Add to eval | {yes_no} |",
+        f"| Priority | `{rec.priority}` |",
+        f"| Fixture | `{rec.fixture_path or '—'}` |",
+        "",
+        f"**Why:** {rec.rationale}",
+        "",
+    ]
+    if rec.suggested_cases:
+        lines.append("**Suggested cases to label:**")
+        for case in rec.suggested_cases:
+            lines.append(f"- {case}")
+        lines.append("")
     return lines
 
 
@@ -349,12 +441,20 @@ def _format_fix_cluster(
         f"| **Total cases** | {cluster.total_count} ({cluster.verified_count} verified) |",
         f"| **Impact** | {cluster.evidence} |",
         "",
-        f"**What to change:**",
-        "",
-        f"{cluster.recommended_change}",
-        "",
-        "**Where to change:**",
     ]
+    lines.extend(_format_root_causes(cluster))
+    if cluster.root_causes:
+        lines.append("")
+    lines.extend(_format_solutions(cluster))
+    lines.extend(
+        [
+            f"**What to change (elected):**",
+            "",
+            f"{cluster.recommended_change}",
+            "",
+            "**Where to change:**",
+        ]
+    )
     for target in cluster.change_targets:
         lines.append(f"- `{target}`")
     lines.extend(
@@ -369,6 +469,8 @@ def _format_fix_cluster(
     lines.extend(_format_affected_table(cluster))
     lines.append("")
     lines.extend(build_fix_examples(cluster, candidates_by_id, db))
+    lines.append("")
+    lines.extend(_format_eval_recommendation(cluster))
     lines.extend(
         [
             "",

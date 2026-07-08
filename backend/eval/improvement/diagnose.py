@@ -6,6 +6,7 @@ import re
 from collections import defaultdict
 from typing import Any
 
+from eval.improvement.analysis import analyze_report_clusters
 from eval.improvement.schemas import (
     AffectedGroup,
     AnomalyCandidate,
@@ -579,6 +580,8 @@ def build_diagnosis(
 
     priority_order = {"high": 0, "medium": 1, "low": 2}
     clusters.sort(key=lambda c: (priority_order.get(c.priority, 9), -c.total_count, c.stage))
+
+    clusters = analyze_report_clusters(clusters, verified_by_id)
 
     return DiagnosisReport(
         meta={"cluster_count": len(clusters), "candidate_count": len(candidates)},

@@ -97,6 +97,41 @@ class AffectedGroup(BaseModel):
     candidate_ids: list[str] = Field(default_factory=list)
 
 
+class RootCauseHypothesis(BaseModel):
+    hypothesis_id: str
+    description: str
+    likelihood: float = Field(ge=0.0, le=1.0)
+    evidence_for: str
+    how_to_confirm: str
+
+
+class SolutionOption(BaseModel):
+    option_id: str
+    name: str
+    description: str
+    change_type: ChangeType
+    change_targets: list[str] = Field(default_factory=list)
+    scores: dict[str, float] = Field(default_factory=dict)
+    weighted_score: float = 0.0
+    pros: str = ""
+    cons: str = ""
+    requires_eval: bool = False
+    eval_rationale: str = ""
+    eval_fixture: str | None = None
+
+
+EvalPriority = Literal["required", "recommended", "optional", "not_needed"]
+
+
+class EvalRecommendation(BaseModel):
+    add_to_eval: bool
+    priority: EvalPriority = "optional"
+    rationale: str = ""
+    suggested_cases: list[str] = Field(default_factory=list)
+    fixture_path: str | None = None
+    elected_requires_eval: bool = False
+
+
 class FixCluster(BaseModel):
     """One problem/solution pair grouping all related pipeline errors."""
 
@@ -120,6 +155,10 @@ class FixCluster(BaseModel):
     verified_count: int = 0
     total_count: int = 0
     context: dict[str, Any] = Field(default_factory=dict)
+    root_causes: list[RootCauseHypothesis] = Field(default_factory=list)
+    solutions: list[SolutionOption] = Field(default_factory=list)
+    elected_solution_id: str = ""
+    eval_recommendation: EvalRecommendation | None = None
 
 
 class DiagnosisReport(BaseModel):

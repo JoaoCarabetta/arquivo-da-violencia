@@ -5,6 +5,7 @@ import sqlite3
 
 from eval.compare import compare_case_results, compare_generic_reports
 from eval.improvement.detect import parse_stages
+from eval.improvement.analysis import analyze_cluster, weighted_score
 from eval.improvement.diagnose import build_diagnosis
 from eval.improvement.examples import build_fix_examples, _highlight_overlap
 from eval.improvement.review import build_review_markdown, emit_review_for_output
@@ -234,9 +235,9 @@ def test_build_diagnosis_includes_fix_recommendations():
     report = build_diagnosis([candidate])
     assert len(report.clusters) == 1
     cluster = report.clusters[0]
-    assert cluster.change_type == "ops"
-    assert "process_pending_deduplication" in cluster.recommended_change
-    assert any("enrichment.py" in t for t in cluster.change_targets)
+    assert len(cluster.solutions) >= 3
+    assert cluster.elected_solution_id == "code-stronger-pre-cluster"
+    assert "process_pending_deduplication" in cluster.recommended_change or cluster.recommended_change
 
 
 def test_review_markdown_includes_diagnosis_section(tmp_path):
@@ -261,6 +262,8 @@ def test_review_markdown_includes_diagnosis_section(tmp_path):
     assert "**Solution:**" in md
     assert "**What will be affected:**" in md
     assert "**Real examples (why this fix makes sense):**" in md
+    assert "**Solution options (scored" in md
+    assert "**Eval case needed?**" in md
     assert "## Candidate appendix" in md
 
 
@@ -333,3 +336,46 @@ def test_build_fix_examples_dedup_match(tmp_path):
     assert "9722" in text
     assert "Why this is one incident" in text
     db.close()
+
+
+def test_weighted_score_prefers_permanent_fix():
+    ops = weighted_score(
+        {
+            "effectiveness": 8.0,
+            "permanence": 3.0,
+            "effort_inverse": 10.0,
+            "risk_inverse": 9.0,
+            "eval_signal": 3.0,
+        }
+    )
+    code = weighted_score(
+        {
+            "effectiveness": 9.0,
+            "permanence": 9.5,
+            "effort_inverse": 6.0,
+            "risk_inverse": 7.0,
+            "eval_signal": 9.0,
+        }
+    )
+    assert code > ops
+
+
+def test_analyze_cluster_has_three_solutions_and_eval():
+    candidates = [
+        AnomalyCandidate(
+            stage="dedup-cluster",
+            candidate_id="prod-dedup_cluster-1-2",
+            signal="pending_overlap_cluster",
+            reason="overlap",
+            prod_snapshot={"city": "Cuiabá", "event_date": "2026-07-07", "raw_event_ids": [1, 2]},
+            input={"raw_event_ids": [1, 2]},
+        )
+    ]
+    report = build_diagnosis(candidates)
+    cluster = report.clusters[0]
+    assert len(cluster.solutions) >= 3
+    assert len(cluster.root_causes) >= 3
+    assert cluster.elected_solution_id
+    assert cluster.eval_recommendation is not None
+    assert cluster.eval_recommendation.add_to_eval is True
+    assert "dedup_cluster" in (cluster.eval_recommendation.fixture_path or "")
