@@ -177,6 +177,7 @@ scripts/*
 !scripts/deploy-frontend.sh
 !scripts/sync-staging-db.sh
 !scripts/check-pipeline-health.sh
+!scripts/run_prod_backfill.sh
 !scripts/hash-env-passwords.py
 !scripts/preflight-auth.py
 !scripts/lib/
