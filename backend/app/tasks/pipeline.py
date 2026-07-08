@@ -550,8 +550,11 @@ async def ingest_cities_task(
     
     # Enqueue classification tasks for all new sources (standalone runs only).
     if enqueue_classify and total_sources > 0 and ctx.get("redis"):
-        await ctx["redis"].enqueue_job("classify_pending_task", limit=total_sources + 50)
-        logger.info(f"[INGEST_CITIES] Enqueued batch classification task")
+        classify_limit = min(total_sources + 50, 200)
+        await ctx["redis"].enqueue_job("classify_pending_task", classify_limit)
+        logger.info(
+            f"[INGEST_CITIES] Enqueued batch classification task (limit={classify_limit})"
+        )
     
     duration = time.time() - start_time
     await notify_job_finished("ingest_cities", result, duration)
@@ -765,12 +768,17 @@ process_cities_backlog_job = func(
     timeout=7200,
     max_tries=1,
 )
+classify_pending_task_job = func(
+    classify_pending_task,
+    timeout=1800,
+    max_tries=2,
+)
 
 # List of all task functions for the worker
 TASK_FUNCTIONS = [
     ingest_task,
     classify_task,
-    classify_pending_task,
+    classify_pending_task_job,
     download_task,
     download_classified_task,
     extract_task,
