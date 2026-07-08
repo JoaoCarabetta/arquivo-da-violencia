@@ -40,3 +40,16 @@ def test_get_cron_jobs_split_ingest_and_backlog_when_enabled():
     assert backlog.minute == 35
     assert backlog.timeout_s == 7200
     assert backlog.unique is True
+
+
+def test_classify_pending_task_has_extended_timeout():
+    from arq.worker import func
+
+    from app.tasks.pipeline import TASK_FUNCTIONS, classify_pending_task
+
+    job = next(
+        f for f in TASK_FUNCTIONS if getattr(f, "coroutine", None) is classify_pending_task
+    )
+    assert isinstance(job, type(func(classify_pending_task)))
+    assert job.timeout_s == 1800
+    assert job.max_tries == 2

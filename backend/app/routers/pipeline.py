@@ -1,7 +1,6 @@
 """Pipeline control API router."""
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from arq import create_pool
 from arq.jobs import Job
 from loguru import logger
 
@@ -9,7 +8,7 @@ import json
 
 from app.metrics import set_cron_enabled, set_queue_depth, set_redis_connected, set_worker_alive
 from app.tasks.worker import (
-    get_redis_settings,
+    create_arq_pool,
     HEALTH_CHECK_KEY,
     WORKER_INFO_KEY,
     is_cron_enabled,
@@ -27,7 +26,7 @@ router = APIRouter(
 async def get_arq_pool():
     """Get ARQ Redis pool."""
     try:
-        return await create_pool(get_redis_settings())
+        return await create_arq_pool()
     except Exception as e:
         logger.error(f"Failed to connect to Redis: {e}")
         raise HTTPException(
