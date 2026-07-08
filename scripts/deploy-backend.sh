@@ -47,6 +47,11 @@ if ! docker compose $COMPOSE_FILES pull api worker; then
     docker compose $COMPOSE_FILES pull api worker
 fi
 
+if [ "$ENVIRONMENT" = "production" ]; then
+    echo "📥 Pulling node_exporter (best-effort)..."
+    docker compose $COMPOSE_FILES pull node_exporter || echo "⚠️ node_exporter pull failed; continuing backend deploy"
+fi
+
 ensure_bcrypt_env_passwords
 if ! preflight_api_config; then
     exit 1
@@ -73,6 +78,11 @@ docker compose $COMPOSE_FILES run --rm --no-deps api alembic upgrade head
 echo ""
 echo "🔄 Starting API and worker..."
 docker compose $COMPOSE_FILES up -d --no-deps api worker
+
+if [ "$ENVIRONMENT" = "production" ]; then
+    echo "🔄 Starting node_exporter (best-effort)..."
+    docker compose $COMPOSE_FILES up -d --no-deps node_exporter || echo "⚠️ node_exporter start failed; backend deploy continues"
+fi
 
 echo ""
 echo "🏥 Waiting for health checks..."

@@ -5,9 +5,11 @@ visualized in Grafana.
 
 | Resource | URL / host |
 |----------|------------|
-| Grafana dashboard | https://observability.carabetta.xyz/d/arquivo-pipeline |
+| Pipeline dashboard | https://observability.carabetta.xyz/d/arquivo-pipeline |
+| Host resources dashboard | https://observability.carabetta.xyz/d/arquivo-hosts |
 | Observability VPS | `62.238.12.182` (`/opt/arquivo-observability`) |
-| Production scrape targets | `77.42.72.111:8000` (API `/metrics`), `:9091` (worker) |
+| Production scrape targets | `77.42.72.111:8000` (API), `:9091` (worker), `:9100` (node_exporter) |
+| Observability scrape targets | `node_exporter:9100` (obs VPS host metrics, Docker network) |
 
 ## Architecture
 
@@ -17,7 +19,11 @@ visualized in Grafana.
 - **Worker** (`arquivo-worker`) exposes task/attempt counters on `:9091/metrics`
   via a separate `WORKER_REGISTRY` (cron timestamps, GitHub issue counters, task
   metrics — no duplicate health gauges).
-- **Prometheus** on the obs VPS scrapes both targets every 30s.
+- **Prometheus** on the obs VPS scrapes application and host targets every 30s.
+- **node_exporter** on prod (`docker-compose.yml`, `:9100`) and on the obs VPS
+  (`infra/observability/docker-compose.yml`, internal Docker network) exposes
+  RAM, disk, and CPU metrics (`node_memory_*`, `node_filesystem_*`,
+  `node_cpu_seconds_total`).
 - **Grafana** is bound to `127.0.0.1:3000` and published via nginx + Let's Encrypt
   at `observability.carabetta.xyz`.
 
@@ -32,7 +38,7 @@ bash infra/observability/deploy.sh
 ```
 
 `deploy.sh` rsyncs `infra/observability/` to the obs VPS, runs `deploy-remote.sh`,
-and opens prod UFW for obs → `:8000` / `:9091`.
+and opens prod UFW for obs → `:8000` / `:9091` / `:9100`.
 
 ## CI/CD
 
@@ -41,14 +47,16 @@ Pushing to **`master`** with changes under `infra/observability/**` triggers
 
 Backend metrics deploy via the existing
 [`.github/workflows/deploy-backend.yml`](../.github/workflows/deploy-backend.yml)
-when `backend/**` or `docker-compose.yml` change.
+when `backend/**` or `docker-compose.yml` change (includes prod **node_exporter**
+on `:9100`).
 
 Observability deploys on **master only** (staging has no scrape targets).
 
-## Dashboard sections
+## Dashboards
 
-The **Arquivo da Violência - Pipeline** dashboard is organized around three
-operational questions:
+### Pipeline (`/d/arquivo-pipeline`)
+
+Organized around three operational questions:
 
 | Section | Answers |
 |---------|---------|
@@ -57,6 +65,19 @@ operational questions:
 | **Failures (24h)** | Count, share %, and cause from `pipeline_attempt` |
 
 Inventory gauges refresh every **5 minutes** from Postgres via the API monitor.
+
+### Host resources (`/d/arquivo-hosts`)
+
+RAM, root disk, and CPU for **production** (`host=prod`) and **observability**
+(`host=obs`) VPSes. Use the **Host** dropdown to filter. Gauges turn yellow/red
+at 70–90% thresholds; **Scrape health** shows whether Prometheus reaches each
+node_exporter target.
+
+Deploy notes:
+
+- **Obs node_exporter** — ships with `infra/observability/**` (observability CI).
+- **Prod node_exporter** — ships with `docker-compose.yml` (backend CI on `master`).
+- **Prod UFW :9100** — applied by observability deploy (obs VPS IP only).
 
 ### Metrics reference
 
@@ -68,6 +89,8 @@ Inventory gauges refresh every **5 minutes** from Postgres via the API monitor.
 | `pipeline_attempt_failures_24h{stage,failure_reason}` | API | Failed attempts in last 24h with cause |
 | `pipeline_cron_last_success_timestamp{cron}` | Worker | Set when cron task succeeds |
 | `pipeline_open_failure_issues` | API | Polled from GitHub every 5 min |
+| `node_memory_*`, `node_filesystem_*`, `node_cpu_seconds_total` | node_exporter | Host RAM, disk, CPU (labels `host=prod\|obs`) |
+| `up{job=~"arquivo-prod-node\|obs-node"}` | Prometheus | Scrape health for node_exporter |
 
 ### GitHub Actions secrets
 
@@ -124,7 +147,9 @@ Expected on prod after deploy:
 
 - `pipeline_worker_alive{service="api"}` — single series, value `1`
 - Worker `:9091` — `pipeline_task_total` present, no `pipeline_worker_alive`
-- Grafana dashboard top row — single UP/OK values (no duplicate UP+DOWN)
+- Grafana pipeline dashboard top row — single UP/OK values (no duplicate UP+DOWN)
+- `up{job="arquivo-prod-node",host="prod"}` — `1` when prod node_exporter and UFW `:9100` are live
+- Host resources dashboard — `prod` and `obs` series when both node_exporter targets scrape
 
 ## Troubleshooting
 
@@ -133,4 +158,5 @@ Expected on prod after deploy:
 | Grafana login fails after redeploy | `deploy-remote.sh` overwrote password — ensure `GRAFANA_ADMIN_PASSWORD` secret matches live Grafana DB |
 | Duplicate stat values on dashboard | Health gauges scraped from both API and worker — worker must use `WORKER_REGISTRY` only |
 | Prometheus targets DOWN | Prod UFW blocking obs IP, or backend not deployed with `METRICS_ENABLED=true` |
+| Host metrics missing for prod | Prod `node_exporter` not running (`docker compose -p prod ps`) or UFW `:9100` not open for obs IP |
 | TLS/nginx broken after redeploy | Cert exists but HTTP-only config installed — `deploy-remote.sh` picks HTTPS config when cert is present |

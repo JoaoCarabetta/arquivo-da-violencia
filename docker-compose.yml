@@ -177,6 +177,25 @@ services:
     restart: unless-stopped
 
   # ---------------------------------------------------------------------------
+  # node_exporter - Host metrics for Prometheus (scraped from observability VPS)
+  # ---------------------------------------------------------------------------
+  node_exporter:
+    image: prom/node-exporter:v1.8.2
+    container_name: arquivo-node-exporter
+    ports:
+      - "9100:9100"
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro
+    command:
+      - --path.procfs=/host/proc
+      - --path.sysfs=/host/sys
+      - --path.rootfs=/rootfs
+      - --collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------------------
   # Frontend - React Vite app (production build)
   # ---------------------------------------------------------------------------
   frontend:

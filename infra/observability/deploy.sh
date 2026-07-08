@@ -51,7 +51,8 @@ set -euo pipefail
 OBS_IP="$1"
 ufw allow from "$OBS_IP" to any port 8000 proto tcp comment 'Prometheus scrape API' >/dev/null 2>&1 || true
 ufw allow from "$OBS_IP" to any port 9091 proto tcp comment 'Prometheus scrape worker' >/dev/null 2>&1 || true
-echo "UFW rules for $OBS_IP → :8000/:9091 applied"
+ufw allow from "$OBS_IP" to any port 9100 proto tcp comment 'Prometheus scrape node_exporter' >/dev/null 2>&1 || true
+echo "UFW rules for $OBS_IP → :8000/:9091/:9100 applied"
 REMOTE
 
-echo "=== Done: https://${DOMAIN}/d/arquivo-pipeline ==="
+echo "=== Done: https://${DOMAIN}/d/arquivo-pipeline and /d/arquivo-hosts ==="

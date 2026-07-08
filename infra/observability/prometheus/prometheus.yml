@@ -20,3 +20,21 @@ scrape_configs:
         labels:
           environment: production
           service: worker
+
+  - job_name: arquivo-prod-node
+    metrics_path: /metrics
+    scheme: http
+    static_configs:
+      - targets: ["77.42.72.111:9100"]
+        labels:
+          environment: production
+          host: prod
+
+  - job_name: obs-node
+    metrics_path: /metrics
+    scheme: http
+    static_configs:
+      - targets: ["node_exporter:9100"]
+        labels:
+          environment: observability
+          host: obs
