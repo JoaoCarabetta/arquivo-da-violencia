@@ -1,0 +1,91 @@
+# One-shot near-dup merge + reclassify discarded (staging/prod).
+# Manual trigger only — see docs/prod-backfill-runbook.md
+
+name: Prod Backfill Cleanup
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Target environment
+        required: true
+        type: choice
+        options:
+          - staging
+          - production
+      mode:
+        description: dry-run or execute
+        required: true
+        type: choice
+        options:
+          - dry-run
+          - execute
+      since:
+        description: Min event_date / reclassify filter (YYYY-MM-DD)
+        required: true
+        default: "2026-01-01"
+        type: string
+
+jobs:
+  backfill:
+    name: Backfill (${{ inputs.environment }} / ${{ inputs.mode }})
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment == 'production' && 'production' || 'staging' }}
+
+    steps:
+      - name: Run backfill on VPS
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          script_stop: true
+          script: |
+            set -euo pipefail
+            cd /root/arquivo-da-violencia
+            ENV="${{ inputs.environment }}"
+            if [ "$ENV" = "staging" ]; then
+              COMPOSE="-p staging"
+              API="staging-arquivo-api"
+            else
+              COMPOSE="-p prod"
+              API="arquivo-api"
+            fi
+            MODE_FLAG="--${{ inputs.mode }}"
+            echo "==> backfill $ENV $MODE_FLAG since=${{ inputs.since }}"
+            docker compose $COMPOSE exec -T api \
+              python scripts/backfill_prod_cleanup.py \
+              "$MODE_FLAG" \
+              --since "${{ inputs.since }}"
+
+      - name: Enqueue pipeline (execute only)
+        if: inputs.mode == 'execute'
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          script_stop: true
+          script: |
+            set -euo pipefail
+            cd /root/arquivo-da-violencia
+            if [ "${{ inputs.environment }}" = "staging" ]; then
+              COMPOSE="-p staging"
+            else
+              COMPOSE="-p prod"
+            fi
+            docker compose $COMPOSE exec -T api python - <<'PY'
+            import asyncio
+            from arq import create_pool
+            from arq.connections import RedisSettings
+
+            async def main():
+                redis = await create_pool(RedisSettings(host="redis", port=6379))
+                await redis.enqueue_job("classify_pending_task", 300, 10)
+                await redis.enqueue_job("download_classified_task", 200)
+                await redis.enqueue_job("extract_ready_task", 100)
+                await redis.enqueue_job("batch_enrich_task", 50)
+                print("Pipeline jobs enqueued")
+
+            asyncio.run(main())
+            PY
