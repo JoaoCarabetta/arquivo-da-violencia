@@ -234,25 +234,21 @@ def _format_diagnosis_section(report: DiagnosisReport) -> list[str]:
     lines = [
         "## Fix recommendations (approve these)",
         "",
-        "Review **clusters** of similar errors. Each row is one algorithm/ops change to approve.",
+        "Each row is **one problem → one solution**. All incidents sharing that fix are grouped below.",
         "",
-        "| # | Fix ID | Stage | Cases | Verified | Priority | Summary |",
-        "|---|--------|-------|-------|----------|----------|---------|",
+        "| # | Fix ID | Problem | Solution | Affected |",
+        "|---|--------|---------|----------|----------|",
     ]
 
     for i, cluster in enumerate(report.clusters, start=1):
-        verified = (
-            f"{cluster.verified_count}/{cluster.total_count}"
-            if cluster.verified_count
-            else "—"
-        )
-        summary = cluster.title.replace("|", "\\|")
+        problem = cluster.problem.replace("|", "\\|")
+        solution = cluster.solution.replace("|", "\\|")
+        impact = cluster.evidence.replace("|", "\\|")
         lines.append(
-            f"| {i} | `{cluster.fix_id}` | `{cluster.stage}` | {cluster.total_count} "
-            f"| {verified} | {cluster.priority} | {summary} |"
+            f"| {i} | `{cluster.fix_id}` | {problem} | {solution} | {impact} |"
         )
 
-    lines.extend(["", "### Cluster details", ""])
+    lines.extend(["", "### Fix details", ""])
 
     for i, cluster in enumerate(report.clusters, start=1):
         lines.extend(_format_fix_cluster(i, cluster))
@@ -262,17 +258,15 @@ def _format_diagnosis_section(report: DiagnosisReport) -> list[str]:
         [
             "### How to approve fixes",
             "",
-            "Reply with fix cluster IDs to implement, e.g.:",
+            "Reply with fix IDs to implement:",
             "",
             "```",
-            "approve-fix: fix-dedup-match-victim-name-belo-horizonte-2026-07-03-ue9722",
-            "approve-fix: fix-dedup-cluster-cuiaba-2026-07-07",
-            "reject-fix: fix-enrichment-needs-enrichment-stale",
-            "defer-fix: fix-dedup-match-title-fuzzy-salvador-2026-07-03-ue9745",
+            "approve-fix: fix-dedup_match-near_duplicate_unique_events-victim_name",
+            "approve-fix: fix-dedup_cluster-pending_overlap_cluster",
+            "reject-fix: fix-enrichment-field_mismatch",
             "```",
             "",
-            "Approved fixes drive the implementation loop (code/prompt/ops changes + eval cases).",
-            "Individual candidate IDs are listed in the appendix for traceability only.",
+            "Approved fixes drive code/prompt/ops changes. Candidate appendix is for traceability only.",
             "",
             "---",
             "",
@@ -281,39 +275,94 @@ def _format_diagnosis_section(report: DiagnosisReport) -> list[str]:
     return lines
 
 
+def _format_affected_table(cluster: FixCluster) -> list[str]:
+    if not cluster.affected:
+        return ["*(no affected incidents)*"]
+
+    if cluster.stage == "dedup-match":
+        lines = [
+            "| Incident | Duplicate UEs | Pairs | Merge into |",
+            "|----------|---------------|-------|------------|",
+        ]
+        for group in cluster.affected:
+            ue_str = ", ".join(str(u) for u in group.unique_event_ids)
+            survivor = group.suggested_survivor_id or "?"
+            lines.append(
+                f"| {group.label} | {ue_str} | {group.pair_count} | UE `{survivor}` |"
+            )
+        return lines
+
+    if cluster.stage == "dedup-cluster":
+        lines = [
+            "| Location | Pending raw events | Count |",
+            "|----------|-------------------|-------|",
+        ]
+        for group in cluster.affected:
+            raw_str = ", ".join(str(r) for r in group.raw_event_ids)
+            lines.append(f"| {group.label} | {raw_str} | {len(group.raw_event_ids)} |")
+        return lines
+
+    if cluster.stage == "enrichment":
+        lines = [
+            "| Unique event | Candidate |",
+            "|--------------|-----------|",
+        ]
+        for group in cluster.affected:
+            cid = group.candidate_ids[0] if group.candidate_ids else "—"
+            lines.append(f"| {group.label} | `{cid}` |")
+        return lines
+
+    lines = [
+        "| Case | Candidate ID |",
+        "|------|--------------|",
+    ]
+    for group in cluster.affected:
+        cid = group.candidate_ids[0] if group.candidate_ids else "—"
+        lines.append(f"| {group.label} | `{cid}` |")
+    return lines
+
+
 def _format_fix_cluster(index: int, cluster: FixCluster) -> list[str]:
     lines = [
-        f"#### {index}. `{cluster.fix_id}` — {cluster.title}",
+        f"#### {index}. `{cluster.fix_id}`",
+        "",
+        f"**Problem:** {cluster.problem}",
+        "",
+        f"**Solution:** {cluster.solution}",
         "",
         f"| | |",
         f"|---|---|",
-        f"| **Root cause** | {cluster.root_cause} |",
-        f"| **Mechanism** | {cluster.mechanism} |",
         f"| **Change type** | `{cluster.change_type}` |",
         f"| **Priority** | {cluster.priority} |",
-        f"| **Cases** | {cluster.total_count} ({cluster.verified_count} verified) |",
+        f"| **Total cases** | {cluster.total_count} ({cluster.verified_count} verified) |",
+        f"| **Impact** | {cluster.evidence} |",
         "",
-        f"**Recommended change:** {cluster.recommended_change}",
+        f"**What to change:**",
         "",
-        "**Change targets:**",
+        f"{cluster.recommended_change}",
+        "",
+        "**Where to change:**",
     ]
     for target in cluster.change_targets:
         lines.append(f"- `{target}`")
-    if cluster.context.get("unique_event_ids"):
-        ids = cluster.context["unique_event_ids"]
-        survivor = cluster.context.get("suggested_survivor_id")
-        lines.append("")
-        lines.append(f"**Affected UniqueEvents:** `{ids}`")
-        if survivor:
-            lines.append(f"**Suggested survivor:** UE `{survivor}` (merge losers into this)")
-    lines.append("")
-    lines.append(f"**Evidence:** {cluster.evidence}")
-    lines.append("")
-    lines.append(f"**Example candidate IDs:** `{', '.join(cluster.example_ids)}`")
-    lines.append("")
-    lines.append("**Your decision:** ☐ Approve fix &nbsp; ☐ Reject &nbsp; ☐ Defer")
-    lines.append("")
-    lines.append("---")
+    lines.extend(
+        [
+            "",
+            f"**Mechanism (why it fails today):** {cluster.mechanism}",
+            "",
+            "**What will be affected:**",
+            "",
+        ]
+    )
+    lines.extend(_format_affected_table(cluster))
+    lines.extend(
+        [
+            "",
+            "**Your decision:** ☐ Approve fix &nbsp; ☐ Reject &nbsp; ☐ Defer",
+            "",
+            "---",
+        ]
+    )
     return lines
 
 

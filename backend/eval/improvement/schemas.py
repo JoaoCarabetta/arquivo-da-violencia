@@ -84,13 +84,29 @@ ChangeType = Literal["code", "prompt", "config", "ops", "eval"]
 FixPriority = Literal["high", "medium", "low"]
 
 
+class AffectedGroup(BaseModel):
+    """One incident or location impacted by a fix."""
+
+    label: str
+    city: str | None = None
+    event_date: str | None = None
+    unique_event_ids: list[int] = Field(default_factory=list)
+    raw_event_ids: list[int] = Field(default_factory=list)
+    suggested_survivor_id: int | None = None
+    pair_count: int = 0
+    candidate_ids: list[str] = Field(default_factory=list)
+
+
 class FixCluster(BaseModel):
-    """Grouped pipeline errors with root cause and recommended algorithm change."""
+    """One problem/solution pair grouping all related pipeline errors."""
 
     fix_id: str
     stage: StageName
     signal: str
+    sub_signal: str = ""
     title: str
+    problem: str
+    solution: str
     root_cause: str
     mechanism: str
     recommended_change: str
@@ -99,6 +115,7 @@ class FixCluster(BaseModel):
     priority: FixPriority = "medium"
     candidate_ids: list[str] = Field(default_factory=list)
     example_ids: list[str] = Field(default_factory=list)
+    affected: list[AffectedGroup] = Field(default_factory=list)
     evidence: str = ""
     verified_count: int = 0
     total_count: int = 0

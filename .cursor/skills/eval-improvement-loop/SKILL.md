@@ -91,23 +91,21 @@ python -m eval improvement review \
 
 ### Present diagnosis to the user
 
-The `*-review.md` file leads with **Fix recommendations** — clustered root causes
-and algorithm changes. This is what the user approves.
+The `*-review.md` file leads with **Fix recommendations** — one row per
+**problem/solution pair**. Multiple incidents sharing the same fix appear under
+**What will be affected**. This is what the user approves.
 
 1. Open the review file (auto-written when `--output` is used).
-2. Paste the **Fix recommendations** table into chat.
-3. For clusters they ask about, quote the cluster detail (root cause, mechanism,
-   recommended change, change targets).
+2. Paste the **Fix recommendations** table (Problem | Solution | Affected).
+3. For clusters they ask about, quote problem, solution, and affected incidents table.
 4. **STOP and wait for explicit `approve-fix:` / `reject-fix:` / `defer-fix:`**
-   before implementing code/prompt/ops changes.
-5. Eval fixture cases (appendix) are secondary — approve with `approve:` only after
-   fixes are decided.
+   before implementing changes.
 
 Example fix table:
 
-| # | Fix ID | Stage | Cases | Priority | Summary |
-|---|--------|-------|-------|----------|---------|
-| 1 | `fix-dedup-match-victim-name-…` | dedup-match | 3 | high | Belo Horizonte: 3 duplicate UEs (victim_name) |
+| # | Fix ID | Problem | Solution | Affected |
+|---|--------|---------|----------|----------|
+| 1 | `fix-dedup_match-…-victim_name` | Duplicate UEs not merged | Run near-dup merge + schedule scan | 3 incidents · 20 UEs · 30 pairs |
 
 Example response format:
 

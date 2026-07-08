@@ -7,6 +7,7 @@ from collections import defaultdict
 from typing import Any
 
 from eval.improvement.schemas import (
+    AffectedGroup,
     AnomalyCandidate,
     ChangeType,
     DiagnosisReport,
@@ -25,6 +26,8 @@ DIAGNOSIS: dict[tuple[str, str, str], DiagnosisTemplate] = {
         "near_duplicate_unique_events",
         "victim_name",
     ): {
+        "problem_title": "Duplicate UniqueEvents not merged after ingest",
+        "solution_summary": "Run near-dup merge and schedule post-dedup maintenance scan",
         "root_cause": "Same victim identified on multiple UniqueEvents for one incident",
         "mechanism": (
             "Sources created separate UniqueEvents during batch clustering or ingest. "
@@ -48,6 +51,8 @@ DIAGNOSIS: dict[tuple[str, str, str], DiagnosisTemplate] = {
         "near_duplicate_unique_events",
         "title_fuzzy",
     ): {
+        "problem_title": "Title-similar UniqueEvents not merged",
+        "solution_summary": "Align title blocking thresholds and run near-dup merge",
         "root_cause": "Title-similar UniqueEvents on same day/city were not merged",
         "mechanism": (
             "Fuzzy title match exceeds `FUZZY_TITLE_THRESHOLD` (0.80) in dedup_scan but "
@@ -72,6 +77,8 @@ DIAGNOSIS: dict[tuple[str, str, str], DiagnosisTemplate] = {
         "near_duplicate_unique_events",
         "title_substring",
     ): {
+        "problem_title": "Substring title duplicates not merged",
+        "solution_summary": "Extend title blocking to catch substring matches",
         "root_cause": "Substring title match indicates duplicate UniqueEvents",
         "mechanism": "Titles share a common substring but events remain separate in the DB.",
         "recommended_change": (
@@ -90,6 +97,8 @@ DIAGNOSIS: dict[tuple[str, str, str], DiagnosisTemplate] = {
         "near_duplicate_unique_events",
         "description_fuzzy",
     ): {
+        "problem_title": "Description-similar UniqueEvents not merged",
+        "solution_summary": "Add description blocking or scheduled near-dup merge",
         "root_cause": "Chronological descriptions match but UniqueEvents stayed separate",
         "mechanism": "Description similarity ≥ 0.55 in dedup_scan; blocking strategies may not surface these as candidates during ingest.",
         "recommended_change": (
@@ -107,6 +116,8 @@ DIAGNOSIS: dict[tuple[str, str, str], DiagnosisTemplate] = {
         "matched_while_sibling_exists",
         "",
     ): {
+        "problem_title": "Sibling UniqueEvents left unmerged after match",
+        "solution_summary": "Merge siblings after link_raw_event_to_unique_event",
         "root_cause": "RawEvent matched one UE while a near-duplicate sibling UE still exists",
         "mechanism": (
             "LLM match linked raw event to UE A but sibling UE B (same incident) was never merged into A."
@@ -127,6 +138,8 @@ DIAGNOSIS: dict[tuple[str, str, str], DiagnosisTemplate] = {
         "pending_overlap_cluster",
         "",
     ): {
+        "problem_title": "Pending RawEvents not clustered by batch dedup",
+        "solution_summary": "Run process_pending_deduplication and ensure worker cron",
         "root_cause": "Overlapping pending RawEvents were never clustered into a UniqueEvent",
         "mechanism": (
             "Batch dedup (`process_pending_deduplication`) did not run, hit limit, or LLM cluster "
@@ -324,6 +337,8 @@ def _lookup_template(stage: str, signal: str, sub_signal: str) -> DiagnosisTempl
     if fallback in DIAGNOSIS:
         return DIAGNOSIS[fallback]
     return {
+        "problem_title": f"{stage.replace('-', ' ').title()}: {signal}",
+        "solution_summary": f"Investigate and fix {stage} for signal `{signal}`",
         "root_cause": f"Pipeline anomaly: {signal}",
         "mechanism": "Detected by production heuristics; manual triage required.",
         "recommended_change": f"Investigate {stage} stage for signal `{signal}`.",
@@ -385,114 +400,125 @@ def _refine_from_verification(
     return out
 
 
-def _dedup_match_ue_groups(
-    candidates: list[AnomalyCandidate],
-) -> list[tuple[str, list[AnomalyCandidate]]]:
-    """Group near-duplicate pairs into connected UE components per sub_signal+city+date."""
-    buckets: dict[str, list[AnomalyCandidate]] = defaultdict(list)
-    for c in candidates:
-        if c.signal != "near_duplicate_unique_events":
-            buckets[f"other::{c.candidate_id}"].append(c)
-            continue
+def _solution_key(candidate: AnomalyCandidate) -> tuple[str, str, str]:
+    return (candidate.stage, candidate.signal, _sub_signal(candidate))
+
+
+def _fix_id_for_solution(stage: str, signal: str, sub_signal: str) -> str:
+    parts = [stage.replace("-", "_"), sub_signal or signal]
+    return f"fix-{_slug('-'.join(p for p in parts if p), 60)}"
+
+
+def _aggregate_dedup_match_affected(members: list[AnomalyCandidate]) -> list[AffectedGroup]:
+    """Within one solution cluster, list each incident (city+date+connected UEs)."""
+    buckets: dict[tuple[str, str], list[AnomalyCandidate]] = defaultdict(list)
+    for c in members:
         snap = c.prod_snapshot
-        sub = _sub_signal(c) or "unknown"
-        city = _slug(str(snap.get("city") or "unknown"), 20)
-        day = str(snap.get("event_date") or "")[:10] or "unknown"
-        buckets[f"{sub}::{city}::{day}"].append(c)
+        city = str(snap.get("city") or "?")
+        day = str(snap.get("event_date") or "")[:10] or "?"
+        buckets[(city, day)].append(c)
 
-    groups: list[tuple[str, list[AnomalyCandidate]]] = []
-
-    for bucket_key, bucket_candidates in buckets.items():
-        if bucket_key.startswith("other::"):
-            for c in bucket_candidates:
-                groups.append((c.candidate_id, [c]))
-            continue
-
+    affected: list[AffectedGroup] = []
+    for (city, day), bucket in sorted(buckets.items()):
         uf = _UnionFind()
-        for c in bucket_candidates:
+        for c in bucket:
             snap = c.prod_snapshot
-            id_a, id_b = int(snap["id_a"]), int(snap["id_b"])
-            uf.union(id_a, id_b)
+            uf.union(int(snap["id_a"]), int(snap["id_b"]))
 
         by_root: dict[int, list[AnomalyCandidate]] = defaultdict(list)
-        for c in bucket_candidates:
-            snap = c.prod_snapshot
-            root = uf.find(int(snap["id_a"]))
+        for c in bucket:
+            root = uf.find(int(c.prod_snapshot["id_a"]))
             by_root[root].append(c)
 
-        sub, city, day = bucket_key.split("::", 2)
-        for root, members in by_root.items():
+        for root, component in by_root.items():
             ue_ids = sorted(
-                {
-                    int(m.prod_snapshot["id_a"])
-                    for m in members
-                }
-                | {
-                    int(m.prod_snapshot["id_b"])
-                    for m in members
-                }
+                {int(m.prod_snapshot["id_a"]) for m in component}
+                | {int(m.prod_snapshot["id_b"]) for m in component}
             )
-            group_key = f"dedup-match-{sub}-{city}-{day}-ue{root}"
-            groups.append((group_key, members))
-
-    return groups
-
-
-def _default_group_key(candidate: AnomalyCandidate) -> str:
-    if candidate.stage == "dedup-cluster":
-        snap = candidate.prod_snapshot
-        city = _slug(str(snap.get("city") or "unknown"), 20)
-        day = str(snap.get("event_date") or "")[:10] or "unknown"
-        return f"dedup-cluster-{city}-{day}"
-    return f"{candidate.stage}-{candidate.signal}"
-
-
-def _group_candidates(candidates: list[AnomalyCandidate]) -> list[tuple[str, list[AnomalyCandidate]]]:
-    dedup_near = [c for c in candidates if c.stage == "dedup-match" and c.signal == "near_duplicate_unique_events"]
-    rest = [c for c in candidates if c not in dedup_near]
-
-    groups = _dedup_match_ue_groups(dedup_near)
-
-    generic: dict[str, list[AnomalyCandidate]] = defaultdict(list)
-    for c in rest:
-        generic[_default_group_key(c)].append(c)
-    for key, members in generic.items():
-        groups.append((key, members))
-
-    return groups
+            affected.append(
+                AffectedGroup(
+                    label=f"{city} {day}",
+                    city=city if city != "?" else None,
+                    event_date=day if day != "?" else None,
+                    unique_event_ids=ue_ids,
+                    suggested_survivor_id=min(ue_ids) if ue_ids else None,
+                    pair_count=len(component),
+                    candidate_ids=[c.candidate_id for c in component],
+                )
+            )
+    return affected
 
 
-def _cluster_title(members: list[AnomalyCandidate], verified_by_id: dict[str, VerificationResult]) -> str:
-    c0 = members[0]
-    if c0.stage == "dedup-match" and c0.signal == "near_duplicate_unique_events":
-        snap = c0.prod_snapshot
-        city = snap.get("city") or "?"
-        day = str(snap.get("event_date") or "")[:10]
-        sub = _sub_signal(c0) or "duplicate"
-        ue_count = len(
-            {
-                int(m.prod_snapshot.get("id_a", 0))
-                for m in members
-            }
-            | {
-                int(m.prod_snapshot.get("id_b", 0))
-                for m in members
-            }
+def _aggregate_dedup_cluster_affected(members: list[AnomalyCandidate]) -> list[AffectedGroup]:
+    affected: list[AffectedGroup] = []
+    for c in members:
+        snap = c.prod_snapshot
+        city = str(snap.get("city") or "?")
+        day = str(snap.get("event_date") or "")[:10] or "?"
+        raw_ids = list(snap.get("raw_event_ids") or c.input.get("raw_event_ids") or [])
+        affected.append(
+            AffectedGroup(
+                label=f"{city} {day}",
+                city=city if city != "?" else None,
+                event_date=day if day != "?" else None,
+                raw_event_ids=raw_ids,
+                pair_count=len(raw_ids),
+                candidate_ids=[c.candidate_id],
+            )
         )
-        return f"{city} {day}: {ue_count} duplicate UEs ({sub}, {len(members)} pairs)"
-    if c0.stage == "dedup-cluster":
-        snap = c0.prod_snapshot
-        city = snap.get("city") or "?"
-        day = str(snap.get("event_date") or "")[:10]
-        n = len(snap.get("raw_event_ids") or [])
-        return f"{city} {day}: {n} pending raw events should cluster"
-    if c0.stage == "enrichment":
-        ue = c0.input.get("unique_event_id") or c0.prod_snapshot.get("unique_event_id")
-        return f"Enrichment {c0.signal} (UE {ue})"
-    if c0.stage == "classification":
-        headline = (c0.prod_snapshot.get("headline") or "")[:50]
-        return f"Classification {c0.signal}: {headline}…"
-    return f"{c0.stage} / {c0.signal} ({len(members)} cases)"
+    return sorted(affected, key=lambda g: (g.event_date or "", g.city or ""))
+
+
+def _aggregate_enrichment_affected(members: list[AnomalyCandidate]) -> list[AffectedGroup]:
+    affected: list[AffectedGroup] = []
+    for c in members:
+        ue_id = c.input.get("unique_event_id") or c.prod_snapshot.get("unique_event_id")
+        affected.append(
+            AffectedGroup(
+                label=f"UE {ue_id}",
+                unique_event_ids=[int(ue_id)] if ue_id else [],
+                candidate_ids=[c.candidate_id],
+            )
+        )
+    return affected
+
+
+def _aggregate_generic_affected(members: list[AnomalyCandidate]) -> list[AffectedGroup]:
+    affected: list[AffectedGroup] = []
+    for c in members:
+        label = c.candidate_id
+        if c.stage == "classification":
+            headline = (c.prod_snapshot.get("headline") or "")[:60]
+            label = f"Source — {headline}…" if headline else c.candidate_id
+        elif c.stage == "extraction":
+            title = (c.prod_snapshot.get("title") or c.input.get("headline") or "")[:60]
+            label = f"RawEvent — {title}…" if title else c.candidate_id
+        affected.append(AffectedGroup(label=label, candidate_ids=[c.candidate_id]))
+    return affected
+
+
+def _aggregate_affected(stage: str, signal: str, members: list[AnomalyCandidate]) -> list[AffectedGroup]:
+    if stage == "dedup-match" and signal == "near_duplicate_unique_events":
+        return _aggregate_dedup_match_affected(members)
+    if stage == "dedup-cluster":
+        return _aggregate_dedup_cluster_affected(members)
+    if stage == "enrichment":
+        return _aggregate_enrichment_affected(members)
+    return _aggregate_generic_affected(members)
+
+
+def _impact_summary(affected: list[AffectedGroup], stage: str) -> str:
+    if not affected:
+        return "—"
+    if stage == "dedup-match":
+        ue_total = len({uid for g in affected for uid in g.unique_event_ids})
+        return f"{len(affected)} incidents · {ue_total} duplicate UEs · {sum(g.pair_count for g in affected)} pairs"
+    if stage == "dedup-cluster":
+        raw_total = sum(len(g.raw_event_ids) for g in affected)
+        return f"{len(affected)} pending clusters · {raw_total} raw events"
+    if stage == "enrichment":
+        return f"{len(affected)} unique events"
+    return f"{len(affected)} cases"
 
 
 def build_diagnosis(
@@ -500,43 +526,36 @@ def build_diagnosis(
     verified_by_id: dict[str, VerificationResult] | None = None,
 ) -> DiagnosisReport:
     verified_by_id = verified_by_id or {}
+    by_solution: dict[tuple[str, str, str], list[AnomalyCandidate]] = defaultdict(list)
+    for c in candidates:
+        by_solution[_solution_key(c)].append(c)
+
     clusters: list[FixCluster] = []
 
-    for group_key, members in _group_candidates(candidates):
-        c0 = members[0]
-        sub = _sub_signal(c0)
-        template = _lookup_template(c0.stage, c0.signal, sub)
-
-        member_verifications = [verified_by_id[c.candidate_id] for c in members if c.candidate_id in verified_by_id]
+    for (stage, signal, sub_signal), members in by_solution.items():
+        template = _lookup_template(stage, signal, sub_signal)
+        member_verifications = [
+            verified_by_id[c.candidate_id] for c in members if c.candidate_id in verified_by_id
+        ]
         refined = _refine_from_verification(template, member_verifications)
-
         verified_count = sum(1 for v in member_verifications if v.verified)
-        fix_id = f"fix-{_slug(group_key, 50)}"
+        affected = _aggregate_affected(stage, signal, members)
 
-        context: dict[str, Any] = {}
-        if c0.stage == "dedup-match" and c0.signal == "near_duplicate_unique_events":
-            ue_ids = sorted(
-                {
-                    int(m.prod_snapshot["id_a"])
-                    for m in members
-                }
-                | {
-                    int(m.prod_snapshot["id_b"])
-                    for m in members
-                }
-            )
-            context["unique_event_ids"] = ue_ids
-            if c0.prod_snapshot.get("suggested_survivor_id"):
-                context["suggested_survivor_id"] = c0.prod_snapshot["suggested_survivor_id"]
-            elif ue_ids:
-                context["suggested_survivor_id"] = min(ue_ids)
+        all_ue_ids = sorted({uid for g in affected for uid in g.unique_event_ids})
+        all_raw_ids = sorted({rid for g in affected for rid in g.raw_event_ids})
+
+        problem = refined.get("problem_title") or refined["root_cause"]
+        solution = refined.get("solution_summary") or refined["recommended_change"][:120]
 
         clusters.append(
             FixCluster(
-                fix_id=fix_id,
-                stage=c0.stage,
-                signal=c0.signal,
-                title=_cluster_title(members, verified_by_id),
+                fix_id=_fix_id_for_solution(stage, signal, sub_signal),
+                stage=stage,  # type: ignore[arg-type]
+                signal=signal,
+                sub_signal=sub_signal,
+                title=problem,
+                problem=problem,
+                solution=solution,
                 root_cause=refined["root_cause"],
                 mechanism=refined["mechanism"],
                 recommended_change=refined["recommended_change"],
@@ -545,10 +564,16 @@ def build_diagnosis(
                 priority=refined.get("priority", "medium"),
                 candidate_ids=[c.candidate_id for c in members],
                 example_ids=[c.candidate_id for c in members[:3]],
-                evidence=members[0].reason if len(members) == 1 else f"{len(members)} related anomalies",
+                affected=affected,
+                evidence=_impact_summary(affected, stage),
                 verified_count=verified_count,
                 total_count=len(members),
-                context=context,
+                context={
+                    "impact_summary": _impact_summary(affected, stage),
+                    "incident_count": len(affected),
+                    "unique_event_ids": all_ue_ids,
+                    "raw_event_ids": all_raw_ids,
+                },
             )
         )
 

@@ -156,8 +156,8 @@ def test_emit_review_for_output_verified(tmp_path):
     assert "Re-run confirms duplicate" in text
 
 
-def test_build_diagnosis_clusters_dedup_match_pairs():
-    """Three pairs sharing UEs 9722/9723/9730 → one cluster."""
+def test_build_diagnosis_clusters_by_solution_not_incident():
+    """Three pairs sharing UEs 9722/9723/9730 → one solution cluster with one affected incident."""
     candidates = [
         AnomalyCandidate(
             stage="dedup-match",
@@ -176,10 +176,49 @@ def test_build_diagnosis_clusters_dedup_match_pairs():
         for a, b in [(9722, 9723), (9722, 9730), (9723, 9730)]
     ]
     report = build_diagnosis(candidates)
-    victim_clusters = [c for c in report.clusters if "victim_name" in c.fix_id or c.signal == "near_duplicate_unique_events"]
-    assert len(victim_clusters) == 1
-    assert victim_clusters[0].total_count == 3
-    assert set(victim_clusters[0].context.get("unique_event_ids", [])) == {9722, 9723, 9730}
+    assert len(report.clusters) == 1
+    cluster = report.clusters[0]
+    assert cluster.total_count == 3
+    assert len(cluster.affected) == 1
+    assert set(cluster.affected[0].unique_event_ids) == {9722, 9723, 9730}
+    assert cluster.affected[0].pair_count == 3
+    assert "incidents" in cluster.evidence
+
+
+def test_build_diagnosis_merges_same_solution_across_cities():
+    """Same victim_name dedup problem in two cities → one fix cluster, two affected incidents."""
+    candidates = [
+        AnomalyCandidate(
+            stage="dedup-match",
+            candidate_id="prod-dedup_match-1-2",
+            signal="near_duplicate_unique_events",
+            reason="pair",
+            prod_snapshot={
+                "id_a": 1,
+                "id_b": 2,
+                "signal": "victim_name",
+                "city": "Salvador",
+                "event_date": "2026-07-03",
+            },
+        ),
+        AnomalyCandidate(
+            stage="dedup-match",
+            candidate_id="prod-dedup_match-3-4",
+            signal="near_duplicate_unique_events",
+            reason="pair",
+            prod_snapshot={
+                "id_a": 3,
+                "id_b": 4,
+                "signal": "victim_name",
+                "city": "Belo Horizonte",
+                "event_date": "2026-07-03",
+            },
+        ),
+    ]
+    report = build_diagnosis(candidates)
+    assert len(report.clusters) == 1
+    assert len(report.clusters[0].affected) == 2
+    assert report.clusters[0].evidence.startswith("2 incidents")
 
 
 def test_build_diagnosis_includes_fix_recommendations():
@@ -217,6 +256,7 @@ def test_review_markdown_includes_diagnosis_section(tmp_path):
     )
     md = build_review_markdown(candidates=[candidate], db_path=db_path)
     assert "## Fix recommendations (approve these)" in md
-    assert "**Root cause**" in md
-    assert "**Recommended change:**" in md
+    assert "**Problem:**" in md
+    assert "**Solution:**" in md
+    assert "**What will be affected:**" in md
     assert "## Candidate appendix" in md
