@@ -34,18 +34,14 @@ def _resolve_model(variant: StageVariant) -> str:
 
 
 def _run_one_case(case, variant: StageVariant) -> DedupClusterCaseResult:
-    from app.services.enrichment import llm_cluster_events
+    from app.services.enrichment import cluster_within_group, llm_cluster_events
 
     events = [raw_event_from_data(e) for e in case.input.events]
     id_to_index = {e.id: i + 1 for i, e in enumerate(events)}
 
     start = time.perf_counter()
     try:
-        clusters = llm_cluster_events(
-            events,
-            model=variant.model,
-            system_prompt=variant.system_prompt,
-        )
+        clusters = cluster_within_group(events)
         latency_ms = int((time.perf_counter() - start) * 1000)
 
         actual = [sorted(id_to_index[e.id] for e in cluster) for cluster in clusters]

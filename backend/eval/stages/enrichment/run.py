@@ -1,6 +1,7 @@
 """Run enrichment-synthesis eval against a labeled fixture.
 
-Calls the production `synthesize_unique_event` with plain dicts (no DB access).
+Calls the production `synthesize_unique_event` plus `apply_raw_field_consensus`
+with plain dicts (no DB access).
 """
 
 from __future__ import annotations
@@ -32,7 +33,7 @@ def _resolve_model(variant: StageVariant) -> str:
 
 
 def _run_one_case(case, variant: StageVariant) -> EnrichmentCaseResult:
-    from app.services.enrichment import synthesize_unique_event
+    from app.services.enrichment import apply_raw_field_consensus, synthesize_unique_event
 
     sources_info = [s.model_dump() for s in case.input.sources]
     start = time.perf_counter()
@@ -43,6 +44,13 @@ def _run_one_case(case, variant: StageVariant) -> EnrichmentCaseResult:
             model=variant.model,
             system_prompt=variant.system_prompt,
         )
+        consensus_rows = [
+            type("RawRow", (), {"victim_count": s.victim_count, "city": s.city})()
+            for s in case.input.sources
+            if s.victim_count is not None or s.city
+        ]
+        if consensus_rows:
+            result = apply_raw_field_consensus(result, consensus_rows)
         latency_ms = int((time.perf_counter() - start) * 1000)
         actual = result.model_dump(mode="json")
         passed, score, field_results, diff = score_case(case, actual)
