@@ -61,6 +61,14 @@ source .env
 set +a
 docker compose pull
 docker compose up -d
+# Bind-mounted prometheus.yml is not picked up until reload/restart.
+docker compose restart prometheus
+sleep 3
+if docker exec obs-prometheus wget -qO- --post-data="" http://localhost:9090/-/reload >/dev/null 2>&1; then
+  log "Prometheus config reloaded"
+else
+  log "Prometheus reload skipped (container may still be starting)"
+fi
 
 # --- Nginx + TLS ---
 nginx_site="/etc/nginx/sites-available/observability"
