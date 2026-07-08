@@ -24,6 +24,8 @@ class EnrichmentSource(BaseModel):
     url: str | None = None
     content: str = ""
     extraction: dict[str, Any] | None = None
+    victim_count: int | None = None
+    city: str | None = None
 
 
 class EnrichmentInput(BaseModel):

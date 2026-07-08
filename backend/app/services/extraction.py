@@ -14,6 +14,7 @@ from app.database import async_session_maker
 from app.models import RawEvent, SourceGoogleNews, SourceStatus
 from app.services import diagnostics
 from app.services.extraction_schemas import ViolentDeathEvent
+from app.services.extraction_heuristics import apply_extraction_heuristics
 from app.taxonomy import format_legacy_homicide_type
 
 
@@ -79,7 +80,9 @@ Se a notícia foi publicada em 21/12/2025 e o texto menciona:
 QUANDO PODE INFERIR A DATA (has_explicit_date = TRUE):
 1. Data completa explícita: "15 de dezembro de 2025", "20/11/2025"
 2. Data relativa COM referência de publicação: "ontem" quando você sabe a data de publicação
-3. Dia da semana COM número: "sexta-feira (12)" quando você pode verificar pelo contexto
+3. Dia da semana COM número entre parênteses: "domingo (10)", "sexta-feira (12)" —
+   PRIORIZE o número do dia do mês sobre o dia da semana quando houver conflito
+   (ex.: publicação em 11/03/2025 + "domingo (10)" → 2025-03-10, não o domingo anterior).
 
 QUANDO NÃO PODE INFERIR (has_explicit_date = FALSE):
 1. Termos vagos sem referência: "recentemente", "há alguns dias", "no início da semana"
@@ -133,11 +136,18 @@ Passo 2 — event_subtype (dentro da família):
 
 Se event_family = "homicidio":
 - "simples": homicídio sem qualificadora explícita (padrão; na dúvida use simples)
-- "qualificado": qualificadora explícita (tortura, emboscada, vítima rendida, etc.)
+- "qualificado": qualificadora explícita — vítima amarrada/rendida, chacina (≥3 mortos
+  no mesmo ataque), "múltiplos disparos à queima-roupa", "dezenas de tiros",
+  execução por disparos (headline "executado a tiros" + relato de tiros), tortura,
+  emboscada. Briga espontânea ou mera palavra "executado" sem tiros NÃO basta.
 - "feminicidio": violência de gênero ou doméstica contra mulher
 - "latrocinio": morte durante roubo/assalto
 - "infanticidio": morte de criança pelo contexto do texto
-- "intervencao_policial": morte em operação policial ou "neutralizado"
+- "intervencao_policial": morte em operação policial quando o texto enquadra a morte
+  como neutralização em operação (ex.: "foi neutralizado durante operação da PM").
+  NÃO use para notícias longas de patrulhamento/abordagem onde criminosos atiram
+  primeiro e suspeitos morreram em "confronto" ou "troca de tiros" — nesses casos
+  use "simples" (homicídio comum sob investigação do DHPP/DH).
 - "morte_transito_doloso": atropelamento intencional ou perseguição fatal com veículo
 
 Se event_family = "tentativa":
@@ -164,17 +174,27 @@ Defina content_class em todo JSON de saída. Valores permitidos:
 - "non_incident": suicídio, crueldade contra animais, coluna de opinião, matéria
   jurídica sobre processo antigo sem óbito novo, ou conteúdo fora do escopo de homicídio.
 - "accident_disaster": acidente de trânsito culposo, queda, afogamento, desastre natural
-  sem homicídio doloso.
+  sem homicídio doloso. OBRIGATÓRIO quando event_family = "acidente_fatal".
 - "foreign": evento ocorre fora do Brasil ou a matéria trata primariamente de mortes no
   exterior (EUA, Europa, etc.).
 
 SOBRE number_of_victims — NUNCA USE TOTAIS AGREGADOS:
+- Conte APENAS as vítimas FATAIS do incidente (mortos), NUNCA inclua feridos.
+  Ex.: "três mortos e um ferido" → number_of_victims = 3, não 4.
 - Conte APENAS as vítimas do incidente específico descrito (máximo 20).
 - NUNCA use totais anuais, CVLI, "4.241 mortes em 2025", balanço estadual ou estatísticas
   de painel como number_of_victims — mesmo que sejam o tema da matéria.
 - Se a matéria é estatística agregada sem incidente único, use content_class =
   "aggregate_statistics" e number_of_victims = 1 apenas se houver um caso concreto
   embutido; caso contrário a extração será descartada downstream.
+
+SOBRE homicide_dynamic.method — OBRIGATÓRIO PREENCHER:
+- Use um valor do enum quando o texto indicar o meio (tiros → "Arma de fogo",
+  facadas → "Arma branca", traumatismo craniano → "Objeto contundente").
+- "Não especificado" quando a matéria diz que o método/causa não foi determinado
+  ou não divulgado, ou quando há pouquíssima informação sobre a dinâmica.
+- Não deixe null se o texto menciona tiros, disparos, facadas ou equivalentes.
+- Prefira "Não especificado" a "Outro" quando a perícia não identificou o objeto.
 
 SOBRE TÍTULOS:
 - Se não há data completa verificada, use "DATA NÃO INFORMADA" no título
@@ -247,7 +267,7 @@ def extract_event_from_content(
         timeout=180,
     )
 
-    return event
+    return apply_extraction_heuristics(event, content, metadata)
 
 
 def _build_extraction_prompt(content: str, metadata: dict | None = None) -> str:

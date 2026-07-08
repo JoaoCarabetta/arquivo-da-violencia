@@ -129,6 +129,10 @@ curl -sf http://localhost:8000/api/pipeline/status
 bash scripts/check-pipeline-health.sh
 bash scripts/check-pipeline-health.sh --notify --remediate
 
+# One-shot backfill after eval-improvement deploy (see docs/prod-backfill-runbook.md)
+bash scripts/run_prod_backfill.sh staging --dry-run
+bash scripts/run_prod_backfill.sh prod --execute --since 2026-01-01
+
 # Docker Compose (production stack)
 docker compose -p prod ps
 docker compose -p prod up -d --no-deps api worker

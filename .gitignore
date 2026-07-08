@@ -167,6 +167,9 @@ frontend/node_modules/*
 
 *.db
 *.cursor/*
+!.cursor/skills/
+!.cursor/skills/**
+!.cursor/skills/**/*
 .venv-notebook/
 
 scripts/*
@@ -174,6 +177,7 @@ scripts/*
 !scripts/deploy-frontend.sh
 !scripts/sync-staging-db.sh
 !scripts/check-pipeline-health.sh
+!scripts/run_prod_backfill.sh
 !scripts/check-observability.sh
 !scripts/hash-env-passwords.py
 !scripts/preflight-auth.py

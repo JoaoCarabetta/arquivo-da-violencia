@@ -13,8 +13,8 @@ Deduplication Strategy:
 
 import json
 import re
-from collections import defaultdict
-from datetime import datetime, timedelta
+from collections import Counter, defaultdict
+from datetime import date, datetime, timedelta
 from difflib import SequenceMatcher
 
 import instructor
@@ -737,7 +737,12 @@ def llm_match_to_unique_event(
 # =============================================================================
 
 
-async def link_raw_event_to_unique_event(raw_event_id: int, unique_event_id: int) -> None:
+async def link_raw_event_to_unique_event(
+    raw_event_id: int,
+    unique_event_id: int,
+    *,
+    trigger_near_dup_merge: bool = True,
+) -> None:
     """
     Link RawEvent to UniqueEvent:
     - Set raw_event.unique_event_id
@@ -774,6 +779,32 @@ async def link_raw_event_to_unique_event(raw_event_id: int, unique_event_id: int
         
     logger.info(f"[Link] Linked RawEvent {raw_event_id} to UniqueEvent {unique_event_id}")
 
+    if trigger_near_dup_merge:
+        await _auto_merge_near_duplicates_for_unique_event(unique_event_id)
+
+
+async def _auto_merge_near_duplicates_for_unique_event(unique_event_id: int) -> None:
+    """Merge sibling UniqueEvents in the same date/city bucket after a link."""
+    from app.services.maintenance import auto_merge_near_duplicates_in_bucket
+
+    async with async_session_maker() as session:
+        result = await session.execute(
+            text("SELECT event_date, city FROM unique_event WHERE id = :id"),
+            {"id": unique_event_id},
+        )
+        row = result.fetchone()
+    if not row or not row.city:
+        return
+
+    event_date = parse_datetime(row.event_date)
+    day = event_date.date() if event_date else None
+    try:
+        await auto_merge_near_duplicates_in_bucket(day, row.city, dry_run=False)
+    except Exception as exc:
+        logger.warning(
+            f"[Link] Near-dup auto-merge failed for UniqueEvent {unique_event_id}: {exc}"
+        )
+
 
 # =============================================================================
 # CLUSTERING (Batch Deduplication)
@@ -799,21 +830,14 @@ def group_pending_by_date_city(raw_events: list[RawEvent]) -> dict[tuple, list[R
 
 def pre_cluster_by_victim_name(raw_events: list[RawEvent]) -> list[list[RawEvent]]:
     """
-    Pre-cluster RawEvents by victim name match (no LLM needed).
-    
-    Events with matching victim names are clustered together (fuzzy).
-    Events without identifiable victims remain as singletons.
+    Pre-cluster RawEvents by victim name and title overlap (no LLM needed).
+
+    Events with matching victim names or fuzzy title overlap are clustered
+    together. Events without identifiable victims remain as singletons unless
+    title overlap links them to another event.
     """
     if len(raw_events) <= 1:
         return [[e] for e in raw_events]
-
-    event_names: dict[int, list[str]] = {}
-    events_with_names: set[int] = set()
-    for raw_event in raw_events:
-        names = extract_victim_names(raw_event)
-        if names:
-            events_with_names.add(raw_event.id)
-            event_names[raw_event.id] = names
 
     parent: dict[int, int] = {e.id: e.id for e in raw_events}
 
@@ -828,6 +852,12 @@ def pre_cluster_by_victim_name(raw_events: list[RawEvent]) -> list[list[RawEvent
         if ra != rb:
             parent[rb] = ra
 
+    event_names: dict[int, list[str]] = {}
+    for raw_event in raw_events:
+        names = extract_victim_names(raw_event)
+        if names:
+            event_names[raw_event.id] = names
+
     ids = list(event_names.keys())
     for i, id_a in enumerate(ids):
         for id_b in ids[i + 1 :]:
@@ -838,24 +868,17 @@ def pre_cluster_by_victim_name(raw_events: list[RawEvent]) -> list[list[RawEvent
             ):
                 union(id_a, id_b)
 
+    for i, event_a in enumerate(raw_events):
+        for event_b in raw_events[i + 1 :]:
+            if fuzzy_title_match(event_a.title or "", event_b.title or ""):
+                union(event_a.id, event_b.id)
+
     clusters_by_root: dict[int, list[RawEvent]] = defaultdict(list)
     for raw_event in raw_events:
-        if raw_event.id in events_with_names:
-            clusters_by_root[find(raw_event.id)].append(raw_event)
-
-    next_cluster_id = 0
-    clusters: dict[int, list[RawEvent]] = {}
-    for events in clusters_by_root.values():
-        clusters[next_cluster_id] = events
-        next_cluster_id += 1
-
-    for raw_event in raw_events:
-        if raw_event.id not in events_with_names:
-            clusters[next_cluster_id] = [raw_event]
-            next_cluster_id += 1
+        clusters_by_root[find(raw_event.id)].append(raw_event)
 
     result = []
-    for events in clusters.values():
+    for events in clusters_by_root.values():
         seen_ids: set[int] = set()
         unique_events = []
         for e in events:
@@ -1311,6 +1334,14 @@ async def process_pending_deduplication(limit: int = 200) -> dict:
     
     logger.info(f"[Batch Dedup] Processing {len(raw_events)} pending RawEvent(s)")
 
+    affected_buckets: set[tuple[str, str]] = set()
+
+    def _track_bucket(raw_event: RawEvent) -> None:
+        if raw_event.event_date and raw_event.city:
+            affected_buckets.add(
+                (raw_event.event_date.date().isoformat(), raw_event.city)
+            )
+
     # Phase 1: try matching each pending RawEvent against existing UniqueEvents
     # before clustering only among themselves (closes cross-wave duplicate gap).
     still_pending: list[RawEvent] = []
@@ -1323,8 +1354,13 @@ async def process_pending_deduplication(limit: int = 200) -> dict:
                 raw_event, candidates
             )
             if matched:
-                await link_raw_event_to_unique_event(raw_event.id, matched.id)
+                await link_raw_event_to_unique_event(
+                    raw_event.id,
+                    matched.id,
+                    trigger_near_dup_merge=False,
+                )
                 matched_to_existing += 1
+                _track_bucket(raw_event)
                 logger.info(
                     f"[Batch Dedup] Phase 1 match: RawEvent {raw_event.id} "
                     f"-> UniqueEvent {matched.id} (confidence: {confidence:.2f})"
@@ -1340,12 +1376,14 @@ async def process_pending_deduplication(limit: int = 200) -> dict:
 
     if not still_pending:
         logger.info("[Batch Dedup] All pending RawEvents matched to existing UniqueEvents")
+        near_dup_merged = await _merge_near_duplicates_in_buckets(affected_buckets)
         return {
             "status": "completed",
             "processed": matched_to_existing,
             "matched_to_existing": matched_to_existing,
             "unique_events_created": 0,
             "groups_processed": 0,
+            "near_dup_events_merged": near_dup_merged,
         }
 
     raw_events = still_pending
@@ -1363,6 +1401,9 @@ async def process_pending_deduplication(limit: int = 200) -> dict:
     
     for group_key, group_events in groups.items():
         logger.debug(f"[Batch Dedup] Processing group {group_key} with {len(group_events)} event(s)")
+        date_key, _city_lower = group_key
+        if date_key != "no_date" and group_events[0].city:
+            affected_buckets.add((date_key.isoformat(), group_events[0].city))
         
         # Cluster within group
         clusters = cluster_within_group(group_events)
@@ -1373,6 +1414,8 @@ async def process_pending_deduplication(limit: int = 200) -> dict:
             unique_events_created += 1
             raw_events_processed += len(cluster)
     
+    near_dup_merged = await _merge_near_duplicates_in_buckets(affected_buckets)
+
     logger.info(f"[Batch Dedup] ✅ Created {unique_events_created} UniqueEvent(s) from {raw_events_processed} RawEvent(s)")
     
     return {
@@ -1381,7 +1424,28 @@ async def process_pending_deduplication(limit: int = 200) -> dict:
         "matched_to_existing": matched_to_existing,
         "unique_events_created": unique_events_created,
         "groups_processed": len(groups),
+        "near_dup_events_merged": near_dup_merged,
     }
+
+
+async def _merge_near_duplicates_in_buckets(
+    buckets: set[tuple[str, str]],
+) -> int:
+    """Run near-duplicate merge for each affected date/city bucket."""
+    from app.services.maintenance import auto_merge_near_duplicates_in_bucket
+
+    merged = 0
+    for day_str, city in buckets:
+        try:
+            audit = await auto_merge_near_duplicates_in_bucket(
+                day_str, city, dry_run=False
+            )
+            merged += audit.get("events_merged", 0)
+        except Exception as exc:
+            logger.warning(
+                f"[Batch Dedup] Near-dup merge failed for {city} {day_str}: {exc}"
+            )
+    return merged
 
 
 async def run_pending_enrichments(limit: int = 50, concurrency: int = 2) -> dict:
@@ -1455,6 +1519,46 @@ def build_enrichment_user_prompt(current_state: dict, sources_info: list[dict]) 
 
 FONTES DE NOTÍCIAS ({len(sources_info)} fontes):
 {sources_str}"""
+
+
+def _majority_vote_int(values: list[int | None]) -> int | None:
+    """Pick the most common integer; ties resolve to the higher value."""
+    filtered = [v for v in values if v is not None]
+    if not filtered:
+        return None
+    counts = Counter(filtered)
+    top_freq = counts.most_common(1)[0][1]
+    top_values = [v for v, c in counts.items() if c == top_freq]
+    return max(top_values)
+
+
+def _majority_vote_str(values: list[str | None]) -> str | None:
+    """Pick the most common non-empty string."""
+    filtered = [v.strip() for v in values if v and v.strip()]
+    if not filtered:
+        return None
+    return Counter(filtered).most_common(1)[0][0]
+
+
+def apply_raw_field_consensus(
+    result: EnrichmentResult,
+    source_rows,
+) -> EnrichmentResult:
+    """Override LLM fields with majority vote from linked RawEvents."""
+    victim_counts = [getattr(row, "victim_count", None) for row in source_rows]
+    cities = [getattr(row, "city", None) for row in source_rows]
+
+    updates: dict = {}
+    vc_mode = _majority_vote_int(victim_counts)
+    city_mode = _majority_vote_str(cities)
+    if vc_mode is not None:
+        updates["victim_count"] = vc_mode
+    if city_mode:
+        updates["city"] = city_mode
+
+    if not updates:
+        return result
+    return result.model_copy(update=updates)
 
 
 def synthesize_unique_event(
@@ -1567,6 +1671,7 @@ async def enrich_unique_event(unique_event_id: int) -> bool:
     try:
         settings = get_settings()
         result = synthesize_unique_event(current_state, sources_info)
+        result = apply_raw_field_consensus(result, source_rows)
         
         # Update UniqueEvent with enriched data (retry transient SQLite locks).
         import asyncio

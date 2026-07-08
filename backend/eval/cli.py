@@ -12,7 +12,7 @@ BACKEND_ROOT = Path(__file__).resolve().parents[1]
 if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
 
-from eval.compare import compare_reports, load_report, print_compare
+from eval.compare import compare_generic_reports, compare_reports, load_report, print_compare
 from eval.schemas import load_fixture
 from eval.schemas_extraction import load_extraction_fixture
 from eval.stages.classification.build import DEFAULT_OUT as CLS_DEFAULT_OUT
@@ -254,8 +254,78 @@ def _add_enrichment_commands(sub: argparse._SubParsersAction) -> None:
     p_report.set_defaults(stage="enrichment", handler="report")
 
 
+def _add_improvement_commands(sub: argparse._SubParsersAction) -> None:
+    imp = sub.add_parser("improvement", help="Prod anomaly detect / verify / propose / run-all")
+    imp_sub = imp.add_subparsers(dest="command", required=True)
+
+    p_detect = imp_sub.add_parser("detect", help="Scan prod/staging for pipeline anomalies")
+    p_detect.add_argument("--only-stage", default="all", help="Stage name or 'all'")
+    p_detect.add_argument("--limit", type=int, default=20, help="Max candidates per stage")
+    p_detect.add_argument("--db", default=None, help="SQLite snapshot path (else DATABASE_URL)")
+    p_detect.add_argument("--output", default=None, help="Write candidates JSON")
+    p_detect.add_argument("--date-from", default=None, help="Filter incidents from YYYY-MM-DD (fetched/event date)")
+    p_detect.add_argument("--date-to", default=None, help="Filter incidents through YYYY-MM-DD")
+    p_detect.add_argument(
+        "--api-base-url",
+        default=None,
+        help="Pull prod snapshot from API (e.g. https://arquivodaviolencia.com.br) before detect",
+    )
+    p_detect.add_argument("--dry-run", action="store_true", help="Alias for detect without side effects")
+    p_detect.set_defaults(stage="improvement", handler="detect")
+
+    p_verify = imp_sub.add_parser("verify", help="Re-run production fns to confirm anomalies")
+    p_verify.add_argument("--candidates", required=True)
+    p_verify.add_argument("--output", default=None)
+    p_verify.add_argument("--db", default=None)
+    p_verify.add_argument("--concurrency", type=int, default=3)
+    p_verify.add_argument(
+        "--with-llm-extraction",
+        action="store_true",
+        help="Re-run extraction LLM (expensive)",
+    )
+    p_verify.set_defaults(stage="improvement", handler="verify")
+
+    p_propose = imp_sub.add_parser("propose", help="Draft pending eval cases from verified anomalies")
+    p_propose.add_argument("--verified", required=True)
+    p_propose.add_argument("--output", default=None)
+    p_propose.add_argument("--db", default=None, help="SQLite snapshot for incident context in review")
+    p_propose.set_defaults(stage="improvement", handler="propose")
+
+    p_run_all = imp_sub.add_parser("run-all", help="Run all stage evals and aggregate 100% gate")
+    p_run_all.add_argument("--variant", default="baseline")
+    p_run_all.add_argument("--concurrency", type=int, default=4)
+    p_run_all.add_argument("--no-llm", action="store_true")
+    p_run_all.add_argument("--output", default=None)
+    p_run_all.set_defaults(stage="improvement", handler="run-all")
+
+    p_pull = imp_sub.add_parser("pull-snapshot", help="Download prod API data into SQLite for detect")
+    p_pull.add_argument("--api-base-url", default="https://arquivodaviolencia.com.br")
+    p_pull.add_argument("--date-from", required=True)
+    p_pull.add_argument("--date-to", required=True)
+    p_pull.add_argument("--output", default="eval/results/proposed/prod-snapshot.db")
+    p_pull.add_argument("--max-source-pages", type=int, default=30)
+    p_pull.set_defaults(stage="improvement", handler="pull-snapshot")
+
+    p_compare = imp_sub.add_parser("compare-reports", help="Compare any two stage run reports")
+    p_compare.add_argument("--baseline", required=True)
+    p_compare.add_argument("--candidate", required=True)
+    p_compare.set_defaults(stage="improvement", handler="compare-reports")
+
+    p_review = imp_sub.add_parser("review", help="Write human-readable Markdown review for candidates")
+    p_review.add_argument("--candidates", default=None, help="candidates.json from detect")
+    p_review.add_argument("--verified", default=None, help="verified.json from verify")
+    p_review.add_argument("--proposed", default=None, help="proposed.json from propose")
+    p_review.add_argument("--db", default=None, help="SQLite snapshot for incident context")
+    p_review.add_argument("--output", default=None, help="Markdown output path (default: alongside input)")
+    p_review.set_defaults(stage="improvement", handler="review")
+
+
 def dispatch(args: argparse.Namespace) -> None:
     handler = getattr(args, "handler", None)
+    if args.stage == "improvement":
+        _dispatch_improvement(args, handler)
+        return
+
     if args.stage == "classification":
         if handler == "validate":
             fixture, fixture_path = _load_classification_fixture(args.fixture)
@@ -356,6 +426,161 @@ def dispatch(args: argparse.Namespace) -> None:
         return
 
     raise SystemExit(f"Unknown stage/handler: {args.stage}/{handler}")
+
+
+def _dispatch_improvement(args: argparse.Namespace, handler: str | None) -> None:
+    from eval.improvement.detect import parse_stages, print_detect_summary, run_detect
+    from eval.improvement.propose import print_propose_summary, run_propose
+    from eval.improvement.run_all import print_run_all_summary, run_all_evals
+    from eval.improvement.verify import print_verify_summary, run_verify
+
+    if handler == "detect":
+        db_path = Path(args.db) if args.db else None
+        if args.api_base_url:
+            from datetime import date as date_cls
+            from eval.improvement.pull_snapshot import pull_snapshot
+
+            date_from = date_cls.fromisoformat(args.date_from) if args.date_from else date_cls.fromisoformat("2026-07-03")
+            date_to = date_cls.fromisoformat(args.date_to) if args.date_to else date_cls.today()
+            snap_path = Path("eval/results/proposed/prod-snapshot.db")
+            meta = pull_snapshot(
+                base_url=args.api_base_url,
+                output=snap_path,
+                date_from=date_from,
+                date_to=date_to,
+            )
+            print(f"Pulled snapshot: {meta}")
+            db_path = snap_path
+        elif db_path and not db_path.exists():
+            raise SystemExit(f"DB not found: {db_path}")
+        stages = parse_stages(args.only_stage)
+        output = Path(args.output) if args.output else None
+        bundle = asyncio.run(
+            run_detect(
+                db_path=db_path,
+                stages=stages,
+                limit=args.limit,
+                output=output,
+                dry_run=args.dry_run,
+            )
+        )
+        print_detect_summary(bundle)
+        if output:
+            print(f"\nWrote {output}")
+            from eval.improvement.review import emit_review_for_output, print_review_pointer
+
+            review_path, count, cluster_count = emit_review_for_output(output, db_path=db_path)
+            print_review_pointer(review_path, count, cluster_count)
+        return
+
+    if handler == "verify":
+        db_path = Path(args.db) if args.db else None
+        output = Path(args.output) if args.output else None
+        bundle = asyncio.run(
+            run_verify(
+                candidates_path=Path(args.candidates),
+                output=output,
+                db_path=db_path,
+                with_llm_extraction=args.with_llm_extraction,
+                concurrency=args.concurrency,
+            )
+        )
+        print_verify_summary(bundle)
+        if output:
+            print(f"\nWrote {output}")
+            from eval.improvement.review import emit_review_for_output, print_review_pointer
+
+            review_path, count, cluster_count = emit_review_for_output(
+                output,
+                db_path=db_path,
+                verified_path=Path(args.candidates),
+            )
+            print_review_pointer(review_path, count, cluster_count)
+        return
+
+    if handler == "propose":
+        output = Path(args.output) if args.output else None
+        bundle = asyncio.run(
+            run_propose(verified_path=Path(args.verified), output=output)
+        )
+        print_propose_summary(bundle)
+        if output:
+            print(f"\nWrote {output}")
+            from eval.improvement.review import emit_review_for_output, print_review_pointer
+
+            db_path = Path(args.db) if getattr(args, "db", None) else None
+            review_path, count, cluster_count = emit_review_for_output(output, db_path=db_path)
+            print_review_pointer(review_path, count, cluster_count)
+        return
+
+    if handler == "run-all":
+        output = Path(args.output) if args.output else None
+        payload = asyncio.run(
+            run_all_evals(
+                variant=args.variant,
+                concurrency=args.concurrency,
+                dry_run=args.no_llm,
+                output=output,
+            )
+        )
+        print_run_all_summary(payload)
+        if output:
+            print(f"\nWrote {output}")
+        if not payload["summary"]["all_passed"]:
+            raise SystemExit(1)
+        return
+
+    if handler == "pull-snapshot":
+        from datetime import date as date_cls
+        from eval.improvement.pull_snapshot import pull_snapshot
+
+        meta = pull_snapshot(
+            base_url=args.api_base_url,
+            output=Path(args.output),
+            date_from=date_cls.fromisoformat(args.date_from),
+            date_to=date_cls.fromisoformat(args.date_to),
+            max_source_pages=args.max_source_pages,
+        )
+        print(json.dumps(meta, indent=2))
+        return
+
+    if handler == "review":
+        from eval.improvement.review import (
+            default_review_path,
+            emit_review_for_output,
+            print_review_pointer,
+        )
+
+        db_path = Path(args.db) if args.db else None
+        verified_path = Path(args.verified) if args.verified else None
+        proposed_path = Path(args.proposed) if args.proposed else None
+
+        if args.candidates:
+            src = Path(args.candidates)
+        elif args.proposed:
+            src = proposed_path
+        elif args.verified:
+            src = verified_path
+        else:
+            raise SystemExit("Provide --candidates, --verified, or --proposed")
+
+        out = Path(args.output) if args.output else default_review_path(src)
+        review_path, count, cluster_count = emit_review_for_output(
+            src,
+            db_path=db_path,
+            verified_path=verified_path if src != verified_path else None,
+            proposed_path=proposed_path if src != proposed_path else None,
+            review_path=out,
+        )
+        print_review_pointer(review_path, count, cluster_count)
+        return
+
+    if handler == "compare-reports":
+        result = compare_generic_reports(Path(args.baseline), Path(args.candidate))
+        print_compare(result)
+        return
+
+    raise SystemExit(f"Unknown improvement handler: {handler}")
 
 
 def _require_db(args: argparse.Namespace) -> Path:
@@ -626,6 +851,7 @@ def main() -> None:
     _add_dedup_match_commands(sub)
     _add_dedup_cluster_commands(sub)
     _add_enrichment_commands(sub)
+    _add_improvement_commands(sub)
     args = parser.parse_args()
     dispatch(args)
 

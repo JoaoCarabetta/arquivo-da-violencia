@@ -4,13 +4,17 @@
     "version": 1,
     "source_db": "production",
     "seed": null,
-    "labeled_count": 1,
+    "labeled_count": 4,
     "pending_count": 0
   },
   "cases": [
     {
       "id": "dm-neg-confresa-different-day",
-      "tags": ["negative", "different_city", "candidates_2"],
+      "tags": [
+        "negative",
+        "different_city",
+        "candidates_2"
+      ],
       "label_status": "labeled",
       "input": {
         "raw_event": {
@@ -21,7 +25,9 @@
           "state": "AM",
           "homicide_type": "Homicídio simples",
           "chronological_description": "Homem morto a tiros dentro de apartamento no centro de Manaus. Vítima identificada como Carlos Eduardo Lima, 41 anos.",
-          "victim_names": ["Carlos Eduardo Lima"]
+          "victim_names": [
+            "Carlos Eduardo Lima"
+          ]
         },
         "candidates": [
           {
@@ -57,6 +63,172 @@
       "metadata": {
         "source_id": null,
         "notes": "Different city (Manaus vs Confresa) and different named victim — must not match."
+      }
+    },
+    {
+      "id": "dm-prod-aarao-9722",
+      "tags": [
+        "positive",
+        "prod",
+        "near_duplicate"
+      ],
+      "label_status": "labeled",
+      "input": {
+        "raw_event": {
+          "id": 10720,
+          "title": "HOMICÍDIO - VIA PÚBLICA BAIRRO AARÃO REIS - 03/07/2026",
+          "event_date": "2026-07-03",
+          "city": "Belo Horizonte",
+          "state": "MG",
+          "homicide_type": "Homicídio",
+          "chronological_description": "Em 03/07/2026, durante a manhã, um homem foi vítima de homicídio por disparos de arma de fogo no bairro Aarão Reis, em Belo Horizonte/MG. A Polícia Militar foi acionada e isolou a área para a perícia da Polícia Civil. Durante os levantamentos periciais, foi localizada uma quantia em dinheiro em espécie próxima ao corpo da vítima, que foi recolhida para análise. O corpo foi removido ao Instituto Médico-Legal. A autoria e a motivação do crime permanecem desconhecidas.",
+          "victim_names": []
+        },
+        "candidates": [
+          {
+            "id": 9722,
+            "title": "HOMICÍDIO - VIA PÚBLICA BAIRRO AARÃO REIS - 03/07/2026",
+            "event_date": "2026-07-03",
+            "city": "Belo Horizonte",
+            "state": "MG",
+            "homicide_type": "Homicídio",
+            "chronological_description": "Na tarde de 3 de julho de 2026 (sexta-feira), um homem foi morto a tiros no bairro Aarão Reis, Região Norte de Belo Horizonte, MG. A Polícia Militar de Minas Gerais (PMMG) foi acionada e isolou a área para o trabalho da perícia da Polícia Civil. Durante os levantamentos, as equipes encontraram uma quantia em dinheiro em espécie próximo à vítima. O rabecão esteve no local para a remoção do corpo. Até o momento, a autoria e a motivação do crime são desconhecidas.",
+            "victims_summary": "Um homem (identidade não divulgada) foi vítima de homicídio por disparos de arma de fogo. A quantia em dinheiro em espécie foi encontrada próximo ao corpo. Autoria e motivação desconhecidas.",
+            "victim_count": 1,
+            "source_count": 1
+          },
+          {
+            "id": 9694,
+            "title": "HOMICÍDIO POR ATROPELAMENTO - VIA PÚBLICA BAIRRO AEROPORTO - 03/07/2026",
+            "event_date": "2026-07-03",
+            "city": "Belo Horizonte",
+            "state": "MG",
+            "homicide_type": "Homicídio",
+            "chronological_description": "Em 03 de julho de 2026, durante a madrugada de sexta-feira, um pedestre, homem de aproximadamente 30 anos, foi fatalmente atropelado na Av. Antônio Carlos, próximo ao número 4074, no bairro Aeroporto, região da Pampulha, em Belo Horizonte/MG. O condutor do veículo, um homem de 25 anos, evadiu-se do local em um Gol de cor vermelha sem prestar socorro à vítima. Foram encontradas latas de cerveja no interior do veículo, indicando possível estado de embriaguez do condutor. A investigação revelou que o condutor não possuía habilitação tipo B e tinha a habilitação tipo A vencida. Após o acidente, ele teria abandonado o carro e informado a sua mãe, de 41 anos, sobre a localização do veículo. A mãe foi até o local, mas retornou para casa após constatar a presença policial. A Polícia Militar, por meio da placa do veículo, obteve informações sobre a propriedade do carro e o endereço da família. A mãe foi presa e admitiu que sempre emprestava o veículo ao filho, mesmo ciente de sua situação irregular de habilitação. O condutor está sendo procurado pela Polícia Militar de Minas Gerais. O caso foi atendido pelo Batalhão de Trânsito e encaminhado à Polícia Civil.",
+            "victims_summary": "Pedestre, homem de aproximadamente 30 anos.",
+            "victim_count": 1,
+            "source_count": 1
+          }
+        ]
+      },
+      "expected": {
+        "match": true,
+        "unique_event_id": 9722
+      },
+      "metadata": {
+        "notes": "Prod near-dup pair from scratch-20260708; UE 9722"
+      }
+    },
+    {
+      "id": "dm-prod-caio-9732",
+      "tags": [
+        "positive",
+        "prod",
+        "near_duplicate"
+      ],
+      "label_status": "labeled",
+      "input": {
+        "raw_event": {
+          "id": 10726,
+          "title": "HOMICÍDIO QUALIFICADO - ESTRADA DOS PERIQUITOS, PORTO VELHO - 03/07/2026",
+          "event_date": "2026-07-03",
+          "city": "Porto Velho",
+          "state": "RO",
+          "homicide_type": "Homicídio Qualificado",
+          "chronological_description": "Na noite de 03/07/2026, na Estrada dos Periquitos, bairro Ulisses Guimarães, Porto Velho/RO, Caio Francisco Freitas Vasques, 24 anos, foi encontrado sem vida com as mãos e pés amarrados e três ferimentos por disparos de arma de fogo. A Perícia Técnico-Científica constatou três tiros e encontrou cápsulas deflagradas de calibre .45. A vítima havia fugido da Colônia Penal há aproximadamente 15 dias e, segundo relato, teria se envolvido em uma confusão e ferido uma pessoa com faca no dia anterior. O corpo foi removido ao Instituto Médico Legal (IML). Nenhum suspeito foi identificado até o momento. O caso segue sob investigação da Delegacia Especializada em Repressão a Crimes Contra a Vida.",
+          "victim_names": [
+            "Caio Francisco Freitas Vasques"
+          ]
+        },
+        "candidates": [
+          {
+            "id": 9732,
+            "title": "HOMICÍDIO QUALIFICADO - ESTRADA DOS PERIQUITOS, PORTO VELHO - 03/07/2026",
+            "event_date": "2026-07-03",
+            "city": "Porto Velho",
+            "state": "RO",
+            "homicide_type": "Homicídio Qualificado",
+            "chronological_description": "Na noite de 03/07/2026, na Estrada dos Periquitos, bairro Ulisses Guimarães, Porto Velho/RO, Caio Francisco Freitas Vasques, 24 anos, foi encontrado sem vida com as mãos e pés amarrados e três ferimentos por disparos de arma de fogo. A Perícia Técnico-Científica constatou três tiros e encontrou cápsulas deflagradas de calibre .45. A vítima havia fugido da Colônia Penal há aproximadamente 15 dias e, segundo relato, teria se envolvido em uma confusão e ferido uma pessoa com faca no dia anterior. O corpo foi removido ao Instituto Médico Legal (IML). Nenhum suspeito foi identificado até o momento. O caso segue sob investigação da Delegacia Especializada em Repressão a Crimes Contra a Vida.",
+            "victims_summary": "caio francisco freitas vasques",
+            "victim_count": 1,
+            "source_count": 1
+          },
+          {
+            "id": 9743,
+            "title": "HOMICÍDIO QUALIFICADO - ESTRADA DOS PERIQUITOS, PORTO VELHO - 03/07/2026",
+            "event_date": "2026-07-03",
+            "city": "Porto Velho",
+            "state": "RO",
+            "homicide_type": "Homicídio Qualificado",
+            "chronological_description": "Na noite de 03 de julho de 2026, policiais militares foram acionados para averiguar uma denúncia de homicídio na Estrada dos Periquitos com a Travessa Vitória, bairro Ulisses Guimarães, zona Leste de Porto Velho/RO. Ao chegarem, confirmaram a ocorrência e encontraram a vítima, Caio Francisco Freitas Vasques, de 24 anos, já sem vida. O homem estava com as mãos e os pés amarrados e apresentava três ferimentos provocados por disparos de arma de fogo. A Perícia Técnico-Científica constatou os três tiros e encontrou cápsulas deflagradas de calibre .45 nas proximidades do corpo. A vítima havia fugido da Colônia Penal há aproximadamente 15 dias e, conforme relatos, teria se envolvido em uma confusão e ferido uma pessoa com faca no dia anterior. O corpo foi removido ao Instituto Médico Legal (IML). Nenhum suspeito foi identificado até o momento. O caso segue sob investigação da Delegacia Especializada em Repressão a Crimes Contra a Vida.",
+            "victims_summary": "Caio Francisco Freitas Vasques, 24 anos, encontrado sem vida com mãos e pés amarrados e três ferimentos por disparos de arma de fogo. Havia fugido da Colônia Penal há aproximadamente 15 dias e, segundo relato, teria se envolvido em uma confusão e ferido uma pessoa com faca no dia anterior. O corpo foi removido ao Instituto Médico Legal (IML).",
+            "victim_count": 1,
+            "source_count": 1
+          }
+        ]
+      },
+      "expected": {
+        "match": true,
+        "unique_event_id": 9732
+      },
+      "metadata": {
+        "notes": "Porto Velho Caio Francisco pair 9732/9743"
+      }
+    },
+    {
+      "id": "dm-prod-celeste-9745",
+      "tags": [
+        "positive",
+        "prod",
+        "victim_name"
+      ],
+      "label_status": "labeled",
+      "input": {
+        "raw_event": {
+          "id": 10745,
+          "title": "FEMINICÍDIO - APARTAMENTO RESIDENCIAL BARBALHO - 03/07/2026",
+          "event_date": "2026-07-03",
+          "city": "Salvador",
+          "state": "BA",
+          "homicide_type": "Feminicídio",
+          "chronological_description": "Na tarde de 03/07/2026, no bairro do Barbalho, em Salvador/BA, no apartamento onde o casal residia, a cabo da Polícia Militar Celeste Martins Oliveira do Nascimento foi morta a tiros. O principal suspeito é seu marido, o cabo Hermano, também integrante da Polícia Militar. Após o crime, o suspeito apresentou-se espontaneamente ao Departamento de Homicídios e Proteção à Pessoa (DHPP), acompanhado por uma advogada, permanecendo à disposição da Justiça. O corpo da vítima foi encontrado no local. Equipes da PM, DHPP e DPT realizaram os procedimentos periciais. A SSP-BA tratou o caso como feminicídio.",
+          "victim_names": [
+            "Celeste Martins Oliveira do Nascimento"
+          ]
+        },
+        "candidates": [
+          {
+            "id": 9745,
+            "title": "FEMINICÍDIO - APARTAMENTO RESIDENCIAL BARBALHO - 03/07/2026",
+            "event_date": "2026-07-03",
+            "city": "Salvador",
+            "state": "BA",
+            "homicide_type": "Feminicídio",
+            "chronological_description": "Na tarde de 3 de julho de 2026, no bairro do Barbalho, em Salvador/BA, no apartamento onde o casal residia, a cabo da Polícia Militar Celeste Martins Oliveira do Nascimento foi morta a tiros. O principal suspeito é seu marido, o cabo Hermano, também integrante da Polícia Militar. Após o crime, o suspeito apresentou-se espontaneamente ao Departamento de Homicídios e Proteção à Pessoa (DHPP), acompanhado por uma advogada, permanecendo à disposição da Justiça. O corpo da vítima foi encontrado no local. Equipes da PM, DHPP e DPT realizaram os procedimentos periciais. A SSP-BA tratou o caso como feminicídio e lamentou a morte da policial, reafirmando o compromisso com o combate à violência contra a mulher.",
+            "victims_summary": "Uma vítima fatal: Celeste Martins Oliveira do Nascimento, cabo da Polícia Militar, lotada na área de inteligência da corporação e na SSP-BA, morta a tiros no apartamento onde residia com o companheiro.",
+            "victim_count": 1,
+            "source_count": 1
+          },
+          {
+            "id": 9757,
+            "title": "FEMINICÍDIO - RESIDÊNCIA BARBALHO - 03/07/2026",
+            "event_date": "2026-07-03",
+            "city": "Salvador",
+            "state": "BA",
+            "homicide_type": "Feminicídio",
+            "chronological_description": "Na tarde de sexta-feira, 3 de julho de 2026, a cabo da Polícia Militar Celeste Martins Oliveira do Nascimento foi morta a tiros no apartamento onde residia, no bairro do Barbalho, em Salvador. O corpo foi encontrado no local. O principal suspeito é seu marido, o cabo Hermano, também integrante da Polícia Militar da Bahia. Após o crime, o suspeito se apresentou espontaneamente ao Departamento de Homicídios e Proteção à Pessoa (DHPP), acompanhado por advogada, e permanece à disposição da Justiça. A Secretaria da Segurança Pública da Bahia classificou o caso como feminicídio. Equipes da Polícia Militar, do DHPP e do Departamento de Polícia Técnica (DPT) realizaram perícia e remoção do corpo. O caso segue sob investigação pela Polícia Civil.",
+            "victims_summary": "Uma vítima fatal: Celeste Martins Oliveira do Nascimento, cabo da Polícia Militar, lotada na área de inteligência e atuante na Secretaria da Segurança Pública da Bahia. O principal suspeito é seu marido, o cabo Hermano, também integrante da Polícia Militar da Bahia.",
+            "victim_count": 1,
+            "source_count": 1
+          }
+        ]
+      },
+      "expected": {
+        "match": true,
+        "unique_event_id": 9745
+      },
+      "metadata": {
+        "notes": "Celeste Martins feminicide Salvador 2026-07-03"
       }
     }
   ]

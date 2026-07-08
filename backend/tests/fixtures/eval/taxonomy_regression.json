@@ -20,6 +20,9 @@
         "event_subtype": "simples",
         "content_class": "incident"
       },
+      "scoring": {
+        "required_fields": ["event_family", "event_subtype", "content_class"]
+      },
       "metadata": {"notes": "Generic intentional homicide"}
     },
     {
@@ -34,6 +37,9 @@
         "event_family": "homicidio",
         "event_subtype": "feminicidio",
         "content_class": "incident"
+      },
+      "scoring": {
+        "required_fields": ["event_family", "event_subtype", "content_class"]
       },
       "metadata": {"notes": "Domestic violence homicide"}
     },
@@ -50,6 +56,9 @@
         "event_subtype": "intervencao_policial",
         "content_class": "incident"
       },
+      "scoring": {
+        "required_fields": ["event_family", "event_subtype", "content_class"]
+      },
       "metadata": {"notes": "Police intervention death"}
     },
     {
@@ -64,6 +73,9 @@
         "event_family": "homicidio",
         "event_subtype": "latrocinio",
         "content_class": "incident"
+      },
+      "scoring": {
+        "required_fields": ["event_family", "event_subtype", "content_class"]
       },
       "metadata": {"notes": "Robbery homicide"}
     },
@@ -80,6 +92,9 @@
         "event_subtype": "simples",
         "content_class": "incident"
       },
+      "scoring": {
+        "required_fields": ["event_family", "event_subtype", "content_class"]
+      },
       "metadata": {"notes": "No death — tentativa family"}
     },
     {
@@ -95,6 +110,9 @@
         "event_subtype": "transito_culposo",
         "content_class": "accident_disaster"
       },
+      "scoring": {
+        "required_fields": ["event_family", "event_subtype", "content_class"]
+      },
       "metadata": {"notes": "Culpable traffic death — not public homicide archive"}
     },
     {
@@ -107,6 +125,9 @@
       },
       "expected": {
         "content_class": "aggregate_statistics"
+      },
+      "scoring": {
+        "required_fields": ["content_class"]
       },
       "metadata": {"notes": "Aggregate statistics — discarded at extraction"}
     },
@@ -122,6 +143,9 @@
         "event_family": "homicidio",
         "event_subtype": "qualificado",
         "content_class": "incident"
+      },
+      "scoring": {
+        "required_fields": ["event_family", "event_subtype", "content_class"]
       },
       "metadata": {"notes": "Qualified homicide indicators"}
     }

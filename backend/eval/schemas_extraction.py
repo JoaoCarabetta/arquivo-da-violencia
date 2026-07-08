@@ -135,6 +135,16 @@ def validate_extraction_fixture(fixture: ExtractionFixture) -> ValidationResult:
                 issues.append(
                     ValidationIssue(case_id=case.id, message="labeled case missing expected")
                 )
+            elif "homicide_dynamic.homicide_type" in case.scoring.required_fields:
+                issues.append(
+                    ValidationIssue(
+                        case_id=case.id,
+                        message=(
+                            "required_fields includes removed legacy path "
+                            "homicide_dynamic.homicide_type; use event_family and event_subtype"
+                        ),
+                    )
+                )
         elif case.label_status == "pending" and case.expected is not None:
             issues.append(
                 ValidationIssue(
@@ -145,7 +155,13 @@ def validate_extraction_fixture(fixture: ExtractionFixture) -> ValidationResult:
 
     labeled = sum(1 for c in fixture.cases if c.label_status == "labeled")
     pending = sum(1 for c in fixture.cases if c.label_status == "pending")
-    blocking = [i for i in issues if "duplicate" in i.message or "empty content" in i.message]
+    blocking = [
+        i
+        for i in issues
+        if "duplicate" in i.message
+        or "empty content" in i.message
+        or "homicide_dynamic.homicide_type" in i.message
+    ]
     return ValidationResult(
         valid=len(blocking) == 0,
         labeled_count=labeled,

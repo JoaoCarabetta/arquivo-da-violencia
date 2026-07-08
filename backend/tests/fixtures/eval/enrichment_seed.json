@@ -1,0 +1,116 @@
+{
+  "meta": {
+    "stage": "enrichment",
+    "version": 1,
+    "source_db": "eval/results/proposed/scratch-20260708-snapshot.db",
+    "seed": null,
+    "labeled_count": 2,
+    "pending_count": 0
+  },
+  "cases": [
+    {
+      "id": "en-prod-9703",
+      "tags": [
+        "prod",
+        "victim_count_consensus",
+        "sources_3"
+      ],
+      "label_status": "labeled",
+      "input": {
+        "current_state": {
+          "title": "TENTATIVA DE HOMICÍDIO - VIA PÚBLICA BUTANTÃ - 2026-07-03",
+          "event_date": "2026-07-03",
+          "city": "São Paulo",
+          "state": "SP",
+          "neighborhood": "Butantã",
+          "street": null,
+          "victims_summary": null,
+          "chronological_description": "Em 2026-07-03, um Guarda Civil Metropolitano (GCM) de São Paulo, acompanhado de um colega de farda, flagrou uma tentativa de assalto no cruzamento da Rua Sapetuba e a Avenida Professor Francisco Morato, no bairro Butantã. Ao intervir no roubo, houve confronto com um suspeito, resultando em troca de tiros. O GCM foi atingido na perna e na região do tronco, mas estava usando colete da corporação, o que conteve o projétil. O segundo agente não foi ferido. O suspeito do roubo também foi baleado no braço, perna e possivelmente na barriga. A vítima do roubo deixou o local após o confronto. O GCM ferido foi socorrido e encaminhado ao Hospital Albert Einstein com estado de saúde estável. O caso será registrado no 14º Distrito Policial (DP), em Pinheiros."
+        },
+        "sources": [
+          {
+            "publisher": null,
+            "headline": "TENTATIVA DE HOMICÍDIO - VIA PÚBLICA BUTANTÃ - 2026-07-03",
+            "url": null,
+            "content": "Em 2026-07-03, um Guarda Civil Metropolitano (GCM) de São Paulo, acompanhado de um colega de farda, flagrou uma tentativa de assalto no cruzamento da Rua Sapetuba e a Avenida Professor Francisco Morato, no bairro Butantã. Ao intervir no roubo, houve confronto com um suspeito, resultando em troca de tiros. O GCM foi atingido na perna e na região do tronco, mas estava usando colete da corporação, o que conteve o projétil. O segundo agente não foi ferido. O suspeito do roubo também foi baleado no b",
+            "victim_count": 1,
+            "city": "São Paulo"
+          },
+          {
+            "publisher": null,
+            "headline": "TENTATIVA DE HOMICÍDIO - VIA PÚBLICA BUTANTÃ - 03/07/2026",
+            "url": null,
+            "content": "Em 03/07/2026, em São Paulo, SP, um guarda municipal e um colega de corporação, ambos retornando do trabalho, flagraram uma tentativa de assalto no cruzamento da Rua Sapetuba e Avenida Professor Francisco Morato, no Butantã. Ao intervir no roubo, houve confronto com um suspeito. Durante a troca de tiros, o guarda municipal foi atingido na perna e no tronco, e um suspeito, que usava colete à prova de balas, também foi baleado no braço, perna e barriga. O colega do guarda não foi ferido. O GCM fer",
+            "victim_count": 2,
+            "city": "São Paulo"
+          },
+          {
+            "publisher": null,
+            "headline": "TENTATIVA DE HOMICÍDIO - SÃO PAULO - 03/07/2026",
+            "url": null,
+            "content": "Em 03 de julho de 2026, um agente policial da Guarda Civil Metropolitana (GCM) foi alvejado por disparos de arma de fogo durante uma troca de tiros, em São Paulo. O evento ocorreu durante uma tentativa de assalto.",
+            "victim_count": 1,
+            "city": "São Paulo"
+          }
+        ]
+      },
+      "expected": {
+        "event_date": "2026-07-03",
+        "city": "São Paulo",
+        "state": "SP",
+        "victim_count": 1
+      },
+      "metadata": {
+        "notes": "Butantã GCM confrontation"
+      }
+    },
+    {
+      "id": "en-prod-9731",
+      "tags": [
+        "prod",
+        "victim_count_consensus",
+        "sources_2"
+      ],
+      "label_status": "labeled",
+      "input": {
+        "current_state": {
+          "title": "INTERVENÇÃO POLICIAL - VIA PÚBLICA BAIRRO BAHIA NOVA - 03/07/2026",
+          "event_date": "2026-07-03",
+          "city": "Rio Branco",
+          "state": "AC",
+          "neighborhood": "Bahia Nova",
+          "street": null,
+          "victims_summary": null,
+          "chronological_description": "No dia 3 de julho de 2026, por volta da tarde, na Rua 13 de Junho, bairro Bahia Nova, em Rio Branco/AC, Lucas Souza da Silva, de 31 anos, e Hiago de Oliveira Bandeira, de 34 anos, suspeitos de terem cometido assalto a estabelecimento comercial na Rua Belém, bairro Nova Estação, foram abordados por guarnição da Polícia Militar durante perseguição. Os suspeitos, que estavam armados e em posse de motocicleta roubada, abandonaram o veículo e adentraram uma residência. Durante a aproximação policial, os suspeitos efetuaram disparos contra a guarnição, que revidou. Lucas Souza da Silva foi atingido e veio a óbito no local. Hiago de Oliveira Bandeira foi socorrido pelo SAMU e encaminhado ao Pronto-Socorro de Rio Branco. O corpo de Lucas foi removido ao IML e a área foi isolada para perícia. A motocicleta roubada foi recuperada e o caso será investigado pela Polícia Civil."
+        },
+        "sources": [
+          {
+            "publisher": null,
+            "headline": "INTERVENÇÃO POLICIAL - VIA PÚBLICA BAIRRO BAHIA NOVA - 03/07/2026",
+            "url": null,
+            "content": "No dia 3 de julho de 2026, por volta da tarde, na Rua 13 de Junho, bairro Bahia Nova, em Rio Branco/AC, Lucas Souza da Silva, de 31 anos, e Hiago de Oliveira Bandeira, de 34 anos, suspeitos de terem cometido assalto a estabelecimento comercial na Rua Belém, bairro Nova Estação, foram abordados por guarnição da Polícia Militar durante perseguição. Os suspeitos, que estavam armados e em posse de motocicleta roubada, abandonaram o veículo e adentraram uma residência. Durante a aproximação policial,",
+            "victim_count": 1,
+            "city": "Rio Branco"
+          },
+          {
+            "publisher": null,
+            "headline": "INTERVENÇÃO POLICIAL - RUA 13 DE JUNHO BAIRRO BAHIA VELHA - 03/07/2026",
+            "url": null,
+            "content": "Na tarde do dia 03/07/2026, Lucas Souza da Silva, de 31 anos, e Hiago de Oliveira Bandeira, de 34 anos, realizaram um assalto a um estabelecimento comercial no bairro Nova Estação, utilizando uma motocicleta com registro de roubo. Após o crime, equipes do Tático do 1º Batalhão da Polícia Militar iniciaram buscas e localizaram a dupla no bairro Bahia Velha. Ao notar as viaturas, os suspeitos abandonaram a motocicleta em frente a uma residência na Rua 13 de Junho e tentaram escapar pelos fundos, s",
+            "victim_count": 2,
+            "city": "Rio Branco"
+          }
+        ]
+      },
+      "expected": {
+        "event_date": "2026-07-03",
+        "city": "Rio Branco",
+        "state": "AC",
+        "victim_count": 2
+      },
+      "metadata": {
+        "notes": "Rio Branco police intervention"
+      }
+    }
+  ]
+}
