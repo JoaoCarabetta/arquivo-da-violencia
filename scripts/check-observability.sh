@@ -65,16 +65,16 @@ else
   fi
 fi
 
-if curl -sf "${GRAFANA_URL}/api/health" | grep -q '"database":"ok"'; then
+if curl -sf "${GRAFANA_URL}/api/health" | grep -qE '"database":\s*"ok"'; then
   pass "Grafana HTTPS (${GRAFANA_URL})"
 else
   fail "Grafana not reachable at ${GRAFANA_URL}"
 fi
 
 if $PROD; then
-  prom_query=$(curl -sfG "${GRAFANA_URL}/api/datasources/proxy/uid/prometheus/api/v1/query" \
-    --data-urlencode 'query=count(pipeline_worker_alive{service="api"}==1)' 2>/dev/null || true)
-  if echo "$prom_query" | grep -q '"value":\["' ; then
+  prom_result=$(ssh -o BatchMode=yes -o ConnectTimeout=15 -i "$PROD_SSH_KEY" root@62.238.12.182 \
+    'docker exec obs-prometheus wget -qO- "http://localhost:9090/api/v1/query?query=pipeline_worker_alive%7Bservice%3D%22api%22%7D"' 2>/dev/null || true)
+  if echo "$prom_result" | grep -q '"status":"success"' && echo "$prom_result" | grep -q '"value"'; then
     pass 'Prometheus: pipeline_worker_alive{service="api"} series present'
   else
     fail 'Prometheus missing pipeline_worker_alive{service="api"} (check scrape + backend deploy)'
