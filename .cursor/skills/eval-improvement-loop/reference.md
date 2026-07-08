@@ -23,7 +23,14 @@ docker compose -f docker-compose.dev.yml exec api \
 docker compose -f docker-compose.dev.yml exec api \
   python -m eval improvement propose \
   --verified eval/results/proposed/verified.json \
+  --db eval/results/proposed/prod-snapshot.db \
   --output eval/results/proposed/proposed.json
+
+# Human-readable review (auto-written when --output is used on detect/verify/propose)
+docker compose -f docker-compose.dev.yml exec api \
+  python -m eval improvement review \
+  --proposed eval/results/proposed/proposed.json \
+  --db eval/results/proposed/prod-snapshot.db
 
 # Full eval gate
 docker compose -f docker-compose.dev.yml exec api \

@@ -43,6 +43,10 @@ python -m eval improvement detect --only-stage all --limit 20 --dry-run
 python -m eval improvement detect --only-stage all --limit 20 --output eval/results/proposed/candidates-<ts>.json
 ```
 
+When `--output` is set, a **`*-review.md`** file is written automatically with a
+quick table and per-case details. **Always show this review to the user** before
+continuing (paste the Quick list table; link the full `.md` path).
+
 Optional offline snapshot:
 
 ```bash
@@ -56,8 +60,12 @@ Review the candidate count per stage. Abort if DB is unreachable.
 ```bash
 python -m eval improvement verify \
   --candidates eval/results/proposed/candidates-<ts>.json \
+  --db eval/results/proposed/prod-snapshot.db \
   --output eval/results/proposed/verified-<ts>.json
 ```
+
+Pass `--db` when you have a SQLite snapshot so the auto-generated review includes
+incident titles, cities, and dates.
 
 Add `--with-llm-extraction` only when extraction candidates need confirmation
 (extraction verify is expensive).
@@ -67,15 +75,33 @@ Add `--with-llm-extraction` only when extraction candidates need confirmation
 ```bash
 python -m eval improvement propose \
   --verified eval/results/proposed/verified-<ts>.json \
+  --db eval/results/proposed/prod-snapshot.db \
   --output eval/results/proposed/proposed-<ts>.json
 ```
 
-Present the user a table per case:
+Regenerate or refresh the review anytime:
 
-| id | stage | prod outcome | re-run outcome | signal | suggested expected |
-|----|-------|--------------|----------------|--------|-------------------|
+```bash
+python -m eval improvement review \
+  --candidates eval/results/proposed/candidates-<ts>.json \
+  --verified eval/results/proposed/verified-<ts>.json \
+  --proposed eval/results/proposed/proposed-<ts>.json \
+  --db eval/results/proposed/prod-snapshot.db
+```
 
-**STOP and wait for explicit approval** before merging into fixtures.
+### Present candidates to the user
+
+1. Open the `*-review.md` file (auto-written when `--output` is used).
+2. Paste the **Quick list** table into chat so the user can scan all cases at once.
+3. For cases they ask about, quote the matching **Details** section (incident
+   titles, verification notes, suggested eval label).
+4. **STOP and wait for explicit approval** before merging into fixtures.
+
+Example quick list (from the review file):
+
+| # | Stage | ID | Status | Summary |
+|---|-------|----|--------|---------|
+| 1 | `dedup-match` | `prod-dedup_match-9722-9723` | verified ✓ | Belo Horizonte 2026-07-05 — … |
 
 Rules:
 
@@ -145,6 +171,7 @@ Stop and ask the user when:
 | Candidates | `backend/eval/results/proposed/candidates-*.json` |
 | Verified | `backend/eval/results/proposed/verified-*.json` |
 | Proposals | `backend/eval/results/proposed/proposed-*.json` |
+| **Review (show user)** | `backend/eval/results/proposed/*-review.md` |
 | Run-all summary | `backend/eval/results/run-all-*.json` |
 | Fixtures (after approval) | `backend/tests/fixtures/eval/*.json` |
 

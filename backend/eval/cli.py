@@ -288,6 +288,7 @@ def _add_improvement_commands(sub: argparse._SubParsersAction) -> None:
     p_propose = imp_sub.add_parser("propose", help="Draft pending eval cases from verified anomalies")
     p_propose.add_argument("--verified", required=True)
     p_propose.add_argument("--output", default=None)
+    p_propose.add_argument("--db", default=None, help="SQLite snapshot for incident context in review")
     p_propose.set_defaults(stage="improvement", handler="propose")
 
     p_run_all = imp_sub.add_parser("run-all", help="Run all stage evals and aggregate 100% gate")
@@ -309,6 +310,14 @@ def _add_improvement_commands(sub: argparse._SubParsersAction) -> None:
     p_compare.add_argument("--baseline", required=True)
     p_compare.add_argument("--candidate", required=True)
     p_compare.set_defaults(stage="improvement", handler="compare-reports")
+
+    p_review = imp_sub.add_parser("review", help="Write human-readable Markdown review for candidates")
+    p_review.add_argument("--candidates", default=None, help="candidates.json from detect")
+    p_review.add_argument("--verified", default=None, help="verified.json from verify")
+    p_review.add_argument("--proposed", default=None, help="proposed.json from propose")
+    p_review.add_argument("--db", default=None, help="SQLite snapshot for incident context")
+    p_review.add_argument("--output", default=None, help="Markdown output path (default: alongside input)")
+    p_review.set_defaults(stage="improvement", handler="review")
 
 
 def dispatch(args: argparse.Namespace) -> None:
@@ -458,6 +467,10 @@ def _dispatch_improvement(args: argparse.Namespace, handler: str | None) -> None
         print_detect_summary(bundle)
         if output:
             print(f"\nWrote {output}")
+            from eval.improvement.review import emit_review_for_output, print_review_pointer
+
+            review_path, count = emit_review_for_output(output, db_path=db_path)
+            print_review_pointer(review_path, count)
         return
 
     if handler == "verify":
@@ -475,6 +488,14 @@ def _dispatch_improvement(args: argparse.Namespace, handler: str | None) -> None
         print_verify_summary(bundle)
         if output:
             print(f"\nWrote {output}")
+            from eval.improvement.review import emit_review_for_output, print_review_pointer
+
+            review_path, count = emit_review_for_output(
+                output,
+                db_path=db_path,
+                verified_path=Path(args.candidates),
+            )
+            print_review_pointer(review_path, count)
         return
 
     if handler == "propose":
@@ -485,6 +506,11 @@ def _dispatch_improvement(args: argparse.Namespace, handler: str | None) -> None
         print_propose_summary(bundle)
         if output:
             print(f"\nWrote {output}")
+            from eval.improvement.review import emit_review_for_output, print_review_pointer
+
+            db_path = Path(args.db) if getattr(args, "db", None) else None
+            review_path, count = emit_review_for_output(output, db_path=db_path)
+            print_review_pointer(review_path, count)
         return
 
     if handler == "run-all":
@@ -516,6 +542,37 @@ def _dispatch_improvement(args: argparse.Namespace, handler: str | None) -> None
             max_source_pages=args.max_source_pages,
         )
         print(json.dumps(meta, indent=2))
+        return
+
+    if handler == "review":
+        from eval.improvement.review import (
+            default_review_path,
+            emit_review_for_output,
+            print_review_pointer,
+        )
+
+        db_path = Path(args.db) if args.db else None
+        verified_path = Path(args.verified) if args.verified else None
+        proposed_path = Path(args.proposed) if args.proposed else None
+
+        if args.candidates:
+            src = Path(args.candidates)
+        elif args.proposed:
+            src = proposed_path
+        elif args.verified:
+            src = verified_path
+        else:
+            raise SystemExit("Provide --candidates, --verified, or --proposed")
+
+        out = Path(args.output) if args.output else default_review_path(src)
+        review_path, count = emit_review_for_output(
+            src,
+            db_path=db_path,
+            verified_path=verified_path if src != verified_path else None,
+            proposed_path=proposed_path if src != proposed_path else None,
+            review_path=out,
+        )
+        print_review_pointer(review_path, count)
         return
 
     if handler == "compare-reports":

@@ -145,12 +145,18 @@ python -m eval improvement detect --only-stage all --limit 20 \
 # 2. Verify with production re-runs (LLM cost)
 python -m eval improvement verify \
   --candidates eval/results/proposed/candidates.json \
+  --db eval/results/proposed/prod-snapshot.db \
   --output eval/results/proposed/verified.json
 
 # 3. Propose pending fixture cases (human must approve before merge)
 python -m eval improvement propose \
   --verified eval/results/proposed/verified.json \
+  --db eval/results/proposed/prod-snapshot.db \
   --output eval/results/proposed/proposed.json
+
+Each step with `--output` also writes a `*-review.md` with a quick table and
+per-case checklist. Show that file (or paste its Quick list table) to the user
+before merging anything into fixtures.
 
 # 4. Full 100% gate across all configured fixtures
 python -m eval improvement run-all --output eval/results/run-all.json
