@@ -5,7 +5,7 @@ import { AuthProvider } from '@/contexts/AuthContext';
 import { I18nProvider } from '@/contexts/I18nContext';
 import { ProtectedRoute } from '@/components/ProtectedRoute';
 import { AdminLayout } from '@/components/AdminLayout';
-import { initGA, trackPageView } from '@/lib/analytics';
+import { initAnalytics, trackPageView } from '@/lib/analytics';
 import { Loader2 } from 'lucide-react';
 
 // Map portal — code-split so deck.gl / maplibre (~2.5 MB) load only on public routes
@@ -55,8 +55,10 @@ function RouteTracker() {
   const location = useLocation();
 
   useEffect(() => {
-    initGA();
-    trackPageView(location.pathname + location.search, document.title);
+    initAnalytics();
+    // Public portal only — skip /admin/* (auth UI, not product analytics)
+    if (location.pathname.startsWith('/admin')) return;
+    trackPageView(location.pathname + location.search);
   }, [location]);
 
   return null;

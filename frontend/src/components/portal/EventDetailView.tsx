@@ -8,6 +8,7 @@ import {
 } from 'lucide-react';
 import { useI18n } from '@/contexts/I18nContext';
 import { fetchPublicEventById } from '@/lib/api';
+import { trackEvent } from '@/lib/analytics';
 import {
   dictionaryLabel,
   formatCoordinates,
@@ -317,6 +318,7 @@ export function EventDetailView({ id, onClose }: EventDetailViewProps) {
                         target="_blank"
                         rel="noopener noreferrer"
                         className="flex items-start gap-2.5 px-[13px] py-[11px] no-underline transition-colors hover:bg-[var(--stone-50)]"
+                        onClick={() => trackEvent('source_click', { event_id: id })}
                       >
                         <ExternalLink className="mt-0.5 h-4 w-4 flex-none" style={{ color: 'var(--blue-600)' }} />
                         <div className="min-w-0 flex-1">{content}</div>

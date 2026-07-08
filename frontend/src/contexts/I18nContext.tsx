@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { strings, type Lang, type Strings } from '@/lib/i18n';
+import { trackEvent } from '@/lib/analytics';
 
 interface I18nValue {
   lang: Lang;
@@ -23,6 +24,7 @@ export function I18nProvider({ children }: { children: React.ReactNode }) {
 
   const setLang = useCallback((next: Lang) => {
     setLangState(next);
+    trackEvent('language_toggle', { lang: next });
     try {
       window.localStorage.setItem(STORAGE_KEY, next);
     } catch {
@@ -33,6 +35,7 @@ export function I18nProvider({ children }: { children: React.ReactNode }) {
   const toggleLang = useCallback(() => {
     setLangState((prev) => {
       const next = prev === 'pt' ? 'en' : 'pt';
+      trackEvent('language_toggle', { lang: next });
       try {
         window.localStorage.setItem(STORAGE_KEY, next);
       } catch {

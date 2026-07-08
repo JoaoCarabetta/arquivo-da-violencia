@@ -22,11 +22,13 @@ import {
   hasActiveFilters,
   computeGeoCentroid,
   geoFlyZoom,
+  dateRangeForLastDays,
   SCATTER_ZOOM_THRESHOLD,
   type FilterGroup,
   type PortalFilters,
   type PortalMode,
 } from '@/components/portal/types';
+import { trackEvent } from '@/lib/analytics';
 
 /** Default map data window — keeps initial payload bounded. */
 const MAP_DAYS = 365;
@@ -98,12 +100,15 @@ export function MapExplorer() {
   }, []);
 
   const toggleFilter = useCallback((group: FilterGroup, value: string) => {
+    const removing = filters[group].includes(value);
+    trackEvent('filter_toggle', { group, action: removing ? 'remove' : 'add' });
     setFilters((prev) => {
-      const cur = prev[group];
-      const next = cur.includes(value) ? cur.filter((v) => v !== value) : [...cur, value];
+      const next = prev[group].includes(value)
+        ? prev[group].filter((v) => v !== value)
+        : [...prev[group], value];
       return { ...prev, [group]: next };
     });
-  }, []);
+  }, [filters]);
 
   const flyTo = useCallback((lat: number, lng: number, zoom: number) => {
     setViewState((prev) => ({
@@ -118,10 +123,24 @@ export function MapExplorer() {
 
   const clearFilters = useCallback(() => {
     setFilters(DEFAULT_FILTERS);
+    trackEvent('filter_clear');
   }, []);
 
   const setDateRange = useCallback((startDate: string, endDate: string) => {
     setFilters((prev) => ({ ...prev, startDate, endDate }));
+    let preset: string = 'custom';
+    if (!startDate && !endDate) {
+      preset = 'clear';
+    } else {
+      for (const days of [30, 90, 365] as const) {
+        const range = dateRangeForLastDays(days);
+        if (range.startDate === startDate && range.endDate === endDate) {
+          preset = `${days}d`;
+          break;
+        }
+      }
+    }
+    trackEvent('date_range', { preset });
   }, []);
 
   const onGeoSelect = useCallback(
@@ -140,6 +159,7 @@ export function MapExplorer() {
 
   const onSetMode = useCallback(
     (next: PortalMode) => {
+      trackEvent('mode_switch', { mode: next });
       navigate(PATH_FOR[next]);
     },
     [navigate]
@@ -151,6 +171,7 @@ export function MapExplorer() {
 
   const onSelect = useCallback(
     (eventId: number) => {
+      trackEvent('event_open', { event_id: eventId });
       const point = allPoints.find((p) => p.id === eventId);
       if (point) {
         const alreadyVisible =

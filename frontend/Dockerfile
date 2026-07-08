@@ -18,6 +18,12 @@ RUN npm ci
 # Copy source code
 COPY . .
 
+# Umami product analytics (optional; empty = tracking disabled)
+ARG VITE_UMAMI_URL=https://analytics.carabetta.xyz
+ARG VITE_UMAMI_WEBSITE_ID=
+ENV VITE_UMAMI_URL=$VITE_UMAMI_URL
+ENV VITE_UMAMI_WEBSITE_ID=$VITE_UMAMI_WEBSITE_ID
+
 # Build the app (Vite will embed VITE_* env vars at build time)
 RUN npm run build
 
