@@ -2,6 +2,7 @@ import { memo, useMemo, useState } from 'react';
 import { Search, X, MapPin, Loader2 } from 'lucide-react';
 import { useI18n } from '@/contexts/I18nContext';
 import { geocode, type MapPoint } from '@/lib/api';
+import { trackEvent } from '@/lib/analytics';
 import { ufName } from '@/lib/i18n';
 import { fmtNumber } from '@/lib/i18n';
 export interface LocatedPlace {
@@ -107,12 +108,14 @@ export const SearchCard = memo(function SearchCard({ points, onLocate }: SearchC
 
   function selectPlace(p: Place) {
     setQuery('');
+    trackEvent('search', { kind: 'place' });
     onLocate({ lat: p.lat, lng: p.lng, label: p.label, zoom: ZOOM_FOR[p.kind] });
   }
 
   function locateBrazil() {
     setQuery('');
     setGeocodeError(false);
+    trackEvent('search', { kind: 'brasil' });
     onLocate(BRAZIL_LOCATE);
   }
 
@@ -129,6 +132,7 @@ export const SearchCard = memo(function SearchCard({ points, onLocate }: SearchC
       const isCep = looksLikeCep(raw);
       const r = await geocode(isCep ? { cep: raw.replace(/\D/g, '') } : { q: raw });
       setQuery('');
+      trackEvent('search', { kind: isCep ? 'cep' : 'geocode' });
       onLocate({ lat: r.latitude, lng: r.longitude, label: r.label, zoom: r.zoom ?? 13 });
     } catch {
       setGeocodeError(true);

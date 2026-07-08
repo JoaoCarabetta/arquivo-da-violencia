@@ -79,7 +79,9 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           build-args: |
-            NGINX_CONF=${{ github.ref == 'refs/heads/develop' && 'nginx.staging.conf' || 'nginx.conf' }}
+            NGINX_CONF=${{ (github.ref == 'refs/heads/develop' || (github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'staging')) && 'nginx.staging.conf' || 'nginx.conf' }}
+            VITE_UMAMI_URL=https://analytics.carabetta.xyz
+            VITE_UMAMI_WEBSITE_ID=${{ (github.ref == 'refs/heads/develop' || (github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'staging')) && secrets.UMAMI_WEBSITE_ID_STAGING || secrets.UMAMI_WEBSITE_ID_PROD }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 

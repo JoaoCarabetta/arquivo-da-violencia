@@ -219,3 +219,10 @@ Expected on prod after deploy:
 | Prometheus targets DOWN | Prod UFW blocking obs IP, or backend not deployed with `METRICS_ENABLED=true` |
 | Host metrics missing for prod | Prod `node_exporter` not running (`docker compose -p prod ps`) or UFW `:9100` not open for obs IP |
 | TLS/nginx broken after redeploy | Cert exists but HTTP-only config installed — `deploy-remote.sh` picks HTTPS config when cert is present |
+
+## Related: product analytics
+
+User/product metrics (page views, clicks, filters) use **Umami** on the same
+VPS at https://analytics.carabetta.xyz — see [user-analytics.md](user-analytics.md).
+That stack is independent of Prometheus/Grafana and must not be confused with
+pipeline dashboards.

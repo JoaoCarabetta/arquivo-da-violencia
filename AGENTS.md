@@ -154,3 +154,15 @@ Pipeline metrics: Prometheus + Grafana on a dedicated VPS (`62.238.12.182`).
 - **Health check:** `bash scripts/check-observability.sh --prod`
 - **Alerts:** Prometheus rules + Alertmanager on obs VPS → Telegram (all) + Cursor agent (critical). Test: `bash scripts/test-alert-router.sh --obs warning`
 - API `/metrics` = health gauges; worker `:9091/metrics` = task metrics only
+
+## User analytics (product)
+
+Self-hosted **Umami** on the same obs VPS (not pipeline metrics).
+
+| Resource | URL |
+|----------|-----|
+| Analytics dashboard | https://analytics.carabetta.xyz |
+| Stack directory | `/opt/arquivo-umami` |
+
+- **Manual deploy:** `bash infra/umami/deploy.sh` (see [docs/user-analytics.md](docs/user-analytics.md))
+- Frontend build secrets: `UMAMI_WEBSITE_ID_PROD`, `UMAMI_WEBSITE_ID_STAGING`

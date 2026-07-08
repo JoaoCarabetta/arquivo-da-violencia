@@ -2,6 +2,7 @@ import { memo, useMemo, useRef, useState, useEffect } from 'react';
 import { RotateCcw, MapPin, Download } from 'lucide-react';
 import { useI18n } from '@/contexts/I18nContext';
 import { getExportUrl, type MapPoint } from '@/lib/api';
+import { trackEvent } from '@/lib/analytics';
 import { cn } from '@/lib/utils';
 import {
   fmtNumber,
@@ -944,6 +945,7 @@ function DataMode(props: RightPanelProps) {
             download="eventos.csv"
             className="flex w-full items-center justify-center gap-2 rounded-[10px] p-3 transition-colors"
             style={{ background: 'var(--blue-500)', color: '#fff', fontSize: 14, fontWeight: 500 }}
+            onClick={() => trackEvent('csv_export', { column_count: countSelectedFields(selectedColumnIds) })}
             onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--blue-600)')}
             onMouseLeave={(e) => (e.currentTarget.style.background = 'var(--blue-500)')}
           >
