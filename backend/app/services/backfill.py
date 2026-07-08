@@ -75,7 +75,7 @@ async def find_discarded_reclassification_candidates(
     since_clause = ""
     if since:
         since_clause = "AND updated_at >= :since"
-        params["since"] = since.isoformat()
+        params["since"] = since
 
     query = f"""
         SELECT id, headline, status, is_violent_death,
