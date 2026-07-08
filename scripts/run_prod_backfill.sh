@@ -41,21 +41,9 @@ echo "==> Backfill on $ENV ($API_CONTAINER)"
 docker compose -p "$COMPOSE_PROJECT" exec -T api \
   python scripts/backfill_prod_cleanup.py "$@"
 
-echo ""
-echo "==> To drain requeued sources after --execute, enqueue pipeline jobs:"
-cat <<EOF
-docker compose -p $COMPOSE_PROJECT exec -T api python - <<'PY'
-import asyncio
-from arq import create_pool
-from arq.connections import RedisSettings
-
-async def main():
-    redis = await create_pool(RedisSettings(host="redis", port=6379))
-    await redis.enqueue_job("classify_pending_task", 300, 10)
-    await redis.enqueue_job("download_classified_task", 200)
-    await redis.enqueue_job("extract_ready_task", 100)
-    await redis.enqueue_job("batch_enrich_task", 50)
-
-asyncio.run(main())
-PY
-EOF
+if printf '%s\n' "$@" | grep -qx -- '--execute'; then
+  echo ""
+  echo "==> Enqueue pipeline jobs"
+  docker compose -p "$COMPOSE_PROJECT" exec -T api \
+    python scripts/enqueue_backfill_pipeline.py
+fi

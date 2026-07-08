@@ -123,7 +123,8 @@ jobs:
             nginx -t && systemctl reload nginx || systemctl start nginx
             echo "✅ Host nginx config updated"
 
-      - name: Backfill cleanup (staging)
+      - name: Enqueue pipeline after backfill
+        if: false  # one-shot backfill completed 2026-07-08; use scripts/run_prod_backfill.sh
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.VPS_HOST }}
@@ -133,24 +134,8 @@ jobs:
           script: |
             set -euo pipefail
             cd /root/arquivo-da-violencia
-            echo "==> staging backfill dry-run"
             docker compose -p staging exec -T api \
-              python scripts/backfill_prod_cleanup.py --dry-run --since 2026-01-01
-            echo "==> staging backfill execute"
-            docker compose -p staging exec -T api \
-              python scripts/backfill_prod_cleanup.py --execute --since 2026-01-01
-            docker compose -p staging exec -T api python - <<'PY'
-            import asyncio
-            from arq import create_pool
-            from arq.connections import RedisSettings
-            async def main():
-                redis = await create_pool(RedisSettings(host="redis", port=6379))
-                await redis.enqueue_job("classify_pending_task", 300, 10)
-                await redis.enqueue_job("download_classified_task", 200)
-                await redis.enqueue_job("extract_ready_task", 100)
-                await redis.enqueue_job("batch_enrich_task", 50)
-            asyncio.run(main())
-            PY
+              python scripts/enqueue_backfill_pipeline.py
 
   deploy-production:
     name: Deploy to Production
@@ -212,14 +197,14 @@ jobs:
             git reset --hard origin/master
             bash scripts/sync-staging-db.sh
 
-  backfill-production:
-    name: Backfill Production Data
+  enqueue-pipeline-prod:
+    name: Enqueue Pipeline Jobs (prod)
     needs: sync-staging-db
     runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/master' || (github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'production')
+    if: github.ref == 'refs/heads/master'
 
     steps:
-      - name: Backfill cleanup (production)
+      - name: Enqueue requeued sources
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.VPS_HOST }}
@@ -229,21 +214,5 @@ jobs:
           script: |
             set -euo pipefail
             cd /root/arquivo-da-violencia
-            echo "==> production backfill dry-run"
             docker compose -p prod exec -T api \
-              python scripts/backfill_prod_cleanup.py --dry-run --since 2026-01-01
-            echo "==> production backfill execute"
-            docker compose -p prod exec -T api \
-              python scripts/backfill_prod_cleanup.py --execute --since 2026-01-01
-            docker compose -p prod exec -T api python - <<'PY'
-            import asyncio
-            from arq import create_pool
-            from arq.connections import RedisSettings
-            async def main():
-                redis = await create_pool(RedisSettings(host="redis", port=6379))
-                await redis.enqueue_job("classify_pending_task", 300, 10)
-                await redis.enqueue_job("download_classified_task", 200)
-                await redis.enqueue_job("extract_ready_task", 100)
-                await redis.enqueue_job("batch_enrich_task", 50)
-            asyncio.run(main())
-            PY
+              python scripts/enqueue_backfill_pipeline.py
