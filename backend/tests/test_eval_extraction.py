@@ -67,3 +67,18 @@ def test_score_field_mismatch():
     assert score < 1.0
     assert field_results["location_info.city"] is False
     assert "location_info.city" in diff
+
+
+def test_validate_rejects_legacy_homicide_type_field():
+    case = _sample_case(
+        scoring=CaseScoring(
+            required_fields=[
+                "date_time.date",
+                "homicide_dynamic.homicide_type",
+            ]
+        )
+    )
+    fixture = ExtractionFixture(meta=ExtractionFixtureMeta(), cases=[case])
+    result = validate_extraction_fixture(fixture)
+    assert result.valid is False
+    assert any("homicide_dynamic.homicide_type" in i.message for i in result.issues)

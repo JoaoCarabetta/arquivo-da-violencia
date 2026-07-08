@@ -15,7 +15,7 @@ RESULTS_DIR = BACKEND_ROOT / "eval" / "results"
 STAGE_FIXTURES: list[tuple[str, list[str]]] = [
     ("classification", ["classification_seed.json", "classification_hard.json"]),
     ("content-gate", ["content_gate_hard.json"]),
-    ("extraction", ["extraction_hard.json"]),
+    ("extraction", ["extraction_hard.json", "taxonomy_regression.json"]),
     ("dedup-match", ["dedup_match_hard.json"]),
     ("dedup-cluster", ["dedup_cluster_seed.json"]),
     ("enrichment", ["enrichment_seed.json"]),

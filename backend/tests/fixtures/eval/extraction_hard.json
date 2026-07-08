@@ -41,9 +41,10 @@
           "number_of_victims": 1
         },
         "homicide_dynamic": {
-          "homicide_type": "Homicídio Qualificado",
           "method": "Arma de fogo"
-        }
+        },
+        "event_family": "homicidio",
+        "event_subtype": "qualificado"
       },
       "scoring": {
         "required_fields": [
@@ -51,7 +52,8 @@
           "location_info.city",
           "location_info.state",
           "victims.number_of_victims",
-          "homicide_dynamic.homicide_type",
+          "event_family",
+          "event_subtype",
           "homicide_dynamic.method"
         ]
       },
@@ -92,9 +94,10 @@
           "number_of_victims": 1
         },
         "homicide_dynamic": {
-          "homicide_type": "Homicídio",
           "method": "Objeto contundente"
-        }
+        },
+        "event_family": "homicidio",
+        "event_subtype": "simples"
       },
       "scoring": {
         "required_fields": [
@@ -102,7 +105,8 @@
           "location_info.city",
           "location_info.state",
           "victims.number_of_victims",
-          "homicide_dynamic.homicide_type",
+          "event_family",
+          "event_subtype",
           "homicide_dynamic.method"
         ]
       },
@@ -144,9 +148,10 @@
           "number_of_victims": 2
         },
         "homicide_dynamic": {
-          "homicide_type": "Homicídio",
           "method": "Arma branca"
-        }
+        },
+        "event_family": "homicidio",
+        "event_subtype": "simples"
       },
       "scoring": {
         "required_fields": [
@@ -154,7 +159,8 @@
           "location_info.city",
           "location_info.state",
           "victims.number_of_victims",
-          "homicide_dynamic.homicide_type",
+          "event_family",
+          "event_subtype",
           "homicide_dynamic.method"
         ]
       },
@@ -196,9 +202,10 @@
           "number_of_victims": 1
         },
         "homicide_dynamic": {
-          "homicide_type": "Homicídio",
           "method": "Arma de fogo"
-        }
+        },
+        "event_family": "homicidio",
+        "event_subtype": "simples"
       },
       "scoring": {
         "required_fields": [
@@ -206,7 +213,8 @@
           "location_info.city",
           "location_info.state",
           "victims.number_of_victims",
-          "homicide_dynamic.homicide_type",
+          "event_family",
+          "event_subtype",
           "homicide_dynamic.method"
         ]
       },
@@ -247,9 +255,10 @@
           "number_of_victims": 1
         },
         "homicide_dynamic": {
-          "homicide_type": "Homicídio",
           "method": "Arma de fogo"
-        }
+        },
+        "event_family": "homicidio",
+        "event_subtype": "simples"
       },
       "scoring": {
         "required_fields": [
@@ -257,7 +266,8 @@
           "location_info.city",
           "location_info.state",
           "victims.number_of_victims",
-          "homicide_dynamic.homicide_type",
+          "event_family",
+          "event_subtype",
           "homicide_dynamic.method"
         ]
       },
@@ -298,9 +308,10 @@
           "number_of_victims": 1
         },
         "homicide_dynamic": {
-          "homicide_type": "Latrocínio",
           "method": "Arma de fogo"
-        }
+        },
+        "event_family": "homicidio",
+        "event_subtype": "latrocinio"
       },
       "scoring": {
         "required_fields": [
@@ -308,7 +319,8 @@
           "location_info.city",
           "location_info.state",
           "victims.number_of_victims",
-          "homicide_dynamic.homicide_type",
+          "event_family",
+          "event_subtype",
           "homicide_dynamic.method"
         ]
       },
@@ -350,9 +362,10 @@
           "number_of_victims": 1
         },
         "homicide_dynamic": {
-          "homicide_type": "Feminicídio",
           "method": "Arma branca"
-        }
+        },
+        "event_family": "homicidio",
+        "event_subtype": "feminicidio"
       },
       "scoring": {
         "required_fields": [
@@ -360,7 +373,8 @@
           "location_info.city",
           "location_info.state",
           "victims.number_of_victims",
-          "homicide_dynamic.homicide_type",
+          "event_family",
+          "event_subtype",
           "homicide_dynamic.method"
         ]
       },
@@ -401,9 +415,10 @@
           "number_of_victims": 1
         },
         "homicide_dynamic": {
-          "homicide_type": "Homicídio",
           "method": "Arma de fogo"
-        }
+        },
+        "event_family": "homicidio",
+        "event_subtype": "simples"
       },
       "scoring": {
         "required_fields": [
@@ -411,7 +426,8 @@
           "location_info.city",
           "location_info.state",
           "victims.number_of_victims",
-          "homicide_dynamic.homicide_type",
+          "event_family",
+          "event_subtype",
           "homicide_dynamic.method"
         ]
       },
@@ -452,9 +468,10 @@
           "number_of_victims": 1
         },
         "homicide_dynamic": {
-          "homicide_type": "Homicídio",
           "method": "Arma de fogo"
-        }
+        },
+        "event_family": "homicidio",
+        "event_subtype": "simples"
       },
       "scoring": {
         "required_fields": [
@@ -462,7 +479,8 @@
           "location_info.city",
           "location_info.state",
           "victims.number_of_victims",
-          "homicide_dynamic.homicide_type",
+          "event_family",
+          "event_subtype",
           "homicide_dynamic.method"
         ]
       },
@@ -504,9 +522,10 @@
           "number_of_victims": 1
         },
         "homicide_dynamic": {
-          "homicide_type": "Homicídio",
           "method": "Não especificado"
-        }
+        },
+        "event_family": "homicidio",
+        "event_subtype": "simples"
       },
       "scoring": {
         "required_fields": [
@@ -514,7 +533,8 @@
           "location_info.city",
           "location_info.state",
           "victims.number_of_victims",
-          "homicide_dynamic.homicide_type",
+          "event_family",
+          "event_subtype",
           "homicide_dynamic.method"
         ]
       },
@@ -555,9 +575,10 @@
           "number_of_victims": 3
         },
         "homicide_dynamic": {
-          "homicide_type": "Homicídio Qualificado",
           "method": "Arma de fogo"
-        }
+        },
+        "event_family": "homicidio",
+        "event_subtype": "qualificado"
       },
       "scoring": {
         "required_fields": [
@@ -565,7 +586,8 @@
           "location_info.city",
           "location_info.state",
           "victims.number_of_victims",
-          "homicide_dynamic.homicide_type",
+          "event_family",
+          "event_subtype",
           "homicide_dynamic.method"
         ]
       },
@@ -607,9 +629,10 @@
           "number_of_victims": 1
         },
         "homicide_dynamic": {
-          "homicide_type": "Homicídio Qualificado",
           "method": "Não especificado"
-        }
+        },
+        "event_family": "homicidio",
+        "event_subtype": "qualificado"
       },
       "scoring": {
         "required_fields": [
@@ -617,7 +640,8 @@
           "location_info.city",
           "location_info.state",
           "victims.number_of_victims",
-          "homicide_dynamic.homicide_type",
+          "event_family",
+          "event_subtype",
           "homicide_dynamic.method"
         ]
       },
@@ -659,9 +683,10 @@
           "number_of_victims": 1
         },
         "homicide_dynamic": {
-          "homicide_type": "Homicídio Qualificado",
           "method": "Arma de fogo"
-        }
+        },
+        "event_family": "homicidio",
+        "event_subtype": "qualificado"
       },
       "scoring": {
         "required_fields": [
@@ -669,7 +694,8 @@
           "location_info.city",
           "location_info.state",
           "victims.number_of_victims",
-          "homicide_dynamic.homicide_type",
+          "event_family",
+          "event_subtype",
           "homicide_dynamic.method"
         ]
       },
@@ -710,9 +736,10 @@
           "number_of_victims": 1
         },
         "homicide_dynamic": {
-          "homicide_type": "Homicídio",
           "method": "Arma de fogo"
-        }
+        },
+        "event_family": "homicidio",
+        "event_subtype": "simples"
       },
       "scoring": {
         "required_fields": [
@@ -720,7 +747,8 @@
           "location_info.city",
           "location_info.state",
           "victims.number_of_victims",
-          "homicide_dynamic.homicide_type",
+          "event_family",
+          "event_subtype",
           "homicide_dynamic.method"
         ]
       },
@@ -762,9 +790,10 @@
           "number_of_victims": 1
         },
         "homicide_dynamic": {
-          "homicide_type": "Feminicídio",
           "method": "Arma branca"
-        }
+        },
+        "event_family": "homicidio",
+        "event_subtype": "feminicidio"
       },
       "scoring": {
         "required_fields": [
@@ -772,7 +801,8 @@
           "location_info.city",
           "location_info.state",
           "victims.number_of_victims",
-          "homicide_dynamic.homicide_type",
+          "event_family",
+          "event_subtype",
           "homicide_dynamic.method"
         ]
       },
@@ -814,9 +844,10 @@
           "number_of_victims": 1
         },
         "homicide_dynamic": {
-          "homicide_type": "Latrocínio",
           "method": "Arma de fogo"
-        }
+        },
+        "event_family": "homicidio",
+        "event_subtype": "latrocinio"
       },
       "scoring": {
         "required_fields": [
@@ -824,7 +855,8 @@
           "location_info.city",
           "location_info.state",
           "victims.number_of_victims",
-          "homicide_dynamic.homicide_type",
+          "event_family",
+          "event_subtype",
           "homicide_dynamic.method"
         ]
       },
@@ -866,9 +898,10 @@
           "number_of_victims": 2
         },
         "homicide_dynamic": {
-          "homicide_type": "Homicídio",
           "method": "Arma de fogo"
-        }
+        },
+        "event_family": "homicidio",
+        "event_subtype": "simples"
       },
       "scoring": {
         "required_fields": [
@@ -876,7 +909,8 @@
           "location_info.city",
           "location_info.state",
           "victims.number_of_victims",
-          "homicide_dynamic.homicide_type",
+          "event_family",
+          "event_subtype",
           "homicide_dynamic.method"
         ]
       },
@@ -918,9 +952,10 @@
           "number_of_victims": 1
         },
         "homicide_dynamic": {
-          "homicide_type": "Latrocínio",
           "method": "Espancamento"
-        }
+        },
+        "event_family": "homicidio",
+        "event_subtype": "latrocinio"
       },
       "scoring": {
         "required_fields": [
@@ -928,7 +963,8 @@
           "location_info.city",
           "location_info.state",
           "victims.number_of_victims",
-          "homicide_dynamic.homicide_type",
+          "event_family",
+          "event_subtype",
           "homicide_dynamic.method"
         ]
       },
@@ -969,9 +1005,10 @@
           "number_of_victims": 1
         },
         "homicide_dynamic": {
-          "homicide_type": "Homicídio",
           "method": "Arma de fogo"
-        }
+        },
+        "event_family": "homicidio",
+        "event_subtype": "simples"
       },
       "scoring": {
         "required_fields": [
@@ -979,7 +1016,8 @@
           "location_info.city",
           "location_info.state",
           "victims.number_of_victims",
-          "homicide_dynamic.homicide_type",
+          "event_family",
+          "event_subtype",
           "homicide_dynamic.method"
         ]
       },
@@ -1021,9 +1059,10 @@
           "number_of_victims": 1
         },
         "homicide_dynamic": {
-          "homicide_type": "Outro",
           "method": "Não especificado"
-        }
+        },
+        "event_family": "nao_classificado",
+        "event_subtype": "outro"
       },
       "scoring": {
         "required_fields": [
@@ -1031,7 +1070,8 @@
           "location_info.city",
           "location_info.state",
           "victims.number_of_victims",
-          "homicide_dynamic.homicide_type",
+          "event_family",
+          "event_subtype",
           "homicide_dynamic.method"
         ]
       },
