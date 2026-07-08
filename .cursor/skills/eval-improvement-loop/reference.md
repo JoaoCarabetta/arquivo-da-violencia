@@ -30,9 +30,43 @@ docker compose -f docker-compose.dev.yml exec api \
 docker compose -f docker-compose.dev.yml exec api \
   python -m eval improvement review \
   --candidates eval/results/proposed/candidates.json \
+  --verified eval/results/proposed/verified.json \
   --db eval/results/proposed/prod-snapshot.db
+```
 
-# Full eval gate
+## Diagnosis report sections
+
+The `*-review.md` file is the **primary approval artifact**. Each fix cluster includes:
+
+1. **Root causes** — ≥3 hypotheses with likelihood % and how to confirm
+2. **Solution options** — ≥3 scored alternatives; weighted metric elects winner
+3. **Affected incidents** — UEs, raw events, merge survivors
+4. **Real examples** — prod titles/victims from `--db` snapshot
+5. **Eval recommendation** — Yes/No, priority (`required` / `recommended` / `optional`), fixture path, suggested cases
+
+User approves with `approve-fix: <fix-id>`, not individual candidate IDs.
+
+Scoring weights (in `eval/improvement/analysis.py`):
+
+```
+effectiveness×0.35 + permanence×0.25 + effort_inverse×0.15 + risk_inverse×0.15 + eval_signal×0.10
+```
+
+## Pull prod snapshot (cloud agent path)
+
+```bash
+python -m eval improvement pull-snapshot \
+  --api-base-url https://arquivodaviolencia.com.br \
+  --date-from 2026-07-03 --date-to 2026-07-07 \
+  --max-source-pages 5 \
+  --output eval/results/proposed/prod-snapshot.db
+```
+
+Note: prod API `per_page=100` may 500 — use small pages (5) in pull-snapshot.
+
+## Full eval gate
+
+```bash
 docker compose -f docker-compose.dev.yml exec api \
   python -m eval improvement run-all --output eval/results/run-all.json
 ```
