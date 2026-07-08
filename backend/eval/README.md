@@ -154,9 +154,9 @@ python -m eval improvement propose \
   --db eval/results/proposed/prod-snapshot.db \
   --output eval/results/proposed/proposed.json
 
-Each step with `--output` also writes a `*-review.md` with a quick table and
-per-case checklist. Show that file (or paste its Quick list table) to the user
-before merging anything into fixtures.
+Each step with `--output` also writes a `*-review.md` with **fix recommendation
+clusters** (root cause + algorithm change) and a candidate appendix. Show the fix
+table to the user and wait for `approve-fix:` before changing code.
 
 # 4. Full 100% gate across all configured fixtures
 python -m eval improvement run-all --output eval/results/run-all.json

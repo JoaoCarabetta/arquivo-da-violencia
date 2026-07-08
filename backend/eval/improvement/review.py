@@ -7,10 +7,14 @@ import sqlite3
 from pathlib import Path
 from typing import Any
 
+from eval.improvement.diagnose import build_diagnosis
 from eval.improvement.schemas import (
     AnomalyCandidate,
     CandidateBundle,
+    DiagnosisReport,
+    FixCluster,
     ProposedBundle,
+    ProposedCase,
     VerificationResult,
     VerifiedBundle,
 )
@@ -226,6 +230,93 @@ def _format_candidate_detail(
     return "\n".join(lines)
 
 
+def _format_diagnosis_section(report: DiagnosisReport) -> list[str]:
+    lines = [
+        "## Fix recommendations (approve these)",
+        "",
+        "Review **clusters** of similar errors. Each row is one algorithm/ops change to approve.",
+        "",
+        "| # | Fix ID | Stage | Cases | Verified | Priority | Summary |",
+        "|---|--------|-------|-------|----------|----------|---------|",
+    ]
+
+    for i, cluster in enumerate(report.clusters, start=1):
+        verified = (
+            f"{cluster.verified_count}/{cluster.total_count}"
+            if cluster.verified_count
+            else "—"
+        )
+        summary = cluster.title.replace("|", "\\|")
+        lines.append(
+            f"| {i} | `{cluster.fix_id}` | `{cluster.stage}` | {cluster.total_count} "
+            f"| {verified} | {cluster.priority} | {summary} |"
+        )
+
+    lines.extend(["", "### Cluster details", ""])
+
+    for i, cluster in enumerate(report.clusters, start=1):
+        lines.extend(_format_fix_cluster(i, cluster))
+        lines.append("")
+
+    lines.extend(
+        [
+            "### How to approve fixes",
+            "",
+            "Reply with fix cluster IDs to implement, e.g.:",
+            "",
+            "```",
+            "approve-fix: fix-dedup-match-victim-name-belo-horizonte-2026-07-03-ue9722",
+            "approve-fix: fix-dedup-cluster-cuiaba-2026-07-07",
+            "reject-fix: fix-enrichment-needs-enrichment-stale",
+            "defer-fix: fix-dedup-match-title-fuzzy-salvador-2026-07-03-ue9745",
+            "```",
+            "",
+            "Approved fixes drive the implementation loop (code/prompt/ops changes + eval cases).",
+            "Individual candidate IDs are listed in the appendix for traceability only.",
+            "",
+            "---",
+            "",
+        ]
+    )
+    return lines
+
+
+def _format_fix_cluster(index: int, cluster: FixCluster) -> list[str]:
+    lines = [
+        f"#### {index}. `{cluster.fix_id}` — {cluster.title}",
+        "",
+        f"| | |",
+        f"|---|---|",
+        f"| **Root cause** | {cluster.root_cause} |",
+        f"| **Mechanism** | {cluster.mechanism} |",
+        f"| **Change type** | `{cluster.change_type}` |",
+        f"| **Priority** | {cluster.priority} |",
+        f"| **Cases** | {cluster.total_count} ({cluster.verified_count} verified) |",
+        "",
+        f"**Recommended change:** {cluster.recommended_change}",
+        "",
+        "**Change targets:**",
+    ]
+    for target in cluster.change_targets:
+        lines.append(f"- `{target}`")
+    if cluster.context.get("unique_event_ids"):
+        ids = cluster.context["unique_event_ids"]
+        survivor = cluster.context.get("suggested_survivor_id")
+        lines.append("")
+        lines.append(f"**Affected UniqueEvents:** `{ids}`")
+        if survivor:
+            lines.append(f"**Suggested survivor:** UE `{survivor}` (merge losers into this)")
+    lines.append("")
+    lines.append(f"**Evidence:** {cluster.evidence}")
+    lines.append("")
+    lines.append(f"**Example candidate IDs:** `{', '.join(cluster.example_ids)}`")
+    lines.append("")
+    lines.append("**Your decision:** ☐ Approve fix &nbsp; ☐ Reject &nbsp; ☐ Defer")
+    lines.append("")
+    lines.append("---")
+    return lines
+
+
 def build_review_markdown(
     *,
     candidates: list[AnomalyCandidate],
@@ -256,9 +347,14 @@ def build_review_markdown(
             lines.append(f"- **Counts:** {counts}")
         lines.append("")
 
+    diagnosis = build_diagnosis(candidates, verified_by_id)
+    lines.extend(_format_diagnosis_section(diagnosis))
+
     lines.extend(
         [
-            "## Quick list",
+            "## Candidate appendix",
+            "",
+            "Quick scan of individual detections (for traceability).",
             "",
             "| # | Stage | ID | Status | Summary |",
             "|---|-------|----|--------|---------|",
@@ -273,7 +369,7 @@ def build_review_markdown(
             f"| {i} | `{c.stage}` | `{c.candidate_id}` | {status} | {summary} |"
         )
 
-    lines.extend(["", "## Details", ""])
+    lines.extend(["", "## Candidate details", ""])
 
     for i, c in enumerate(candidates, start=1):
         lines.append(
@@ -288,9 +384,9 @@ def build_review_markdown(
 
     lines.extend(
         [
-            "## How to respond",
+            "## How to respond (eval cases)",
             "",
-            "Reply with approved case IDs, e.g.:",
+            "After approving fixes above, you can also approve individual eval fixture cases:",
             "",
             "```",
             "approve: prod-dedup_match-9722-9723, prod-dedup_match-9732-9743",
@@ -388,9 +484,12 @@ def write_review(path: Path, markdown: str) -> Path:
     return path
 
 
-def print_review_pointer(path: Path, count: int) -> None:
-    print(f"\n📋 Review report ({count} cases): {path}")
-    print("   Open this file for the full table and per-case approve/reject checklist.")
+def print_review_pointer(path: Path, count: int, cluster_count: int | None = None) -> None:
+    if cluster_count is not None:
+        print(f"\n📋 Diagnosis report ({cluster_count} fix clusters, {count} candidates): {path}")
+    else:
+        print(f"\n📋 Review report ({count} cases): {path}")
+    print("   Open for fix recommendations (approve clusters) and candidate appendix.")
 
 
 def emit_review_for_output(
@@ -400,16 +499,32 @@ def emit_review_for_output(
     verified_path: Path | None = None,
     proposed_path: Path | None = None,
     review_path: Path | None = None,
-) -> tuple[Path, int]:
+) -> tuple[Path, int, int]:
     """Write a Markdown review alongside detect/verify/propose JSON output."""
     data = json.loads(output_json.read_text())
+    verified_by_id: dict[str, VerificationResult] = {}
+
+    if verified_path and verified_path.exists():
+        vb = VerifiedBundle.model_validate(json.loads(verified_path.read_text()))
+        for r in vb.results:
+            verified_by_id[r.candidate_id] = r
 
     if data.get("cases") and data["cases"] and "verification" in data["cases"][0]:
         md = review_from_proposed(output_json, db_path=db_path)
         count = len(data["cases"])
+        for item in data["cases"]:
+            verified_by_id[item["case"]["id"]] = VerificationResult.model_validate(
+                item["verification"]
+            )
+        candidates = [verified_by_id[k].candidate for k in verified_by_id if k in verified_by_id]
+        if not candidates:
+            candidates = [VerificationResult.model_validate(item["verification"]).candidate for item in data["cases"]]
     elif "results" in data:
         md = review_from_verified(output_json, db_path=db_path)
         count = len(data["results"])
+        for r in data["results"]:
+            verified_by_id[r["candidate_id"]] = VerificationResult.model_validate(r)
+        candidates = [verified_by_id[r["candidate_id"]].candidate for r in data["results"]]
     elif "candidates" in data:
         md = review_from_candidates(
             output_json,
@@ -418,9 +533,15 @@ def emit_review_for_output(
             db_path=db_path,
         )
         count = len(data["candidates"])
+        candidates = [AnomalyCandidate.model_validate(c) for c in data["candidates"]]
+        if proposed_path and proposed_path.exists():
+            pb = ProposedBundle.model_validate(json.loads(proposed_path.read_text()))
+            for item in pb.cases:
+                verified_by_id[item.case["id"]] = item.verification
     else:
         raise ValueError(f"Unrecognized improvement output format: {output_json}")
 
     out = review_path or default_review_path(output_json)
     write_review(out, md)
-    return out, count
+    cluster_count = len(build_diagnosis(candidates, verified_by_id).clusters)
+    return out, count, cluster_count

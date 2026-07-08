@@ -5,6 +5,7 @@ import sqlite3
 
 from eval.compare import compare_case_results, compare_generic_reports
 from eval.improvement.detect import parse_stages
+from eval.improvement.diagnose import build_diagnosis
 from eval.improvement.review import build_review_markdown, emit_review_for_output
 from eval.improvement.schemas import AnomalyCandidate, CandidateBundle, VerificationResult
 
@@ -91,11 +92,10 @@ def test_build_review_markdown_dedup_match(tmp_path):
         db_path=db_path,
         title="Test review",
     )
-    assert "## Quick list" in md
+    assert "## Fix recommendations (approve these)" in md
     assert "prod-dedup_match-9722-9723" in md
     assert "Belo Horizonte" in md
-    assert "Tiroteio na Aarão Reis" in md
-    assert "## How to respond" in md
+    assert "## Candidate appendix" in md
 
 
 def test_emit_review_for_output_candidates(tmp_path):
@@ -115,10 +115,11 @@ def test_emit_review_for_output_candidates(tmp_path):
         ],
     )
     candidates_path.write_text(bundle.model_dump_json(indent=2))
-    review_path, count = emit_review_for_output(candidates_path, db_path=db_path)
+    review_path, count, cluster_count = emit_review_for_output(candidates_path, db_path=db_path)
     assert count == 1
+    assert cluster_count >= 1
     assert review_path.name == "candidates-review.md"
-    assert "Quick list" in review_path.read_text()
+    assert "Fix recommendations" in review_path.read_text()
 
 
 def test_emit_review_for_output_verified(tmp_path):
@@ -146,9 +147,76 @@ def test_emit_review_for_output_verified(tmp_path):
             }
         )
     )
-    review_path, count = emit_review_for_output(verified_path)
+    review_path, count, cluster_count = emit_review_for_output(verified_path)
     assert count == 1
+    assert cluster_count >= 1
     assert review_path.name == "verified-review.md"
     text = review_path.read_text()
-    assert "verified ✓" in text
+    assert "Fix recommendations" in text
     assert "Re-run confirms duplicate" in text
+
+
+def test_build_diagnosis_clusters_dedup_match_pairs():
+    """Three pairs sharing UEs 9722/9723/9730 → one cluster."""
+    candidates = [
+        AnomalyCandidate(
+            stage="dedup-match",
+            candidate_id=f"prod-dedup_match-{a}-{b}",
+            signal="near_duplicate_unique_events",
+            reason=f"Pair {a}-{b}",
+            prod_snapshot={
+                "id_a": a,
+                "id_b": b,
+                "signal": "victim_name",
+                "city": "Belo Horizonte",
+                "event_date": "2026-07-03",
+                "similarity": 1.0,
+            },
+        )
+        for a, b in [(9722, 9723), (9722, 9730), (9723, 9730)]
+    ]
+    report = build_diagnosis(candidates)
+    victim_clusters = [c for c in report.clusters if "victim_name" in c.fix_id or c.signal == "near_duplicate_unique_events"]
+    assert len(victim_clusters) == 1
+    assert victim_clusters[0].total_count == 3
+    assert set(victim_clusters[0].context.get("unique_event_ids", [])) == {9722, 9723, 9730}
+
+
+def test_build_diagnosis_includes_fix_recommendations():
+    candidate = AnomalyCandidate(
+        stage="dedup-cluster",
+        candidate_id="prod-dedup_cluster-1-2",
+        signal="pending_overlap_cluster",
+        reason="2 pending events overlap",
+        prod_snapshot={"city": "Cuiabá", "event_date": "2026-07-07", "raw_event_ids": [1, 2]},
+        input={"raw_event_ids": [1, 2]},
+    )
+    report = build_diagnosis([candidate])
+    assert len(report.clusters) == 1
+    cluster = report.clusters[0]
+    assert cluster.change_type == "ops"
+    assert "process_pending_deduplication" in cluster.recommended_change
+    assert any("enrichment.py" in t for t in cluster.change_targets)
+
+
+def test_review_markdown_includes_diagnosis_section(tmp_path):
+    db_path = tmp_path / "snap.db"
+    _make_snapshot_db(db_path)
+    candidate = AnomalyCandidate(
+        stage="dedup-match",
+        candidate_id="prod-dedup_match-9722-9723",
+        signal="near_duplicate_unique_events",
+        reason="Near-duplicate unique events",
+        prod_snapshot={
+            "id_a": 9722,
+            "id_b": 9723,
+            "signal": "victim_name",
+            "city": "Belo Horizonte",
+            "event_date": "2026-07-03",
+        },
+    )
+    md = build_review_markdown(candidates=[candidate], db_path=db_path)
+    assert "## Fix recommendations (approve these)" in md
+    assert "**Root cause**" in md
+    assert "**Recommended change:**" in md
+    assert "## Candidate appendix" in md

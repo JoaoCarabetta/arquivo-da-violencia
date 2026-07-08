@@ -78,3 +78,33 @@ class ProposedCase(BaseModel):
 class ProposedBundle(BaseModel):
     meta: dict[str, Any] = Field(default_factory=dict)
     cases: list[ProposedCase] = Field(default_factory=list)
+
+
+ChangeType = Literal["code", "prompt", "config", "ops", "eval"]
+FixPriority = Literal["high", "medium", "low"]
+
+
+class FixCluster(BaseModel):
+    """Grouped pipeline errors with root cause and recommended algorithm change."""
+
+    fix_id: str
+    stage: StageName
+    signal: str
+    title: str
+    root_cause: str
+    mechanism: str
+    recommended_change: str
+    change_targets: list[str] = Field(default_factory=list)
+    change_type: ChangeType
+    priority: FixPriority = "medium"
+    candidate_ids: list[str] = Field(default_factory=list)
+    example_ids: list[str] = Field(default_factory=list)
+    evidence: str = ""
+    verified_count: int = 0
+    total_count: int = 0
+    context: dict[str, Any] = Field(default_factory=dict)
+
+
+class DiagnosisReport(BaseModel):
+    meta: dict[str, Any] = Field(default_factory=dict)
+    clusters: list[FixCluster] = Field(default_factory=list)

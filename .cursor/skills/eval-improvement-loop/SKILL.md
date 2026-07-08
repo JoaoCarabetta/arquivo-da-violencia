@@ -23,7 +23,7 @@ Eval improvement loop
 - [ ] Phase 0: DB access confirmed (staging preferred)
 - [ ] Phase 1: detect — candidates written to eval/results/proposed/
 - [ ] Phase 2: verify — LLM re-runs confirm real anomalies
-- [ ] Phase 3: propose — pending cases presented; HUMAN APPROVAL received
+- [ ] Phase 3: propose — diagnosis report presented; HUMAN `approve-fix:` received
 - [ ] Phase 4: merge approved cases into tests/fixtures/eval/
 - [ ] Phase 5: run-all baseline
 - [ ] Phase 6: fix loop until 100% (max 5 iterations)
@@ -89,19 +89,32 @@ python -m eval improvement review \
   --db eval/results/proposed/prod-snapshot.db
 ```
 
-### Present candidates to the user
+### Present diagnosis to the user
 
-1. Open the `*-review.md` file (auto-written when `--output` is used).
-2. Paste the **Quick list** table into chat so the user can scan all cases at once.
-3. For cases they ask about, quote the matching **Details** section (incident
-   titles, verification notes, suggested eval label).
-4. **STOP and wait for explicit approval** before merging into fixtures.
+The `*-review.md` file leads with **Fix recommendations** — clustered root causes
+and algorithm changes. This is what the user approves.
 
-Example quick list (from the review file):
+1. Open the review file (auto-written when `--output` is used).
+2. Paste the **Fix recommendations** table into chat.
+3. For clusters they ask about, quote the cluster detail (root cause, mechanism,
+   recommended change, change targets).
+4. **STOP and wait for explicit `approve-fix:` / `reject-fix:` / `defer-fix:`**
+   before implementing code/prompt/ops changes.
+5. Eval fixture cases (appendix) are secondary — approve with `approve:` only after
+   fixes are decided.
 
-| # | Stage | ID | Status | Summary |
-|---|-------|----|--------|---------|
-| 1 | `dedup-match` | `prod-dedup_match-9722-9723` | verified ✓ | Belo Horizonte 2026-07-05 — … |
+Example fix table:
+
+| # | Fix ID | Stage | Cases | Priority | Summary |
+|---|--------|-------|-------|----------|---------|
+| 1 | `fix-dedup-match-victim-name-…` | dedup-match | 3 | high | Belo Horizonte: 3 duplicate UEs (victim_name) |
+
+Example response format:
+
+```text
+approve-fix: fix-dedup-match-victim-name-belo-horizonte-2026-07-03-ue9722
+defer-fix: fix-dedup-match-title-fuzzy-salvador-2026-07-03-ue9745
+```
 
 Rules:
 
@@ -171,7 +184,7 @@ Stop and ask the user when:
 | Candidates | `backend/eval/results/proposed/candidates-*.json` |
 | Verified | `backend/eval/results/proposed/verified-*.json` |
 | Proposals | `backend/eval/results/proposed/proposed-*.json` |
-| **Review (show user)** | `backend/eval/results/proposed/*-review.md` |
+| **Review / diagnosis (show user)** | `backend/eval/results/proposed/*-review.md` |
 | Run-all summary | `backend/eval/results/run-all-*.json` |
 | Fixtures (after approval) | `backend/tests/fixtures/eval/*.json` |
 

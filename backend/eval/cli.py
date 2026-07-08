@@ -469,8 +469,8 @@ def _dispatch_improvement(args: argparse.Namespace, handler: str | None) -> None
             print(f"\nWrote {output}")
             from eval.improvement.review import emit_review_for_output, print_review_pointer
 
-            review_path, count = emit_review_for_output(output, db_path=db_path)
-            print_review_pointer(review_path, count)
+            review_path, count, cluster_count = emit_review_for_output(output, db_path=db_path)
+            print_review_pointer(review_path, count, cluster_count)
         return
 
     if handler == "verify":
@@ -490,12 +490,12 @@ def _dispatch_improvement(args: argparse.Namespace, handler: str | None) -> None
             print(f"\nWrote {output}")
             from eval.improvement.review import emit_review_for_output, print_review_pointer
 
-            review_path, count = emit_review_for_output(
+            review_path, count, cluster_count = emit_review_for_output(
                 output,
                 db_path=db_path,
                 verified_path=Path(args.candidates),
             )
-            print_review_pointer(review_path, count)
+            print_review_pointer(review_path, count, cluster_count)
         return
 
     if handler == "propose":
@@ -509,8 +509,8 @@ def _dispatch_improvement(args: argparse.Namespace, handler: str | None) -> None
             from eval.improvement.review import emit_review_for_output, print_review_pointer
 
             db_path = Path(args.db) if getattr(args, "db", None) else None
-            review_path, count = emit_review_for_output(output, db_path=db_path)
-            print_review_pointer(review_path, count)
+            review_path, count, cluster_count = emit_review_for_output(output, db_path=db_path)
+            print_review_pointer(review_path, count, cluster_count)
         return
 
     if handler == "run-all":
@@ -565,14 +565,14 @@ def _dispatch_improvement(args: argparse.Namespace, handler: str | None) -> None
             raise SystemExit("Provide --candidates, --verified, or --proposed")
 
         out = Path(args.output) if args.output else default_review_path(src)
-        review_path, count = emit_review_for_output(
+        review_path, count, cluster_count = emit_review_for_output(
             src,
             db_path=db_path,
             verified_path=verified_path if src != verified_path else None,
             proposed_path=proposed_path if src != proposed_path else None,
             review_path=out,
         )
-        print_review_pointer(review_path, count)
+        print_review_pointer(review_path, count, cluster_count)
         return
 
     if handler == "compare-reports":
