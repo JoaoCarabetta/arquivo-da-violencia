@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from eval.improvement.diagnose import build_diagnosis
+from eval.improvement.examples import build_fix_examples
 from eval.improvement.schemas import (
     AnomalyCandidate,
     CandidateBundle,
@@ -230,7 +231,12 @@ def _format_candidate_detail(
     return "\n".join(lines)
 
 
-def _format_diagnosis_section(report: DiagnosisReport) -> list[str]:
+def _format_diagnosis_section(
+    report: DiagnosisReport,
+    *,
+    candidates_by_id: dict[str, AnomalyCandidate],
+    db: DbEnricher,
+) -> list[str]:
     lines = [
         "## Fix recommendations (approve these)",
         "",
@@ -251,7 +257,7 @@ def _format_diagnosis_section(report: DiagnosisReport) -> list[str]:
     lines.extend(["", "### Fix details", ""])
 
     for i, cluster in enumerate(report.clusters, start=1):
-        lines.extend(_format_fix_cluster(i, cluster))
+        lines.extend(_format_fix_cluster(i, cluster, candidates_by_id=candidates_by_id, db=db))
         lines.append("")
 
     lines.extend(
@@ -322,7 +328,13 @@ def _format_affected_table(cluster: FixCluster) -> list[str]:
     return lines
 
 
-def _format_fix_cluster(index: int, cluster: FixCluster) -> list[str]:
+def _format_fix_cluster(
+    index: int,
+    cluster: FixCluster,
+    *,
+    candidates_by_id: dict[str, AnomalyCandidate],
+    db: DbEnricher,
+) -> list[str]:
     lines = [
         f"#### {index}. `{cluster.fix_id}`",
         "",
@@ -355,6 +367,8 @@ def _format_fix_cluster(index: int, cluster: FixCluster) -> list[str]:
         ]
     )
     lines.extend(_format_affected_table(cluster))
+    lines.append("")
+    lines.extend(build_fix_examples(cluster, candidates_by_id, db))
     lines.extend(
         [
             "",
@@ -397,7 +411,8 @@ def build_review_markdown(
         lines.append("")
 
     diagnosis = build_diagnosis(candidates, verified_by_id)
-    lines.extend(_format_diagnosis_section(diagnosis))
+    candidates_by_id = {c.candidate_id: c for c in candidates}
+    lines.extend(_format_diagnosis_section(diagnosis, candidates_by_id=candidates_by_id, db=db))
 
     lines.extend(
         [

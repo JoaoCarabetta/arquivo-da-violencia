@@ -6,6 +6,7 @@ import sqlite3
 from eval.compare import compare_case_results, compare_generic_reports
 from eval.improvement.detect import parse_stages
 from eval.improvement.diagnose import build_diagnosis
+from eval.improvement.examples import build_fix_examples, _highlight_overlap
 from eval.improvement.review import build_review_markdown, emit_review_for_output
 from eval.improvement.schemas import AnomalyCandidate, CandidateBundle, VerificationResult
 
@@ -259,4 +260,76 @@ def test_review_markdown_includes_diagnosis_section(tmp_path):
     assert "**Problem:**" in md
     assert "**Solution:**" in md
     assert "**What will be affected:**" in md
+    assert "**Real examples (why this fix makes sense):**" in md
     assert "## Candidate appendix" in md
+
+
+def test_highlight_overlap_finds_victim_name():
+    a = "Celeste Martins Oliveira do Nascimento, cabo da PM"
+    b = "A vítima Celeste Martins Oliveira do Nascimento foi morta"
+    result = _highlight_overlap(a, b)
+    assert result is not None
+    assert "Celeste" in result
+
+
+def test_build_fix_examples_dedup_match(tmp_path):
+    db_path = tmp_path / "snap.db"
+    _make_snapshot_db(db_path)
+    # add third UE for richer example
+    import sqlite3
+    conn = sqlite3.connect(db_path)
+    conn.execute(
+        "INSERT INTO unique_event VALUES (9730, 'Homicídio Aarão Reis', "
+        "'Belo Horizonte', 'MG', '2026-07-03', 'Homem de 37 anos morto a tiros', 2)"
+    )
+    conn.commit()
+    conn.close()
+
+    from eval.improvement.review import DbEnricher
+    from eval.improvement.schemas import AffectedGroup, FixCluster
+
+    cluster = FixCluster(
+        fix_id="fix-test",
+        stage="dedup-match",
+        signal="near_duplicate_unique_events",
+        title="test",
+        problem="dup",
+        solution="merge",
+        root_cause="dup",
+        mechanism="m",
+        recommended_change="merge",
+        change_type="ops",
+        affected=[
+            AffectedGroup(
+                label="Belo Horizonte 2026-07-03",
+                unique_event_ids=[9722, 9723, 9730],
+                suggested_survivor_id=9722,
+                pair_count=3,
+                candidate_ids=["prod-dedup_match-9722-9723"],
+            )
+        ],
+        total_count=3,
+    )
+    candidates = {
+        "prod-dedup_match-9722-9723": AnomalyCandidate(
+            stage="dedup-match",
+            candidate_id="prod-dedup_match-9722-9723",
+            signal="near_duplicate_unique_events",
+            reason="pair",
+            prod_snapshot={
+                "id_a": 9722,
+                "id_b": 9723,
+                "signal": "victim_name",
+                "similarity": 1.0,
+                "city": "Belo Horizonte",
+                "event_date": "2026-07-03",
+            },
+        )
+    }
+    db = DbEnricher(db_path)
+    lines = build_fix_examples(cluster, candidates, db)
+    text = "\n".join(lines)
+    assert "Real examples" in text
+    assert "9722" in text
+    assert "Why this is one incident" in text
+    db.close()

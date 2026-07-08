@@ -97,9 +97,8 @@ The `*-review.md` file leads with **Fix recommendations** — one row per
 
 1. Open the review file (auto-written when `--output` is used).
 2. Paste the **Fix recommendations** table (Problem | Solution | Affected).
-3. For clusters they ask about, quote problem, solution, and affected incidents table.
-4. **STOP and wait for explicit `approve-fix:` / `reject-fix:` / `defer-fix:`**
-   before implementing changes.
+3. Quote **Real examples** sections — prod titles, victims, and "why this is one incident".
+4. **STOP and wait for explicit `approve-fix:`** before implementing changes.
 
 Example fix table:
 
