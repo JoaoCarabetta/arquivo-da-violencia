@@ -20,6 +20,9 @@ visualized in Grafana.
   via a separate `WORKER_REGISTRY` (cron timestamps, GitHub issue counters, task
   metrics — no duplicate health gauges).
 - **Prometheus** on the obs VPS scrapes application and host targets every 30s.
+- **Alertmanager** evaluates firing alerts and routes to **alert-router**, which
+  sends Telegram notifications and dispatches the Cursor cloud agent on critical
+  alerts only.
 - **node_exporter** on prod (`docker-compose.yml`, `:9100`) and on the obs VPS
   (`infra/observability/docker-compose.yml`, internal Docker network) exposes
   RAM, disk, and CPU metrics (`node_memory_*`, `node_filesystem_*`,
@@ -92,6 +95,58 @@ Deploy notes:
 | `node_memory_*`, `node_filesystem_*`, `node_cpu_seconds_total` | node_exporter | Host RAM, disk, CPU (labels `host=prod\|obs`) |
 | `up{job=~"arquivo-prod-node\|obs-node"}` | Prometheus | Scrape health for node_exporter |
 
+## Alerting
+
+Prometheus alert rules:
+[`infra/observability/prometheus/rules/arquivo-alerts.yml`](../infra/observability/prometheus/rules/arquivo-alerts.yml).
+Alertmanager routes to **alert-router** (`infra/observability/alert-router/`).
+
+| Severity | Telegram | Cursor agent |
+|----------|----------|--------------|
+| warning | Yes | No |
+| critical | Yes | Yes |
+
+### Critical alerts (Telegram + Cursor agent)
+
+| Alert | Condition |
+|-------|-----------|
+| `WorkerDown` | `pipeline_worker_alive == 0` for 3m |
+| `RedisDisconnected` | `pipeline_redis_connected == 0` for 2m |
+| `ApiScrapeDown` / `WorkerScrapeDown` | scrape target down |
+| `StuckSourcesCritical` | stuck sources ≥ 5 for 10m |
+| `QueueDepthCritical` | queue depth ≥ 50 for 10m |
+| `CronIngestStale` | hourly ingest > 120 min ago |
+| `HostDiskCritical` / `HostMemoryCritical` | > 90% for 5–10m |
+| `ObservabilityScrapeDown` | any prod/obs scrape down 5m |
+
+### Warning alerts (Telegram only)
+
+Stuck sources ≥ 1, queue ≥ 20, classification backlog ≥ 500, heartbeat misses ≥
+2, open GitHub failure issues, cron > 90 min, host disk > 75%, memory > 70%,
+CPU > 70%.
+
+### Obs VPS alert secrets
+
+One-time setup in `/opt/arquivo-observability/.env` (preserved by
+`deploy-remote.sh`):
+
+```bash
+TELEGRAM_BOT_TOKEN=…
+TELEGRAM_CHAT_ID=…
+PIPELINE_HEALTH_WEBHOOK_URL=https://api2.cursor.sh/automations/webhook/…
+PIPELINE_HEALTH_WEBHOOK_AUTH=crsr_…
+```
+
+Test after deploy:
+
+```bash
+bash scripts/test-alert-router.sh --obs warning
+bash scripts/test-alert-router.sh --obs critical
+```
+
+The 30-minute health script remains for log/SQL checks. See
+[`docs/pipeline-auto-remediation.md`](pipeline-auto-remediation.md).
+
 ### GitHub Actions secrets
 
 Add in **Settings → Secrets and variables → Actions**:
@@ -125,6 +180,10 @@ GRAFANA_ADMIN_USER=admin
 GRAFANA_ADMIN_PASSWORD=<same as GRAFANA_ADMIN_PASSWORD secret>
 GRAFANA_DOMAIN=observability.carabetta.xyz
 GRAFANA_ROOT_URL=https://observability.carabetta.xyz
+TELEGRAM_BOT_TOKEN=<same as prod bot>
+TELEGRAM_CHAT_ID=<your chat id>
+PIPELINE_HEALTH_WEBHOOK_URL=<Cursor Automation webhook URL>
+PIPELINE_HEALTH_WEBHOOK_AUTH=<crsr_… token>
 EOF
 chmod 600 /opt/arquivo-observability/.env
 

@@ -13,17 +13,45 @@ PROD_HOST="${PROD_HOST:-77.42.72.111}"
 log() { echo "[deploy-remote] $*"; }
 die() { echo "[deploy-remote] ERROR: $*" >&2; exit 1; }
 
-# --- Preserve Grafana credentials before any file sync ---
+# --- Preserve credentials before any file sync ---
+read_existing_env() {
+  local key="$1"
+  if [[ -f "$OBS_DIR/.env" ]]; then
+    grep -E "^${key}=" "$OBS_DIR/.env" 2>/dev/null | cut -d= -f2- || true
+  fi
+}
+
 existing_password=""
-if [[ -f "$OBS_DIR/.env" ]]; then
-  # shellcheck disable=SC1090
-  existing_password="$(grep -E '^GRAFANA_ADMIN_PASSWORD=' "$OBS_DIR/.env" 2>/dev/null | cut -d= -f2- || true)"
-fi
+existing_password="$(read_existing_env GRAFANA_ADMIN_PASSWORD)"
 if [[ -z "$existing_password" && -n "${GRAFANA_ADMIN_PASSWORD:-}" ]]; then
   existing_password="$GRAFANA_ADMIN_PASSWORD"
 fi
 if [[ -z "$existing_password" ]]; then
   die "GRAFANA_ADMIN_PASSWORD must be set (env or $OBS_DIR/.env) — never auto-generate on redeploy"
+fi
+
+existing_telegram_token="$(read_existing_env TELEGRAM_BOT_TOKEN)"
+existing_telegram_chat="$(read_existing_env TELEGRAM_CHAT_ID)"
+existing_webhook_url="$(read_existing_env PIPELINE_HEALTH_WEBHOOK_URL)"
+existing_webhook_auth="$(read_existing_env PIPELINE_HEALTH_WEBHOOK_AUTH)"
+if [[ -z "$existing_webhook_auth" ]]; then
+  existing_webhook_auth="$(read_existing_env CURSOR_AUTOMATION_TOKEN)"
+fi
+
+# Allow env overrides for first-time bootstrap
+existing_telegram_token="${TELEGRAM_BOT_TOKEN:-$existing_telegram_token}"
+existing_telegram_chat="${TELEGRAM_CHAT_ID:-$existing_telegram_chat}"
+existing_webhook_url="${PIPELINE_HEALTH_WEBHOOK_URL:-$existing_webhook_url}"
+existing_webhook_auth="${PIPELINE_HEALTH_WEBHOOK_AUTH:-${CURSOR_AUTOMATION_TOKEN:-$existing_webhook_auth}}"
+
+existing_router_secret="$(read_existing_env ALERT_ROUTER_WEBHOOK_SECRET)"
+if [[ -z "$existing_router_secret" && -f "$OBS_DIR/alertmanager/secrets/webhook_bearer" ]]; then
+  existing_router_secret="$(cat "$OBS_DIR/alertmanager/secrets/webhook_bearer")"
+fi
+existing_router_secret="${ALERT_ROUTER_WEBHOOK_SECRET:-$existing_router_secret}"
+if [[ -z "$existing_router_secret" ]]; then
+  existing_router_secret="$(openssl rand -hex 32)"
+  log "Generated new ALERT_ROUTER_WEBHOOK_SECRET"
 fi
 
 log "Syncing stack from $REPO_DIR/infra/observability/ → $OBS_DIR/"
@@ -32,16 +60,33 @@ rsync -a --delete \
   --exclude '.env' \
   --exclude 'prometheus_data' \
   --exclude 'grafana_data' \
+  --exclude 'alertmanager/secrets/webhook_bearer' \
   "$REPO_DIR/infra/observability/" "$OBS_DIR/"
 
-# Write .env without clobbering password if file already exists with same value
-cat >"$OBS_DIR/.env" <<EOF
-GRAFANA_ADMIN_USER=admin
-GRAFANA_ADMIN_PASSWORD=${existing_password}
-GRAFANA_DOMAIN=${DOMAIN}
-GRAFANA_ROOT_URL=https://${DOMAIN}
-EOF
+mkdir -p "$OBS_DIR/alertmanager/secrets"
+printf '%s' "$existing_router_secret" >"$OBS_DIR/alertmanager/secrets/webhook_bearer"
+chmod 600 "$OBS_DIR/alertmanager/secrets/webhook_bearer"
+
+# Write .env preserving alert-router secrets across redeploys
+{
+  echo "GRAFANA_ADMIN_USER=admin"
+  echo "GRAFANA_ADMIN_PASSWORD=${existing_password}"
+  echo "GRAFANA_DOMAIN=${DOMAIN}"
+  echo "GRAFANA_ROOT_URL=https://${DOMAIN}"
+  [[ -n "$existing_telegram_token" ]] && echo "TELEGRAM_BOT_TOKEN=${existing_telegram_token}"
+  [[ -n "$existing_telegram_chat" ]] && echo "TELEGRAM_CHAT_ID=${existing_telegram_chat}"
+  [[ -n "$existing_webhook_url" ]] && echo "PIPELINE_HEALTH_WEBHOOK_URL=${existing_webhook_url}"
+  [[ -n "$existing_webhook_auth" ]] && echo "PIPELINE_HEALTH_WEBHOOK_AUTH=${existing_webhook_auth}"
+  echo "ALERT_ROUTER_WEBHOOK_SECRET=${existing_router_secret}"
+} >"$OBS_DIR/.env"
 chmod 600 "$OBS_DIR/.env"
+
+if [[ -z "$existing_telegram_token" || -z "$existing_telegram_chat" ]]; then
+  log "WARN: TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID not set — alert-router Telegram disabled"
+fi
+if [[ -z "$existing_webhook_url" || -z "$existing_webhook_auth" ]]; then
+  log "WARN: PIPELINE_HEALTH_WEBHOOK_URL / auth not set — Cursor agent dispatch disabled"
+fi
 
 # --- DNS precheck ---
 resolved_ip="$(getent ahosts "$DOMAIN" 2>/dev/null | awk '/STREAM/ {print $1; exit}' || true)"
@@ -60,9 +105,9 @@ set -a
 source .env
 set +a
 docker compose pull
-docker compose up -d
+docker compose up -d --build
 # Bind-mounted prometheus.yml is not picked up until reload/restart.
-docker compose restart prometheus
+docker compose restart prometheus alertmanager
 sleep 3
 if docker exec obs-prometheus wget -qO- --post-data="" http://localhost:9090/-/reload >/dev/null 2>&1; then
   log "Prometheus config reloaded"
@@ -119,6 +164,26 @@ if echo "$prom_up" | grep -q '"status":"success"'; then
   log "Prometheus scrape targets query OK"
 else
   log "WARN: Prometheus scrape check inconclusive (prod metrics may not be deployed yet)"
+fi
+
+rules_loaded="$(docker exec obs-prometheus wget -qO- 'http://localhost:9090/api/v1/rules' 2>/dev/null || true)"
+if echo "$rules_loaded" | grep -q 'WorkerDown'; then
+  log "Prometheus alert rules loaded"
+else
+  log "WARN: Prometheus alert rules not found (check rules mount)"
+fi
+
+if docker exec obs-alert-router python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health')" >/dev/null 2>&1; then
+  log "Alert-router health OK"
+else
+  log "WARN: Alert-router health check failed"
+fi
+
+am_ready="$(docker exec obs-alertmanager wget -qO- http://localhost:9093/-/ready 2>/dev/null || true)"
+if echo "$am_ready" | grep -q 'OK'; then
+  log "Alertmanager ready"
+else
+  log "WARN: Alertmanager not ready yet"
 fi
 
 log "Deploy complete — https://${DOMAIN}/d/arquivo-pipeline"

@@ -11,6 +11,49 @@ Operational guide for the production pipeline health checker and how an agent
 | GitHub Action | `.github/workflows/pipeline-health.yml` | SSH every 30 min, `--notify` on failure |
 | Worker monitor | `backend/app/services/worker_monitor.py` | Telegram when worker heartbeat stops |
 | Pipeline API | `GET /api/pipeline/status` (admin) | Worker alive, cron flag, queue depth |
+| **Prometheus alerts** | `infra/observability/prometheus/rules/` | Continuous metric-based detection (30s) |
+| **Alertmanager + alert-router** | obs VPS `/opt/arquivo-observability` | Routes alerts → Telegram; critical → Cursor agent |
+
+## Alertmanager path (metrics-based)
+
+Prometheus on the observability VPS evaluates alert rules every 30s. Alertmanager
+groups and deduplicates, then POSTs to **alert-router**, which:
+
+| Severity | Telegram | Cursor agent |
+|----------|----------|--------------|
+| **warning** | Yes | No |
+| **critical** | Yes | Yes (existing webhook) |
+
+Critical alerts include: worker down, Redis disconnected, scrape down, stuck
+sources ≥ 5, queue depth ≥ 50, stale cron, host disk/RAM > 90%.
+
+The health script (30 min) remains for log/SQL checks metrics cannot see.
+Both paths may notify on the same incident; Alertmanager `repeat_interval`
+limits re-fires.
+
+### One-time: alert secrets on obs VPS
+
+Add to `/opt/arquivo-observability/.env` (preserved across deploys):
+
+```bash
+TELEGRAM_BOT_TOKEN=…          # same bot as prod
+TELEGRAM_CHAT_ID=…
+PIPELINE_HEALTH_WEBHOOK_URL=…   # same Cursor Automation webhook
+PIPELINE_HEALTH_WEBHOOK_AUTH=…  # crsr_… token
+```
+
+Then redeploy observability (`bash infra/observability/deploy.sh` or merge to
+`master`).
+
+Test:
+
+```bash
+bash scripts/test-alert-router.sh --obs warning    # Telegram only
+bash scripts/test-alert-router.sh --obs critical   # Telegram + Cursor agent
+```
+
+See [docs/observability-self-hosted.md](observability-self-hosted.md) for the
+full alert rule reference.
 
 ## Setup on the VPS
 

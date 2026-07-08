@@ -1,0 +1,232 @@
+groups:
+  - name: arquivo_pipeline_critical
+    rules:
+      - alert: WorkerDown
+        expr: pipeline_worker_alive{service="api"} == 0
+        for: 3m
+        labels:
+          severity: critical
+          agent: "true"
+          category: worker
+        annotations:
+          summary: "Pipeline worker heartbeat missing"
+          description: "pipeline_worker_alive is 0 for 3+ minutes. Worker may be crashed or not heartbeating to Redis."
+
+      - alert: RedisDisconnected
+        expr: pipeline_redis_connected{service="api"} == 0
+        for: 2m
+        labels:
+          severity: critical
+          agent: "true"
+          category: redis
+        annotations:
+          summary: "API cannot reach Redis"
+          description: "pipeline_redis_connected is 0. Check redis container and network."
+
+      - alert: ApiScrapeDown
+        expr: up{job="arquivo-prod-api"} == 0
+        for: 2m
+        labels:
+          severity: critical
+          agent: "true"
+          category: scrape
+        annotations:
+          summary: "Production API metrics scrape down"
+          description: "Prometheus cannot scrape {{ $labels.instance }}. API may be down or UFW blocking obs VPS."
+
+      - alert: WorkerScrapeDown
+        expr: up{job="arquivo-prod-worker"} == 0
+        for: 5m
+        labels:
+          severity: critical
+          agent: "true"
+          category: scrape
+        annotations:
+          summary: "Production worker metrics scrape down"
+          description: "Prometheus cannot scrape worker :9091 on {{ $labels.instance }}."
+
+      - alert: StuckSourcesCritical
+        expr: sum(pipeline_stuck_sources) >= 5
+        for: 10m
+        labels:
+          severity: critical
+          agent: "true"
+          category: stuck_sources
+        annotations:
+          summary: "Critical stuck pipeline sources (>= 5)"
+          description: "{{ $value }} sources stuck in classifying/downloading/extracting for 15+ minutes."
+
+      - alert: QueueDepthCritical
+        expr: pipeline_queue_depth{service="api"} >= 50
+        for: 10m
+        labels:
+          severity: critical
+          agent: "true"
+          category: queue_depth
+        annotations:
+          summary: "ARQ queue depth critical (>= 50)"
+          description: "Queue depth {{ $value }} for 10+ minutes. Worker may be jammed."
+
+      - alert: CronIngestStale
+        expr: (time() - pipeline_cron_last_success_timestamp{cron="ingest_cities_hourly"}) / 60 > 120
+        for: 5m
+        labels:
+          severity: critical
+          agent: "true"
+          category: cron_ingest
+        annotations:
+          summary: "Hourly ingest cron stale (> 120 min)"
+          description: "Last successful ingest_cities_hourly was {{ $value | printf \"%.0f\" }} minutes ago."
+
+      - alert: HostDiskCritical
+        expr: |
+          (1 - (
+            node_filesystem_avail_bytes{mountpoint="/", fstype!="rootfs"}
+            / node_filesystem_size_bytes{mountpoint="/", fstype!="rootfs"}
+          )) * 100 > 90
+        for: 5m
+        labels:
+          severity: critical
+          agent: "true"
+          category: host_disk
+        annotations:
+          summary: "Host disk critical on {{ $labels.host }} (> 90%)"
+          description: "Root filesystem usage is {{ $value | printf \"%.1f\" }}% on {{ $labels.host }}."
+
+      - alert: HostMemoryCritical
+        expr: |
+          (1 - (
+            node_memory_MemAvailable_bytes
+            / node_memory_MemTotal_bytes
+          )) * 100 > 90
+        for: 10m
+        labels:
+          severity: critical
+          agent: "true"
+          category: host_memory
+        annotations:
+          summary: "Host memory critical on {{ $labels.host }} (> 90%)"
+          description: "Memory usage is {{ $value | printf \"%.1f\" }}% on {{ $labels.host }}."
+
+      - alert: ObservabilityScrapeDown
+        expr: up{job=~"arquivo-prod-node|obs-node"} == 0
+        for: 5m
+        labels:
+          severity: critical
+          agent: "true"
+          category: scrape
+        annotations:
+          summary: "Observability scrape target down ({{ $labels.job }})"
+          description: "Target {{ $labels.instance }} (job={{ $labels.job }}) has been unreachable for 5+ minutes."
+
+  - name: arquivo_pipeline_warning
+    rules:
+      - alert: StuckSourcesWarning
+        expr: sum(pipeline_stuck_sources) >= 1
+        for: 15m
+        labels:
+          severity: warning
+          agent: "false"
+          category: stuck_sources
+        annotations:
+          summary: "Stuck pipeline sources detected"
+          description: "{{ $value }} source(s) stuck in transient status for 15+ minutes."
+
+      - alert: QueueDepthWarning
+        expr: pipeline_queue_depth{service="api"} >= 20
+        for: 15m
+        labels:
+          severity: warning
+          agent: "false"
+          category: queue_depth
+        annotations:
+          summary: "ARQ queue depth elevated (>= 20)"
+          description: "Queue depth {{ $value }} for 15+ minutes."
+
+      - alert: ClassificationBacklogWarning
+        expr: pipeline_inventory_sources{status="ready_for_classification", service="api"} >= 500
+        for: 30m
+        labels:
+          severity: warning
+          agent: "false"
+          category: backlog
+        annotations:
+          summary: "Large classification backlog (>= 500)"
+          description: "{{ $value }} sources ready for classification."
+
+      - alert: HeartbeatMissesWarning
+        expr: pipeline_worker_heartbeat_misses{service="api"} >= 2
+        for: 5m
+        labels:
+          severity: warning
+          agent: "false"
+          category: worker
+        annotations:
+          summary: "Worker heartbeat misses elevated"
+          description: "{{ $value }} consecutive heartbeat misses detected by API monitor."
+
+      - alert: OpenFailureIssuesWarning
+        expr: pipeline_open_failure_issues{service="api"} >= 1
+        for: 30m
+        labels:
+          severity: warning
+          agent: "false"
+          category: github_issues
+        annotations:
+          summary: "Open pipeline failure GitHub issues"
+          description: "{{ $value }} open issue(s) labeled pipeline-failure."
+
+      - alert: CronIngestWarning
+        expr: (time() - pipeline_cron_last_success_timestamp{cron="ingest_cities_hourly"}) / 60 > 90
+        for: 5m
+        labels:
+          severity: warning
+          agent: "false"
+          category: cron_ingest
+        annotations:
+          summary: "Hourly ingest cron delayed (> 90 min)"
+          description: "Last successful ingest_cities_hourly was {{ $value | printf \"%.0f\" }} minutes ago."
+
+      - alert: HostDiskWarning
+        expr: |
+          (1 - (
+            node_filesystem_avail_bytes{mountpoint="/", fstype!="rootfs"}
+            / node_filesystem_size_bytes{mountpoint="/", fstype!="rootfs"}
+          )) * 100 > 75
+        for: 15m
+        labels:
+          severity: warning
+          agent: "false"
+          category: host_disk
+        annotations:
+          summary: "Host disk elevated on {{ $labels.host }} (> 75%)"
+          description: "Root filesystem usage is {{ $value | printf \"%.1f\" }}% on {{ $labels.host }}."
+
+      - alert: HostMemoryWarning
+        expr: |
+          (1 - (
+            node_memory_MemAvailable_bytes
+            / node_memory_MemTotal_bytes
+          )) * 100 > 70
+        for: 15m
+        labels:
+          severity: warning
+          agent: "false"
+          category: host_memory
+        annotations:
+          summary: "Host memory elevated on {{ $labels.host }} (> 70%)"
+          description: "Memory usage is {{ $value | printf \"%.1f\" }}% on {{ $labels.host }}."
+
+      - alert: HostCpuWarning
+        expr: |
+          100 - (avg by (host) (
+            rate(node_cpu_seconds_total{mode="idle"}[2m])
+          ) * 100) > 70
+        for: 15m
+        labels:
+          severity: warning
+          agent: "false"
+          category: host_cpu
+        annotations:
+          summary: "Host CPU elevated on {{ $labels.host }} (> 70%)"
+          description: "CPU usage is {{ $value | printf \"%.1f\" }}% on {{ $labels.host }}."

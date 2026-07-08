@@ -61,6 +61,10 @@ Secrets:
 
 When triggered (webhook JSON with status, failures, warnings, prompt):
 
+The `failures` list may contain health-script keys (e.g. `stuck_sources(count=3)`)
+or Prometheus alert names (e.g. `WorkerDown`, `HostDiskCritical`). Map each to
+the playbook below. Payload may include `"source": "prometheus-alertmanager"`.
+
 1. Write VPS_SSH_KEY to a temp file (mode 600) and SSH:
    ssh -i <keyfile> -o StrictHostKeyChecking=no ${VPS_USER}@${VPS_HOST}
 
@@ -74,9 +78,17 @@ When triggered (webhook JSON with status, failures, warnings, prompt):
      WHERE created_at > now() - interval '2 hours' AND outcome = 'failure'
      GROUP BY 1,2 ORDER BY 3 DESC LIMIT 10;"
 
-3. Tier A (no code): if failures include stuck_sources, run:
-   bash scripts/check-pipeline-health.sh --remediate
-   If worker heartbeat missing: docker compose -p prod restart worker
+3. Tier A (no code) — map alert/failure to action:
+   - stuck_sources / StuckSourcesCritical / StuckSourcesWarning:
+     bash scripts/check-pipeline-health.sh --remediate
+   - worker_heartbeat_missing / WorkerDown / HeartbeatMissesWarning:
+     docker compose -p prod restart worker
+   - arq_queue_jammed / QueueDepthCritical:
+     bash scripts/check-pipeline-health.sh --remediate
+   - HostDiskCritical / HostMemoryCritical:
+     df -h; docker system df; prune logs/images if safe
+   - ApiScrapeDown / WorkerScrapeDown / ObservabilityScrapeDown:
+     docker compose -p prod ps; check UFW and container health
 
 4. Tier B (code): branch fix/pipeline-<issue> from develop, minimal fix, PR to develop.
    Never push master directly. Follow AGENTS.md: develop → staging → master.
@@ -89,7 +101,8 @@ Docs: docs/pipeline-auto-remediation.md
 ## Trigger
 
 - **Type:** Webhook
-- **URL:** `PIPELINE_HEALTH_WEBHOOK_URL` in VPS `.env` (already configured)
+- **URL:** `PIPELINE_HEALTH_WEBHOOK_URL` in prod VPS `.env` and obs VPS
+  `/opt/arquivo-observability/.env` (alert-router uses the same webhook)
 
 ## Verify SSH from your machine
 
