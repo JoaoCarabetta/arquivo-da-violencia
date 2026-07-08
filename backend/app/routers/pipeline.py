@@ -7,6 +7,7 @@ from loguru import logger
 
 import json
 
+from app.metrics import set_cron_enabled, set_queue_depth, set_redis_connected, set_worker_alive
 from app.tasks.worker import (
     get_redis_settings,
     HEALTH_CHECK_KEY,
@@ -381,21 +382,24 @@ async def run_batch_geocoding(
 
 @router.get("/status")
 async def get_pipeline_status():
-    """Get queue status and worker health.
+    """Get queue status and worker health."""
+    status = await collect_pipeline_status()
+    try:
+        set_redis_connected(status.get("redis") == "connected")
+        set_worker_alive(bool(status.get("worker_alive")))
+        set_cron_enabled(bool(status.get("cron_enabled")))
+        set_queue_depth(int(status.get("queued_jobs", 0)))
+    except Exception:  # pragma: no cover
+        pass
+    return status
 
-    Redis connectivity alone does NOT mean the pipeline is working: the worker
-    process (which also runs the cron that enqueues jobs) can be down while Redis
-    stays reachable. We additionally read the worker's heartbeat key and report
-    whether cron is enabled so the UI can distinguish "healthy" from "stalled".
-    """
+
+async def collect_pipeline_status() -> dict:
+    """Collect worker/queue/cron status from Redis."""
     try:
         pool = await get_arq_pool()
         queued_jobs = await pool.queued_jobs()
-
-        # Worker heartbeat: arq refreshes this key on an interval; if it's
-        # missing the worker process is not running (or crashed).
         raw_health = await pool.get(HEALTH_CHECK_KEY)
-        # Worker-published config (cron is scheduled by the worker, not the API).
         raw_info = await pool.get(WORKER_INFO_KEY)
         await pool.close()
 
@@ -406,8 +410,6 @@ async def get_pipeline_status():
                 raw_health.decode() if isinstance(raw_health, bytes) else str(raw_health)
             )
 
-        # Prefer the worker's self-reported cron status; fall back to this
-        # process's env only if the worker has not published yet.
         cron_enabled = is_cron_enabled()
         worker_started_at = None
         if raw_info is not None:
