@@ -6,6 +6,7 @@ from typing import Any, Callable
 
 from loguru import logger
 
+from app.metrics import CRON_TASKS, record_cron_outcome, record_task_outcome
 from app.services.github import create_failure_issue
 from app.services.telegram import (
     notify_job_started,
@@ -30,9 +31,14 @@ def notify_on_failure(task_name: str):
     def decorator(func: Callable) -> Callable:
         @functools.wraps(func)
         async def wrapper(*args, **kwargs) -> Any:
+            start = time.monotonic()
+            outcome: str | None = None
             try:
-                return await func(*args, **kwargs)
+                result = await func(*args, **kwargs)
+                outcome = "success"
+                return result
             except Exception as e:
+                outcome = "failure"
                 # Extract context details from args/kwargs for the notification
                 details = {}
                 
@@ -63,6 +69,11 @@ def notify_on_failure(task_name: str):
                 await create_failure_issue(task_name, str(e), details if details else None)
                 
                 raise
+            finally:
+                if outcome is not None:
+                    record_task_outcome(task_name, outcome, time.monotonic() - start)
+                    if task_name in CRON_TASKS:
+                        record_cron_outcome(task_name, outcome)
         
         return wrapper
     return decorator
@@ -539,8 +550,11 @@ async def ingest_cities_task(
     
     # Enqueue classification tasks for all new sources (standalone runs only).
     if enqueue_classify and total_sources > 0 and ctx.get("redis"):
-        await ctx["redis"].enqueue_job("classify_pending_task", limit=total_sources + 50)
-        logger.info(f"[INGEST_CITIES] Enqueued batch classification task")
+        classify_limit = min(total_sources + 50, 200)
+        await ctx["redis"].enqueue_job("classify_pending_task", classify_limit)
+        logger.info(
+            f"[INGEST_CITIES] Enqueued batch classification task (limit={classify_limit})"
+        )
     
     duration = time.time() - start_time
     await notify_job_finished("ingest_cities", result, duration)
@@ -629,15 +643,16 @@ async def ingest_cities_hourly(
     when: str = "1h",
 ) -> dict:
     """
-    Hourly cron: ingest only.
+    Hourly cron: ingest, then enqueue headline classification.
 
-    Kept short so the :05 tick always runs even while backlog processing from
-    a prior hour is still in progress (separate cron at :35).
+    Ingest stays short (no inline LLM). Classification is queued immediately so
+    new sources are not left waiting until the :35 backlog cron — which can be
+    delayed when a prior backlog run is still in progress (unique=True, 2h cap).
     """
     logger.info("[INGEST_HOURLY] Starting hourly city ingest")
     await _run_pipeline_maintenance()
     return await ingest_cities_task(
-        ctx, cities=cities, when=when, enqueue_classify=False
+        ctx, cities=cities, when=when, enqueue_classify=True
     )
 
 
@@ -753,12 +768,17 @@ process_cities_backlog_job = func(
     timeout=7200,
     max_tries=1,
 )
+classify_pending_task_job = func(
+    classify_pending_task,
+    timeout=1800,
+    max_tries=2,
+)
 
 # List of all task functions for the worker
 TASK_FUNCTIONS = [
     ingest_task,
     classify_task,
-    classify_pending_task,
+    classify_pending_task_job,
     download_task,
     download_classified_task,
     extract_task,

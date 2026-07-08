@@ -1,22 +1,26 @@
 """ARQ worker configuration."""
 
+import asyncio
 import os
 import json
 from datetime import datetime, timezone
 
 from arq import cron
 from arq.connections import RedisSettings
-from arq.constants import default_queue_name, health_check_key_suffix
+from arq.constants import health_check_key_suffix
 
 from app.config import get_settings
 
 settings = get_settings()
 
+def get_arq_queue_name() -> str:
+    """Per-environment ARQ queue so staging/prod workers do not steal each other's jobs."""
+    return f"arquivo:{settings.environment}"
+
+
 # Redis key under which the worker records its health heartbeat.
-# Must match arq's default (queue_name + suffix) since WorkerSettings does not
-# override queue_name / health_check_key. The API reads this key to tell whether
-# the worker process is actually alive (separate from Redis connectivity).
-HEALTH_CHECK_KEY = default_queue_name + health_check_key_suffix
+# Must match the worker queue_name + suffix since WorkerSettings sets queue_name.
+HEALTH_CHECK_KEY = get_arq_queue_name() + health_check_key_suffix
 
 # Redis key the worker publishes its own config to on startup, so the API
 # (which runs in a different container and may not share ENABLE_CRON) can report
@@ -39,6 +43,68 @@ def get_redis_settings() -> RedisSettings:
     
     host, port = url.split(":")
     return RedisSettings(host=host, port=int(port))
+
+
+async def create_arq_pool():
+    """Create an ARQ Redis pool using this environment's queue name."""
+    from arq import create_pool
+
+    return await create_pool(
+        get_redis_settings(),
+        default_queue_name=get_arq_queue_name(),
+    )
+
+
+async def purge_stale_arq_in_progress(redis) -> int:
+    """Delete orphaned arq:in-progress keys left by timed-out or crashed jobs."""
+    from loguru import logger
+
+    removed = 0
+    try:
+        cursor = 0
+        while True:
+            cursor, keys = await redis.scan(cursor, match="arq:in-progress:*", count=100)
+            for key in keys:
+                key_str = key.decode() if isinstance(key, bytes) else key
+                await redis.delete(key)
+                removed += 1
+                logger.info(f"[RECOVERY] Removed stale ARQ lock: {key_str}")
+            if cursor == 0:
+                break
+    except Exception as e:  # pragma: no cover - best effort, non-fatal
+        logger.warning(f"Failed to purge stale ARQ in-progress keys: {e}")
+    else:
+        if removed:
+            logger.info(f"[RECOVERY] Purged {removed} stale ARQ in-progress key(s)")
+    return removed
+
+
+async def migrate_legacy_arq_queue(redis) -> int:
+    """Move pending jobs from pre-rename default queue ``arq:queue`` to this env queue."""
+    from loguru import logger
+
+    legacy = "arq:queue"
+    target = get_arq_queue_name()
+    if legacy == target:
+        return 0
+    try:
+        depth = int(await redis.zcard(legacy) or 0)
+        if depth == 0:
+            return 0
+        target_depth = int(await redis.zcard(target) or 0)
+        if target_depth == 0:
+            await redis.rename(legacy, target)
+            logger.info(
+                f"[RECOVERY] Migrated {depth} job(s) from legacy queue {legacy} to {target}"
+            )
+            return depth
+        logger.warning(
+            f"[RECOVERY] Legacy queue {legacy} has {depth} job(s) but {target} "
+            f"already has {target_depth}; manual drain required"
+        )
+    except Exception as e:  # pragma: no cover - best effort, non-fatal
+        logger.warning(f"Failed to migrate legacy ARQ queue: {e}")
+    return 0
 
 
 async def startup(ctx: dict) -> None:
@@ -74,11 +140,49 @@ async def startup(ctx: dict) -> None:
     except Exception as e:  # pragma: no cover - best effort, non-fatal
         logger.warning(f"Failed to recover stuck sources on startup: {e}")
 
+    if redis is not None:
+        try:
+            await migrate_legacy_arq_queue(redis)
+        except Exception as e:  # pragma: no cover - best effort, non-fatal
+            logger.warning(f"Failed to migrate legacy ARQ queue on startup: {e}")
+        try:
+            await purge_stale_arq_in_progress(redis)
+        except Exception as e:  # pragma: no cover - best effort, non-fatal
+            logger.warning(f"Failed to purge stale ARQ locks on startup: {e}")
+
+    try:
+        from app.metrics import push_loop
+
+        ctx["metrics_task"] = asyncio.create_task(
+            push_loop(settings.metrics_push_interval_seconds)
+        )
+    except Exception as e:  # pragma: no cover
+        logger.warning(f"Failed to start metrics push loop: {e}")
+
+    if settings.metrics_enabled:
+        try:
+            from prometheus_client import start_http_server
+
+            from app.metrics import WORKER_REGISTRY
+
+            start_http_server(9091, registry=WORKER_REGISTRY)
+            logger.info("[metrics] Worker metrics HTTP server on :9091/metrics")
+        except Exception as e:  # pragma: no cover
+            logger.warning(f"Failed to start worker metrics HTTP server: {e}")
+
 
 async def shutdown(ctx: dict) -> None:
     """Worker shutdown handler."""
     from loguru import logger
     logger.info("ARQ Worker shutting down...")
+
+    metrics_task = ctx.get("metrics_task")
+    if metrics_task is not None and not metrics_task.done():
+        metrics_task.cancel()
+        try:
+            await metrics_task
+        except (asyncio.CancelledError, Exception):  # pragma: no cover
+            pass
 
 
 def get_cron_jobs():
@@ -118,6 +222,7 @@ class WorkerSettings:
     
     # Redis connection
     redis_settings = get_redis_settings()
+    queue_name = get_arq_queue_name()
     
     # Task functions
     from app.tasks.pipeline import TASK_FUNCTIONS

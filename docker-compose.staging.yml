@@ -50,7 +50,7 @@ services:
     ports: !override
       - "8001:8000"
     environment: !override
-      - REDIS_URL=redis://redis:6379
+      - REDIS_URL=redis://staging-arquivo-redis:6379
       - DATABASE_URL=postgresql+asyncpg://arquivo:${POSTGRES_PASSWORD}@arquivo-postgres:5432/arquivo_staging
       - DB_POOL_SIZE=5
       - DB_POOL_OVERFLOW=5
@@ -70,6 +70,12 @@ services:
       - TELEGRAM_CHAT_ID=${STAGING_TELEGRAM_CHAT_ID:-}
 
   # ---------------------------------------------------------------------------
+  # node_exporter - production-only host metrics (:9100); do not start on staging
+  # ---------------------------------------------------------------------------
+  node_exporter:
+    profiles: ["disabled"]
+
+  # ---------------------------------------------------------------------------
   # Worker - Staging instance
   # ---------------------------------------------------------------------------
   worker:
@@ -84,7 +90,7 @@ services:
       - default
       - prod
     environment: !override
-      - REDIS_URL=redis://redis:6379
+      - REDIS_URL=redis://staging-arquivo-redis:6379
       - DATABASE_URL=postgresql+asyncpg://arquivo:${POSTGRES_PASSWORD}@arquivo-postgres:5432/arquivo_staging
       - DB_POOL_SIZE=15
       - DB_POOL_OVERFLOW=15
@@ -101,6 +107,8 @@ services:
       - ADMIN_USERNAME=${STAGING_ADMIN_USERNAME:-admin}
       - TELEGRAM_BOT_TOKEN=${STAGING_TELEGRAM_BOT_TOKEN:-}
       - TELEGRAM_CHAT_ID=${STAGING_TELEGRAM_CHAT_ID:-}
+    # Prod worker publishes :9091 for Prometheus; staging shares the host — no publish.
+    ports: !override []
     # Allow worker 120s to finish current job before forced shutdown
     stop_grace_period: 120s
 

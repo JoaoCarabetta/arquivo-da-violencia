@@ -25,7 +25,8 @@ source "$SCRIPT_DIR/lib/deploy-common.sh"
 COMPOSE_PROD="-p prod -f docker-compose.yml"
 API_PORT="${PIPELINE_HEALTH_API_PORT:-8000}"
 WORKER_CONTAINER="${PIPELINE_HEALTH_WORKER_CONTAINER:-arquivo-worker}"
-REDIS_HEALTH_KEY="${PIPELINE_HEALTH_REDIS_KEY:-arq:queue:health-check}"
+ARQ_QUEUE_NAME="${PIPELINE_HEALTH_ARQ_QUEUE:-arquivo:production}"
+REDIS_HEALTH_KEY="${PIPELINE_HEALTH_REDIS_KEY:-${ARQ_QUEUE_NAME}:health-check}"
 WORKER_INFO_KEY="${PIPELINE_HEALTH_WORKER_INFO_KEY:-}"
 
 # How long since the last hourly cron may have started (minute :05 UTC).
@@ -126,11 +127,11 @@ else
 fi
 
 cron_enabled="$(docker compose $COMPOSE_PROD exec -T redis redis-cli GET "$WORKER_INFO_KEY" 2>/dev/null | tr -d '\r' || true)"
+recent_start=false
+recent_activity=false
 if echo "$cron_enabled" | grep -q '"cron_enabled": true'; then
   worker_logs_age="$(docker logs "$WORKER_CONTAINER" --since "${MAX_PIPELINE_AGE_MINUTES}m" 2>&1 || true)"
   worker_logs_activity="$(docker logs "$WORKER_CONTAINER" --since "${PIPELINE_ACTIVITY_MINUTES}m" 2>&1 || true)"
-  recent_start=false
-  recent_activity=false
   active_sources="$(psql_prod "
 SELECT COUNT(*)
 FROM source_google_news
@@ -198,6 +199,27 @@ else
     DETAILS+=("OK: maintenance_logs")
 fi
 
+arq_queue_depth="$(docker compose $COMPOSE_PROD exec -T redis redis-cli ZCARD "$ARQ_QUEUE_NAME" 2>/dev/null | tr -d '\r' || echo "error")"
+arq_in_progress_raw="$(docker compose $COMPOSE_PROD exec -T redis redis-cli KEYS 'arq:in-progress:*' 2>/dev/null | tr -d '\r' || true)"
+if [ -n "$arq_in_progress_raw" ] && [ "$arq_in_progress_raw" != "(empty array)" ]; then
+    arq_in_progress_count="$(printf '%s\n' "$arq_in_progress_raw" | grep -c 'arq:in-progress' || true)"
+else
+    arq_in_progress_count=0
+fi
+arq_in_progress_count="${arq_in_progress_count:-0}"
+if [ "$arq_queue_depth" = "error" ]; then
+    record_warning "arq_queue_depth_query_failed"
+elif [ "${arq_queue_depth:-0}" -gt 0 ] || [ "${arq_in_progress_count:-0}" -gt 0 ]; then
+    DETAILS+=("INFO: arq_queue_depth=${arq_queue_depth} in_progress=${arq_in_progress_count}")
+    if [ "${arq_queue_depth:-0}" -gt 0 ] && [ "${recent_activity:-false}" != true ]; then
+        if echo "$cron_enabled" | grep -q '"cron_enabled": true'; then
+            record_failure "arq_queue_jammed(depth=${arq_queue_depth},in_progress=${arq_in_progress_count})"
+        fi
+    fi
+else
+    DETAILS+=("OK: arq_queue_empty")
+fi
+
 ready_backlog="$(psql_prod "
 SELECT COUNT(*) FROM source_google_news WHERE status = 'ready_for_classification';
 " 2>/dev/null || echo "error")"
@@ -211,19 +233,70 @@ fi
 
 # --- Tier-A remediation -------------------------------------------------------
 
+tier_a_clear_arq_queue() {
+    echo_step "🔧 Tier-A: clearing stale ARQ in-progress/retry locks..."
+    local keys removed=0
+    keys="$(docker compose $COMPOSE_PROD exec -T redis redis-cli KEYS 'arq:in-progress:*' 2>/dev/null | tr -d '\r' || true)"
+    if [ -n "$keys" ]; then
+        while IFS= read -r key; do
+            [ -z "$key" ] && continue
+            docker compose $COMPOSE_PROD exec -T redis redis-cli DEL "$key" >/dev/null 2>&1 || true
+            removed=$((removed + 1))
+        done <<< "$keys"
+    fi
+    keys="$(docker compose $COMPOSE_PROD exec -T redis redis-cli KEYS 'arq:retry:*' 2>/dev/null | tr -d '\r' || true)"
+    if [ -n "$keys" ]; then
+        while IFS= read -r key; do
+            [ -z "$key" ] && continue
+            docker compose $COMPOSE_PROD exec -T redis redis-cli DEL "$key" >/dev/null 2>&1 || true
+            removed=$((removed + 1))
+        done <<< "$keys"
+    fi
+    DETAILS+=("REMEDIATE: cleared_arq_locks(count=${removed})")
+    filtered=()
+    for f in "${FAILURES[@]}"; do
+        [[ "$f" == arq_queue_jammed* ]] && continue
+        filtered+=("$f")
+    done
+    FAILURES=("${filtered[@]}")
+    return 0
+}
+
+tier_a_enqueue_classify() {
+    echo_step "🔧 Tier-A: re-enqueueing classify_pending_task..."
+    local job_id
+    if ! job_id="$(docker compose $COMPOSE_PROD exec -T api python - <<'PY'
+import asyncio
+from app.tasks.worker import create_arq_pool
+
+async def main():
+    redis = await create_arq_pool()
+    job = await redis.enqueue_job("classify_pending_task", 500, False, 15)
+    print(job.job_id)
+    await redis.aclose()
+
+asyncio.run(main())
+PY
+)"; then
+        record_failure "remediate_enqueue_classify_failed"
+        return 1
+    fi
+    DETAILS+=("REMEDIATE: enqueued_classify_pending_task(job_id=${job_id})")
+    return 0
+}
+
 tier_a_enqueue_pipeline() {
     echo_step "🔧 Tier-A: re-enqueueing ingest_cities_full_pipeline..."
     local job_id
     if ! job_id="$(docker compose $COMPOSE_PROD exec -T api python - <<'PY'
 import asyncio
-from arq import create_pool
-from arq.connections import RedisSettings
+from app.tasks.worker import create_arq_pool
 
 async def main():
-    redis = await create_pool(RedisSettings(host="redis", port=6379))
+    redis = await create_arq_pool()
     job = await redis.enqueue_job("ingest_cities_full_pipeline", None, "1h")
     print(job.job_id)
-    await redis.close()
+    await redis.aclose()
 
 asyncio.run(main())
 PY
@@ -261,6 +334,8 @@ if [ "$REMEDIATE" = true ]; then
     had_stuck=false
     had_no_pipeline=false
     had_no_heartbeat=false
+    had_queue_jam=false
+    had_recent_ingest=false
     for f in "${FAILURES[@]:-}"; do
         if [[ "$f" == stuck_sources* ]]; then
             had_stuck=true
@@ -268,12 +343,22 @@ if [ "$REMEDIATE" = true ]; then
             had_no_pipeline=true
         elif [[ "$f" == worker_heartbeat_missing* ]]; then
             had_no_heartbeat=true
+        elif [[ "$f" == arq_queue_jammed* ]]; then
+            had_queue_jam=true
         fi
     done
-    if [ "$had_no_heartbeat" = true ]; then
+    for d in "${DETAILS[@]:-}"; do
+        if [[ "$d" == OK:\ recent_ingest ]]; then
+            had_recent_ingest=true
+        fi
+    done
+    if [ "$had_no_heartbeat" = true ] || [ "$had_queue_jam" = true ]; then
         tier_a_restart_worker || true
+        tier_a_clear_arq_queue || true
     fi
-    if [ "$had_no_pipeline" = true ]; then
+    if [ "$had_queue_jam" = true ] || { [ "$had_no_pipeline" = true ] && [ "$had_recent_ingest" = true ]; }; then
+        tier_a_enqueue_classify || true
+    elif [ "$had_no_pipeline" = true ]; then
         tier_a_enqueue_pipeline || true
     fi
     if [ "$had_stuck" = true ]; then

@@ -231,3 +231,16 @@ async def record_attempt(
             await session.commit()
     except Exception as e:  # pragma: no cover - logging must not break pipeline
         logger.warning(f"Failed to record pipeline_attempt ({stage}/{outcome}): {e}")
+
+    try:
+        from app.metrics import record_attempt_metrics
+
+        record_attempt_metrics(
+            stage=stage,
+            outcome=outcome,
+            failure_reason=failure_reason,
+            duration_ms=duration_ms,
+            content_length=content_length,
+        )
+    except Exception as e:  # pragma: no cover
+        logger.debug(f"metrics mirror failed for {stage}/{outcome}: {e}")

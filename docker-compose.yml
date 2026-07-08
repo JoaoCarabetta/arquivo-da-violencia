@@ -93,6 +93,12 @@ services:
       - CORS_ORIGINS=["http://localhost:5173","http://localhost:3000","http://localhost:80","https://arquivodaviolencia.com.br","https://www.arquivodaviolencia.com.br"]
       - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN:-}
       - TELEGRAM_CHAT_ID=${TELEGRAM_CHAT_ID:-}
+      - HETZNER_API_TOKEN=${HETZNER_API_TOKEN:-}
+      - GRAFANA_CLOUD_PROM_URL=${GRAFANA_CLOUD_PROM_URL:-}
+      - GRAFANA_CLOUD_PROM_USER=${GRAFANA_CLOUD_PROM_USER:-}
+      - GRAFANA_CLOUD_PROM_KEY=${GRAFANA_CLOUD_PROM_KEY:-}
+      - METRICS_PUSH_INTERVAL_SECONDS=${METRICS_PUSH_INTERVAL_SECONDS:-30}
+      - METRICS_ENABLED=${METRICS_ENABLED:-true}
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 30s
@@ -109,6 +115,8 @@ services:
     build: ./backend
     container_name: arquivo-worker
     command: arq app.tasks.worker.WorkerSettings
+    ports:
+      - "9091:9091"
     depends_on:
       postgres:
         condition: service_healthy
@@ -133,6 +141,12 @@ services:
       - ENABLE_AUTH=true
       - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN:-}
       - TELEGRAM_CHAT_ID=${TELEGRAM_CHAT_ID:-}
+      - HETZNER_API_TOKEN=${HETZNER_API_TOKEN:-}
+      - GRAFANA_CLOUD_PROM_URL=${GRAFANA_CLOUD_PROM_URL:-}
+      - GRAFANA_CLOUD_PROM_USER=${GRAFANA_CLOUD_PROM_USER:-}
+      - GRAFANA_CLOUD_PROM_KEY=${GRAFANA_CLOUD_PROM_KEY:-}
+      - METRICS_PUSH_INTERVAL_SECONDS=${METRICS_PUSH_INTERVAL_SECONDS:-30}
+      - METRICS_ENABLED=${METRICS_ENABLED:-true}
     healthcheck:
       test: ["CMD-SHELL", "python -c 'import sys; sys.exit(0 if __import__(\"pathlib\").Path(\"/proc/1\").exists() else 1)'"]
       interval: 30s
@@ -141,6 +155,44 @@ services:
       retries: 3
     # Allow worker 120s to finish current job before forced shutdown
     stop_grace_period: 120s
+    restart: unless-stopped
+
+  promtail:
+    image: grafana/promtail:latest
+    container_name: arquivo-promtail
+    profiles: ["logs"]
+    depends_on:
+      - api
+      - worker
+    environment:
+      - GRAFANA_CLOUD_LOKI_URL=${GRAFANA_CLOUD_LOKI_URL:-}
+      - GRAFANA_CLOUD_LOKI_USER=${GRAFANA_CLOUD_LOKI_USER:-}
+      - GRAFANA_CLOUD_LOKI_KEY=${GRAFANA_CLOUD_LOKI_KEY:-}
+    volumes:
+      - ./promtail.yml:/etc/promtail/config.yml:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      - promtail_positions:/tmp
+    command: -config.file=/etc/promtail/config.yml -config.expand-env=true
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------------------
+  # node_exporter - Host metrics for Prometheus (scraped from observability VPS)
+  # ---------------------------------------------------------------------------
+  node_exporter:
+    image: prom/node-exporter:v1.8.2
+    container_name: arquivo-node-exporter
+    ports:
+      - "9100:9100"
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro
+    command:
+      - --path.procfs=/host/proc
+      - --path.sysfs=/host/sys
+      - --path.rootfs=/rootfs
+      - --collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)
     restart: unless-stopped
 
   # ---------------------------------------------------------------------------
@@ -172,3 +224,5 @@ volumes:
     name: arquivo-postgres-data
   redis_data:
     name: arquivo-redis-data
+  promtail_positions:
+    name: arquivo-promtail-positions
