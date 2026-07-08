@@ -2,26 +2,29 @@
   "title": "Arquivo da Viol\u00eancia - Pipeline",
   "uid": "arquivo-pipeline",
   "schemaVersion": 39,
-  "version": 2,
+  "version": 3,
   "timezone": "browser",
   "refresh": "30s",
-  "tags": [
-    "arquivo",
-    "pipeline"
-  ],
+  "tags": ["arquivo", "pipeline"],
   "time": {
-    "from": "now-24h",
+    "from": "now-6h",
     "to": "now"
   },
+  "links": [
+    {
+      "title": "Open pipeline bugs on GitHub",
+      "url": "https://github.com/JoaoCarabetta/arquivo-da-violencia/issues?q=is%3Aissue+is%3Aopen+label%3Apipeline-failure",
+      "type": "link",
+      "icon": "external link",
+      "targetBlank": true
+    }
+  ],
   "templating": {
     "list": [
       {
         "name": "stage",
         "type": "query",
-        "datasource": {
-          "type": "prometheus",
-          "uid": "prometheus"
-        },
+        "datasource": { "type": "prometheus", "uid": "prometheus" },
         "query": "label_values(pipeline_attempts_total{service=\"worker\"}, stage)",
         "refresh": 2,
         "includeAll": true,
@@ -31,106 +34,56 @@
   },
   "panels": [
     {
+      "id": 100,
+      "type": "row",
+      "title": "Infrastructure",
+      "gridPos": { "x": 0, "y": 0, "w": 24, "h": 1 },
+      "collapsed": false
+    },
+    {
       "id": 1,
       "title": "Worker Alive",
       "type": "stat",
-      "gridPos": {
-        "x": 0,
-        "y": 0,
-        "w": 4,
-        "h": 4
-      },
+      "gridPos": { "x": 0, "y": 1, "w": 4, "h": 4 },
       "options": {
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        },
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
         "colorMode": "value",
         "textMode": "auto"
       },
-      "targets": [
-        {
-          "expr": "pipeline_worker_alive{service=\"api\"}",
-          "refId": "A"
-        }
-      ],
+      "targets": [{ "expr": "pipeline_worker_alive{service=\"api\"}", "refId": "A" }],
       "fieldConfig": {
         "defaults": {
           "mappings": [
             {
               "type": "value",
               "options": {
-                "0": {
-                  "text": "DOWN",
-                  "color": "red"
-                },
-                "1": {
-                  "text": "UP",
-                  "color": "green"
-                }
+                "0": { "text": "DOWN", "color": "red" },
+                "1": { "text": "UP", "color": "green" }
               }
             }
-          ],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "red",
-                "value": null
-              },
-              {
-                "color": "green",
-                "value": 1
-              }
-            ]
-          }
+          ]
         }
       }
     },
     {
-      "id": 2,
-      "title": "Cron Enabled",
+      "id": 4,
+      "title": "Redis Connected",
       "type": "stat",
-      "gridPos": {
-        "x": 4,
-        "y": 0,
-        "w": 4,
-        "h": 4
-      },
+      "gridPos": { "x": 4, "y": 1, "w": 4, "h": 4 },
       "options": {
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        },
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
         "colorMode": "value",
         "textMode": "auto"
       },
-      "targets": [
-        {
-          "expr": "pipeline_cron_enabled{service=\"api\"}",
-          "refId": "A"
-        }
-      ],
+      "targets": [{ "expr": "pipeline_redis_connected{service=\"api\"}", "refId": "A" }],
       "fieldConfig": {
         "defaults": {
           "mappings": [
             {
               "type": "value",
               "options": {
-                "0": {
-                  "text": "OFF",
-                  "color": "orange"
-                },
-                "1": {
-                  "text": "ON",
-                  "color": "green"
-                }
+                "0": { "text": "DISCONNECTED", "color": "red" },
+                "1": { "text": "OK", "color": "green" }
               }
             }
           ]
@@ -141,26 +94,408 @@
       "id": 3,
       "title": "Queue Depth",
       "type": "stat",
-      "gridPos": {
-        "x": 8,
-        "y": 0,
-        "w": 4,
-        "h": 4
-      },
+      "gridPos": { "x": 8, "y": 1, "w": 4, "h": 4 },
       "options": {
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "colorMode": "value",
+        "textMode": "auto"
+      },
+      "targets": [{ "expr": "pipeline_queue_depth{service=\"api\"}", "refId": "A" }],
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "0",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 20 },
+              { "color": "red", "value": 50 }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": 5,
+      "title": "Scrape Targets",
+      "type": "stat",
+      "gridPos": { "x": 12, "y": 1, "w": 4, "h": 4 },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "colorMode": "value",
+        "textMode": "auto"
+      },
+      "targets": [{ "expr": "min(up{job=~\"arquivo-prod.*\"})", "refId": "A" }],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "0": { "text": "DOWN", "color": "red" },
+                "1": { "text": "UP", "color": "green" }
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": 6,
+      "title": "Heartbeat Misses",
+      "type": "stat",
+      "gridPos": { "x": 16, "y": 1, "w": 4, "h": 4 },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "colorMode": "value",
+        "textMode": "auto"
+      },
+      "targets": [{ "expr": "pipeline_worker_heartbeat_misses{service=\"api\"}", "refId": "A" }],
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "0",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 2 },
+              { "color": "red", "value": 5 }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": 2,
+      "title": "Cron Scheduling",
+      "description": "Whether the worker has cron jobs enabled (config flag, not proof of execution).",
+      "type": "stat",
+      "gridPos": { "x": 20, "y": 1, "w": 4, "h": 4 },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "colorMode": "value",
+        "textMode": "auto"
+      },
+      "targets": [{ "expr": "pipeline_cron_enabled{service=\"api\"}", "refId": "A" }],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "0": { "text": "OFF", "color": "orange" },
+                "1": { "text": "ON", "color": "green" }
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": 101,
+      "type": "row",
+      "title": "Pipeline Steps",
+      "gridPos": { "x": 0, "y": 5, "w": 24, "h": 1 },
+      "collapsed": false
+    },
+    {
+      "id": 11,
+      "title": "Step Success Rate",
+      "description": "Share of successful task runs per pipeline step in the selected range. Grey when no runs occurred.",
+      "type": "stat",
+      "gridPos": { "x": 0, "y": 6, "w": 24, "h": 5 },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "colorMode": "value",
+        "textMode": "value_and_name",
+        "orientation": "horizontal"
+      },
+      "targets": [
+        {
+          "expr": "sum(increase(pipeline_task_total{service=\"worker\",task=\"ingest_cities_hourly\",outcome=\"success\"}[$__range])) / clamp_min(sum(increase(pipeline_task_total{service=\"worker\",task=\"ingest_cities_hourly\"}[$__range])), 1)",
+          "refId": "ingest",
+          "legendFormat": "ingest"
         },
+        {
+          "expr": "sum(increase(pipeline_task_total{service=\"worker\",task=\"classify_batch\",outcome=\"success\"}[$__range])) / clamp_min(sum(increase(pipeline_task_total{service=\"worker\",task=\"classify_batch\"}[$__range])), 1)",
+          "refId": "classify",
+          "legendFormat": "classify"
+        },
+        {
+          "expr": "sum(increase(pipeline_task_total{service=\"worker\",task=\"download_batch\",outcome=\"success\"}[$__range])) / clamp_min(sum(increase(pipeline_task_total{service=\"worker\",task=\"download_batch\"}[$__range])), 1)",
+          "refId": "download",
+          "legendFormat": "download"
+        },
+        {
+          "expr": "sum(increase(pipeline_task_total{service=\"worker\",task=\"extract_batch\",outcome=\"success\"}[$__range])) / clamp_min(sum(increase(pipeline_task_total{service=\"worker\",task=\"extract_batch\"}[$__range])), 1)",
+          "refId": "extract",
+          "legendFormat": "extract"
+        },
+        {
+          "expr": "sum(increase(pipeline_task_total{service=\"worker\",task=\"batch_dedup\",outcome=\"success\"}[$__range])) / clamp_min(sum(increase(pipeline_task_total{service=\"worker\",task=\"batch_dedup\"}[$__range])), 1)",
+          "refId": "dedup",
+          "legendFormat": "dedup"
+        },
+        {
+          "expr": "sum(increase(pipeline_task_total{service=\"worker\",task=\"batch_enrich\",outcome=\"success\"}[$__range])) / clamp_min(sum(increase(pipeline_task_total{service=\"worker\",task=\"batch_enrich\"}[$__range])), 1)",
+          "refId": "enrich",
+          "legendFormat": "enrich"
+        },
+        {
+          "expr": "sum(increase(pipeline_task_total{service=\"worker\",task=\"batch_geocode\",outcome=\"success\"}[$__range])) / clamp_min(sum(increase(pipeline_task_total{service=\"worker\",task=\"batch_geocode\"}[$__range])), 1)",
+          "refId": "geocode",
+          "legendFormat": "geocode"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "noValue": "no activity",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "text", "value": null },
+              { "color": "red", "value": 0.01 },
+              { "color": "yellow", "value": 0.8 },
+              { "color": "green", "value": 0.95 }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": 12,
+      "title": "Step Throughput",
+      "description": "Successful task runs per second by pipeline step.",
+      "type": "timeseries",
+      "gridPos": { "x": 0, "y": 11, "w": 12, "h": 8 },
+      "targets": [
+        {
+          "expr": "sum(rate(pipeline_task_total{service=\"worker\",outcome=\"success\",task=~\"ingest_cities_hourly|classify_batch|download_batch|extract_batch|batch_dedup|batch_enrich|batch_geocode\"}[15m])) by (task)",
+          "refId": "A",
+          "legendFormat": "{{task}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "ops", "noValue": "0" }
+      }
+    },
+    {
+      "id": 13,
+      "title": "Task Failures (selected range)",
+      "type": "bargauge",
+      "gridPos": { "x": 12, "y": 11, "w": 12, "h": 8 },
+      "options": {
+        "displayMode": "gradient",
+        "orientation": "horizontal",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "showUnfilled": true
+      },
+      "targets": [
+        {
+          "expr": "sum(increase(pipeline_task_total{service=\"worker\",outcome=\"failure\"}[$__range])) by (task)",
+          "refId": "A",
+          "legendFormat": "{{task}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "none",
+          "min": 0,
+          "color": { "mode": "continuous-GrYlRd" }
+        }
+      }
+    },
+    {
+      "id": 30,
+      "title": "Attempt Success Rate",
+      "description": "Download/extraction attempt success by stage. Filter with the stage variable.",
+      "type": "stat",
+      "gridPos": { "x": 0, "y": 19, "w": 12, "h": 6 },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "colorMode": "value",
+        "textMode": "value_and_name"
+      },
+      "targets": [
+        {
+          "expr": "sum(increase(pipeline_attempts_total{service=\"worker\",outcome=\"success\",stage=~\"$stage\"}[$__range])) by (stage) / clamp_min(sum(increase(pipeline_attempts_total{service=\"worker\",stage=~\"$stage\"}[$__range])) by (stage), 1)",
+          "refId": "A",
+          "legendFormat": "{{stage}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "noValue": "no activity",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "text", "value": null },
+              { "color": "red", "value": 0.01 },
+              { "color": "yellow", "value": 0.8 },
+              { "color": "green", "value": 0.95 }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": 40,
+      "title": "Failures by Reason",
+      "type": "piechart",
+      "gridPos": { "x": 12, "y": 19, "w": 12, "h": 6 },
+      "targets": [
+        {
+          "expr": "sum(increase(pipeline_attempts_total{service=\"worker\",outcome=\"failure\",stage=~\"$stage\"}[$__range])) by (failure_reason)",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "noValue": "none" }
+      }
+    },
+    {
+      "id": 102,
+      "type": "row",
+      "title": "Crons",
+      "gridPos": { "x": 0, "y": 25, "w": 24, "h": 1 },
+      "collapsed": false
+    },
+    {
+      "id": 21,
+      "title": "Last Hourly Ingest",
+      "description": "Minutes since ingest_cities_hourly last succeeded (:05 UTC).",
+      "type": "stat",
+      "gridPos": { "x": 0, "y": 26, "w": 6, "h": 4 },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
         "colorMode": "value",
         "textMode": "auto"
       },
       "targets": [
         {
-          "expr": "pipeline_queue_depth{service=\"api\"}",
+          "expr": "(time() - pipeline_cron_last_success_timestamp{service=\"worker\",cron=\"ingest_cities_hourly\"}) / 60",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "m",
+          "noValue": "never",
+          "decimals": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 90 },
+              { "color": "red", "value": 120 }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": 22,
+      "title": "Last Backlog Run",
+      "description": "Minutes since process_cities_backlog last succeeded (:35 UTC, may run up to 2h).",
+      "type": "stat",
+      "gridPos": { "x": 6, "y": 26, "w": 6, "h": 4 },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "colorMode": "value",
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "expr": "(time() - pipeline_cron_last_success_timestamp{service=\"worker\",cron=\"process_cities_backlog\"}) / 60",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "m",
+          "noValue": "never",
+          "decimals": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 150 },
+              { "color": "red", "value": 180 }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": 23,
+      "title": "Cron Runs (selected range)",
+      "type": "bargauge",
+      "gridPos": { "x": 12, "y": 26, "w": 12, "h": 4 },
+      "options": {
+        "displayMode": "gradient",
+        "orientation": "horizontal",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "showUnfilled": true
+      },
+      "targets": [
+        {
+          "expr": "sum(increase(pipeline_cron_runs_total{service=\"worker\"}[$__range])) by (cron, outcome)",
+          "refId": "A",
+          "legendFormat": "{{cron}} / {{outcome}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "noValue": "0", "min": 0 }
+      }
+    },
+    {
+      "id": 103,
+      "type": "row",
+      "title": "Bugs",
+      "gridPos": { "x": 0, "y": 30, "w": 24, "h": 1 },
+      "collapsed": false
+    },
+    {
+      "id": 31,
+      "title": "Open Pipeline Bugs",
+      "description": "Open GitHub issues with label pipeline-failure (polled every 5 min).",
+      "type": "stat",
+      "gridPos": { "x": 0, "y": 31, "w": 6, "h": 4 },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "colorMode": "value",
+        "textMode": "auto"
+      },
+      "targets": [{ "expr": "pipeline_open_failure_issues{service=\"api\"}", "refId": "A" }],
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "unknown",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 1 },
+              { "color": "red", "value": 5 }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": 32,
+      "title": "New Bugs (selected range)",
+      "type": "stat",
+      "gridPos": { "x": 6, "y": 31, "w": 6, "h": 4 },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "colorMode": "value",
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "expr": "sum(increase(pipeline_failure_issues_created_total{service=\"worker\"}[$__range]))",
           "refId": "A"
         }
       ],
@@ -170,118 +505,69 @@
           "thresholds": {
             "mode": "absolute",
             "steps": [
-              {
-                "color": "green",
-                "value": null
-              },
-              {
-                "color": "yellow",
-                "value": 20
-              },
-              {
-                "color": "red",
-                "value": 50
-              }
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 1 },
+              { "color": "red", "value": 3 }
             ]
           }
         }
       }
     },
     {
-      "id": 4,
-      "title": "Redis Connected",
+      "id": 33,
+      "title": "Bug Recurrences (selected range)",
+      "description": "Comments added to existing pipeline-failure issues.",
       "type": "stat",
-      "gridPos": {
-        "x": 12,
-        "y": 0,
-        "w": 4,
-        "h": 4
-      },
+      "gridPos": { "x": 12, "y": 31, "w": 6, "h": 4 },
       "options": {
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        },
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
         "colorMode": "value",
         "textMode": "auto"
       },
       "targets": [
         {
-          "expr": "pipeline_redis_connected{service=\"api\"}",
+          "expr": "sum(increase(pipeline_failure_issue_recurrences_total{service=\"worker\"}[$__range]))",
           "refId": "A"
         }
       ],
       "fieldConfig": {
-        "defaults": {
-          "mappings": [
-            {
-              "type": "value",
-              "options": {
-                "0": {
-                  "text": "DISCONNECTED",
-                  "color": "red"
-                },
-                "1": {
-                  "text": "OK",
-                  "color": "green"
-                }
-              }
-            }
-          ]
-        }
+        "defaults": { "noValue": "0" }
       }
     },
     {
-      "id": 10,
-      "title": "Task Outcomes (selected range)",
-      "description": "Total tasks completed in the selected time range. Populates once pipeline jobs run.",
+      "id": 34,
+      "title": "New Bugs by Task",
       "type": "bargauge",
-      "gridPos": {
-        "x": 0,
-        "y": 4,
-        "w": 24,
-        "h": 8
-      },
+      "gridPos": { "x": 18, "y": 31, "w": 6, "h": 4 },
       "options": {
         "displayMode": "gradient",
         "orientation": "horizontal",
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        },
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
         "showUnfilled": true
       },
       "targets": [
         {
-          "expr": "sum(increase(pipeline_task_total{service=\"worker\"}[$__range])) by (task, outcome)",
+          "expr": "sum(increase(pipeline_failure_issues_created_total{service=\"worker\"}[$__range])) by (task)",
           "refId": "A",
-          "legendFormat": "{{task}} / {{outcome}}"
+          "legendFormat": "{{task}}"
         }
       ],
       "fieldConfig": {
-        "defaults": {
-          "noValue": "0",
-          "min": 0
-        }
+        "defaults": { "noValue": "none", "min": 0 }
       }
+    },
+    {
+      "id": 104,
+      "type": "row",
+      "title": "Performance Details",
+      "gridPos": { "x": 0, "y": 35, "w": 24, "h": 1 },
+      "collapsed": true
     },
     {
       "id": 20,
       "title": "Task Duration p50 / p95 by task",
-      "description": "Requires recent task activity on the worker.",
       "type": "timeseries",
-      "gridPos": {
-        "x": 0,
-        "y": 12,
-        "w": 12,
-        "h": 8
-      },
+      "gridPos": { "x": 0, "y": 36, "w": 12, "h": 8 },
       "targets": [
         {
           "expr": "histogram_quantile(0.5, sum(rate(pipeline_task_duration_seconds_bucket{service=\"worker\"}[10m])) by (task, le))",
@@ -295,121 +581,30 @@
         }
       ],
       "fieldConfig": {
-        "defaults": {
-          "unit": "s",
-          "noValue": "0"
-        }
-      }
-    },
-    {
-      "id": 30,
-      "title": "Success Rate by Stage",
-      "description": "Share of successful download/extraction attempts in the selected range.",
-      "type": "stat",
-      "gridPos": {
-        "x": 12,
-        "y": 12,
-        "w": 12,
-        "h": 8
-      },
-      "options": {
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        },
-        "colorMode": "value",
-        "textMode": "auto"
-      },
-      "targets": [
-        {
-          "expr": "sum(increase(pipeline_attempts_total{service=\"worker\",outcome=\"success\"}[$__range])) by (stage) / clamp_min(sum(increase(pipeline_attempts_total{service=\"worker\"}[$__range])) by (stage), 1)",
-          "refId": "A",
-          "legendFormat": "{{stage}}"
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "percentunit",
-          "noValue": "0",
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "red",
-                "value": null
-              },
-              {
-                "color": "yellow",
-                "value": 0.8
-              },
-              {
-                "color": "green",
-                "value": 0.95
-              }
-            ]
-          }
-        }
-      }
-    },
-    {
-      "id": 40,
-      "title": "Failures by Reason",
-      "type": "piechart",
-      "gridPos": {
-        "x": 0,
-        "y": 20,
-        "w": 12,
-        "h": 8
-      },
-      "targets": [
-        {
-          "expr": "sum(increase(pipeline_attempts_total{service=\"worker\",outcome=\"failure\"}[$__range])) by (failure_reason)",
-          "refId": "A"
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "noValue": "0"
-        }
+        "defaults": { "unit": "s", "noValue": "0" }
       }
     },
     {
       "id": 50,
       "title": "Attempt Duration p95 by Stage",
       "type": "timeseries",
-      "gridPos": {
-        "x": 12,
-        "y": 20,
-        "w": 12,
-        "h": 8
-      },
+      "gridPos": { "x": 12, "y": 36, "w": 12, "h": 8 },
       "targets": [
         {
-          "expr": "histogram_quantile(0.95, sum(rate(pipeline_attempt_duration_seconds_bucket{service=\"worker\"}[10m])) by (stage, le))",
+          "expr": "histogram_quantile(0.95, sum(rate(pipeline_attempt_duration_seconds_bucket{service=\"worker\",stage=~\"$stage\"}[10m])) by (stage, le))",
           "refId": "A",
           "legendFormat": "p95 {{stage}}"
         }
       ],
       "fieldConfig": {
-        "defaults": {
-          "unit": "s",
-          "noValue": "0"
-        }
+        "defaults": { "unit": "s", "noValue": "0" }
       }
     },
     {
       "id": 60,
       "title": "Downloaded Content Size",
       "type": "timeseries",
-      "gridPos": {
-        "x": 0,
-        "y": 28,
-        "w": 24,
-        "h": 8
-      },
+      "gridPos": { "x": 0, "y": 44, "w": 24, "h": 8 },
       "targets": [
         {
           "expr": "histogram_quantile(0.5, sum(rate(pipeline_attempt_content_length_bytes_bucket{service=\"worker\",stage=\"download\"}[15m])) by (le))",
@@ -423,10 +618,7 @@
         }
       ],
       "fieldConfig": {
-        "defaults": {
-          "unit": "bytes",
-          "noValue": "0"
-        }
+        "defaults": { "unit": "bytes", "noValue": "0" }
       }
     }
   ]

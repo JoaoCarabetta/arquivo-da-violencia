@@ -12,6 +12,7 @@ import httpx
 from loguru import logger
 
 from app.config import get_settings
+from app.metrics import record_failure_issue_created, record_failure_issue_recurrence
 
 
 class GitHubIssueCreator:
@@ -146,8 +147,9 @@ class GitHubIssueCreator:
                 for key, value in details.items():
                     comment += f"- `{key}`: {value}\n"
             
-            await self._add_comment(existing["number"], comment)
-            logger.info(f"[GitHub] Updated existing issue #{existing['number']}")
+            if await self._add_comment(existing["number"], comment):
+                record_failure_issue_recurrence(task_name)
+                logger.info(f"[GitHub] Updated existing issue #{existing['number']}")
             return existing
         
         # Create new issue
@@ -187,6 +189,7 @@ class GitHubIssueCreator:
                 
                 if response.status_code == 201:
                     issue_data = response.json()
+                    record_failure_issue_created(task_name)
                     logger.info(f"[GitHub] ✅ Created issue #{issue_data['number']}: {title}")
                     return issue_data
                 else:
@@ -195,6 +198,35 @@ class GitHubIssueCreator:
                     
         except Exception as e:
             logger.error(f"[GitHub] ❌ Error creating issue: {e}")
+            return None
+
+
+    async def count_open_failure_issues(self) -> int | None:
+        """Return the number of open pipeline-failure issues, or None if unavailable."""
+        if not self.enabled:
+            return None
+
+        try:
+            query = f"repo:{self.repo} is:issue is:open label:pipeline-failure"
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                response = await client.get(
+                    self.search_url,
+                    headers={
+                        "Authorization": f"Bearer {self.token}",
+                        "Accept": "application/vnd.github+json",
+                        "X-GitHub-Api-Version": "2022-11-28",
+                    },
+                    params={"q": query, "per_page": 1},
+                )
+
+            if response.status_code == 200:
+                return int(response.json().get("total_count", 0))
+            logger.warning(
+                f"[GitHub] Failed to count open failure issues: HTTP {response.status_code}"
+            )
+            return None
+        except Exception as e:
+            logger.error(f"[GitHub] Error counting open failure issues: {e}")
             return None
 
 

@@ -12,10 +12,11 @@ visualized in Grafana.
 ## Architecture
 
 - **API** (`arquivo-api`) exposes health gauges (`pipeline_worker_alive`,
-  `pipeline_redis_connected`, etc.) on `/metrics` via `prometheus-fastapi-instrumentator`
-  bound to `REGISTRY`.
+  `pipeline_redis_connected`, `pipeline_open_failure_issues`, etc.) on `/metrics`
+  via `prometheus-fastapi-instrumentator` bound to `REGISTRY`.
 - **Worker** (`arquivo-worker`) exposes task/attempt counters on `:9091/metrics`
-  via a separate `WORKER_REGISTRY` (no health gauges — avoids duplicate dashboard stats).
+  via a separate `WORKER_REGISTRY` (cron timestamps, GitHub issue counters, task
+  metrics — no duplicate health gauges).
 - **Prometheus** on the obs VPS scrapes both targets every 30s.
 - **Grafana** is bound to `127.0.0.1:3000` and published via nginx + Let's Encrypt
   at `observability.carabetta.xyz`.
@@ -43,6 +44,31 @@ Backend metrics deploy via the existing
 when `backend/**` or `docker-compose.yml` change.
 
 Observability deploys on **master only** (staging has no scrape targets).
+
+## Dashboard sections
+
+The **Arquivo da Violência - Pipeline** dashboard is organized around three
+operational questions:
+
+| Section | Answers |
+|---------|---------|
+| **Infrastructure** | Worker heartbeat, Redis, queue depth, scrape health |
+| **Pipeline Steps** | Per-step success rate and throughput (ingest → geocode), attempt failures |
+| **Crons** | Minutes since last successful `ingest_cities_hourly` / `process_cities_backlog` |
+| **Bugs** | Open GitHub `pipeline-failure` issues, new bugs and recurrences in range |
+
+Default time range is **6 hours** (hourly crons). Performance panels (duration,
+content size) are in a collapsed row at the bottom.
+
+### Metrics reference
+
+| Metric | Registry | Source |
+|--------|----------|--------|
+| `pipeline_cron_last_success_timestamp{cron}` | Worker | Set when cron task succeeds |
+| `pipeline_cron_runs_total{cron,outcome}` | Worker | Every cron execution |
+| `pipeline_failure_issues_created_total{task}` | Worker | New GitHub issue created |
+| `pipeline_failure_issue_recurrences_total{task}` | Worker | Comment on existing issue |
+| `pipeline_open_failure_issues` | API | Polled from GitHub every 5 min |
 
 ### GitHub Actions secrets
 

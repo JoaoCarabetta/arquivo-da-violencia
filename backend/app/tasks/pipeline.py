@@ -6,7 +6,7 @@ from typing import Any, Callable
 
 from loguru import logger
 
-from app.metrics import record_task_outcome
+from app.metrics import CRON_TASKS, record_cron_outcome, record_task_outcome
 from app.services.github import create_failure_issue
 from app.services.telegram import (
     notify_job_started,
@@ -32,9 +32,11 @@ def notify_on_failure(task_name: str):
         @functools.wraps(func)
         async def wrapper(*args, **kwargs) -> Any:
             start = time.monotonic()
-            outcome = "success"
+            outcome: str | None = None
             try:
-                return await func(*args, **kwargs)
+                result = await func(*args, **kwargs)
+                outcome = "success"
+                return result
             except Exception as e:
                 outcome = "failure"
                 # Extract context details from args/kwargs for the notification
@@ -68,7 +70,10 @@ def notify_on_failure(task_name: str):
                 
                 raise
             finally:
-                record_task_outcome(task_name, outcome, time.monotonic() - start)
+                if outcome is not None:
+                    record_task_outcome(task_name, outcome, time.monotonic() - start)
+                    if task_name in CRON_TASKS:
+                        record_cron_outcome(task_name, outcome)
         
         return wrapper
     return decorator

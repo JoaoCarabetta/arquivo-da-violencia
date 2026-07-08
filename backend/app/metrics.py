@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import time
 
 import httpx
 from loguru import logger
@@ -85,6 +86,42 @@ pipeline_redis_connected = Gauge(
     registry=REGISTRY,
 )
 
+pipeline_open_failure_issues = Gauge(
+    "pipeline_open_failure_issues",
+    "Number of open GitHub issues labeled pipeline-failure.",
+    registry=REGISTRY,
+)
+
+pipeline_cron_last_success_timestamp = Gauge(
+    "pipeline_cron_last_success_timestamp",
+    "Unix timestamp of the last successful cron run, by cron name.",
+    labelnames=["cron"],
+    registry=WORKER_REGISTRY,
+)
+
+pipeline_cron_runs_total = Counter(
+    "pipeline_cron_runs_total",
+    "Total cron executions, by cron name and outcome.",
+    labelnames=["cron", "outcome"],
+    registry=WORKER_REGISTRY,
+)
+
+pipeline_failure_issues_created_total = Counter(
+    "pipeline_failure_issues_created_total",
+    "Total new GitHub pipeline-failure issues created, by task.",
+    labelnames=["task"],
+    registry=WORKER_REGISTRY,
+)
+
+pipeline_failure_issue_recurrences_total = Counter(
+    "pipeline_failure_issue_recurrences_total",
+    "Total recurrence comments added to existing pipeline-failure issues.",
+    labelnames=["task"],
+    registry=WORKER_REGISTRY,
+)
+
+CRON_TASKS = frozenset({"ingest_cities_hourly", "process_cities_backlog"})
+
 
 def generate_worker_metrics() -> bytes:
     """Prometheus exposition format for the worker metrics HTTP server."""
@@ -157,6 +194,36 @@ def set_redis_connected(connected: bool) -> None:
         pipeline_redis_connected.set(1 if connected else 0)
     except Exception as e:  # pragma: no cover
         logger.warning(f"[metrics] set_redis_connected failed: {e}")
+
+
+def set_open_failure_issues(count: int) -> None:
+    try:
+        pipeline_open_failure_issues.set(count)
+    except Exception as e:  # pragma: no cover
+        logger.warning(f"[metrics] set_open_failure_issues failed: {e}")
+
+
+def record_cron_outcome(cron_name: str, outcome: str) -> None:
+    try:
+        pipeline_cron_runs_total.labels(cron=cron_name, outcome=outcome).inc()
+        if outcome == "success":
+            pipeline_cron_last_success_timestamp.labels(cron=cron_name).set(time.time())
+    except Exception as e:  # pragma: no cover
+        logger.warning(f"[metrics] record_cron_outcome failed: {e}")
+
+
+def record_failure_issue_created(task_name: str) -> None:
+    try:
+        pipeline_failure_issues_created_total.labels(task=task_name).inc()
+    except Exception as e:  # pragma: no cover
+        logger.warning(f"[metrics] record_failure_issue_created failed: {e}")
+
+
+def record_failure_issue_recurrence(task_name: str) -> None:
+    try:
+        pipeline_failure_issue_recurrences_total.labels(task=task_name).inc()
+    except Exception as e:  # pragma: no cover
+        logger.warning(f"[metrics] record_failure_issue_recurrence failed: {e}")
 
 
 def _is_push_configured() -> bool:
