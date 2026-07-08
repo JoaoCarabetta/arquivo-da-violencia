@@ -25,13 +25,14 @@ from app.metrics import (
 )
 from app.routers.pipeline import collect_pipeline_status
 from app.services.github import get_github_creator
+from app.services.pipeline_inventory_metrics import refresh_pipeline_inventory_metrics
 from app.services.telegram import notify_worker_down, notify_worker_recovered
 
 # How often to poll the heartbeat key.
 CHECK_INTERVAL_SECONDS = 60
 
-# How often to refresh the open GitHub failure-issue gauge.
-GITHUB_POLL_INTERVAL_SECONDS = 300
+# How often to refresh DB-backed inventory and GitHub failure-issue gauges.
+INVENTORY_POLL_INTERVAL_SECONDS = 300
 
 # Consecutive missed heartbeats before declaring the worker down. Kept high
 # enough to ride out a normal deploy (graceful worker shutdown can take ~120s)
@@ -60,6 +61,8 @@ async def monitor_worker_health(stop_event: asyncio.Event) -> None:
         f"threshold={MISS_THRESHOLD})"
     )
 
+    await refresh_pipeline_inventory_metrics()
+
     while not stop_event.is_set():
         try:
             status = await collect_pipeline_status()
@@ -67,11 +70,12 @@ async def monitor_worker_health(stop_event: asyncio.Event) -> None:
             alive = bool(status.get("worker_alive")) if redis_ok else False
 
             github_poll_counter += CHECK_INTERVAL_SECONDS
-            if github_poll_counter >= GITHUB_POLL_INTERVAL_SECONDS:
+            if github_poll_counter >= INVENTORY_POLL_INTERVAL_SECONDS:
                 github_poll_counter = 0
                 open_issues = await get_github_creator().count_open_failure_issues()
                 if open_issues is not None:
                     set_open_failure_issues(open_issues)
+                await refresh_pipeline_inventory_metrics()
 
             if not redis_ok:
                 logger.warning(

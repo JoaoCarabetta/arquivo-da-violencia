@@ -92,6 +92,51 @@ pipeline_open_failure_issues = Gauge(
     registry=REGISTRY,
 )
 
+pipeline_inventory_total = Gauge(
+    "pipeline_inventory_total",
+    "Total Google News sources in the database.",
+    registry=REGISTRY,
+)
+
+pipeline_inventory_violent_death = Gauge(
+    "pipeline_inventory_violent_death",
+    "Sources classified as violent death (any status).",
+    registry=REGISTRY,
+)
+
+pipeline_inventory_raw_events = Gauge(
+    "pipeline_inventory_raw_events",
+    "Total extracted raw events.",
+    registry=REGISTRY,
+)
+
+pipeline_inventory_unique_events = Gauge(
+    "pipeline_inventory_unique_events",
+    "Total deduplicated unique events.",
+    registry=REGISTRY,
+)
+
+pipeline_inventory_sources = Gauge(
+    "pipeline_inventory_sources",
+    "Google News sources currently in each pipeline status.",
+    labelnames=["status"],
+    registry=REGISTRY,
+)
+
+pipeline_stuck_sources = Gauge(
+    "pipeline_stuck_sources",
+    "Sources stuck in a transient status longer than the stuck threshold.",
+    labelnames=["status"],
+    registry=REGISTRY,
+)
+
+pipeline_attempt_failures_24h = Gauge(
+    "pipeline_attempt_failures_24h",
+    "Failed download/extraction attempts in the last 24 hours, by stage and reason.",
+    labelnames=["stage", "failure_reason"],
+    registry=REGISTRY,
+)
+
 pipeline_cron_last_success_timestamp = Gauge(
     "pipeline_cron_last_success_timestamp",
     "Unix timestamp of the last successful cron run, by cron name.",
@@ -121,6 +166,54 @@ pipeline_failure_issue_recurrences_total = Counter(
 )
 
 CRON_TASKS = frozenset({"ingest_cities_hourly", "process_cities_backlog"})
+
+_STUCK_STATUSES = ("classifying", "downloading", "extracting")
+_seen_failure_labels: set[tuple[str, str]] = set()
+_seen_inventory_statuses: set[str] = set()
+
+
+def set_pipeline_inventory_metrics(
+    *,
+    status_counts: dict[str, int],
+    stuck_counts: dict[str, int],
+    failure_counts: dict[tuple[str, str], int],
+    sources_total: int,
+    violent_death: int,
+    raw_events_total: int,
+    unique_events_total: int,
+) -> None:
+    try:
+        pipeline_inventory_total.set(sources_total)
+        pipeline_inventory_violent_death.set(violent_death)
+        pipeline_inventory_raw_events.set(raw_events_total)
+        pipeline_inventory_unique_events.set(unique_events_total)
+
+        current_statuses: set[str] = set()
+        for status, count in status_counts.items():
+            pipeline_inventory_sources.labels(status=status).set(count)
+            current_statuses.add(status)
+        for status in _seen_inventory_statuses - current_statuses:
+            pipeline_inventory_sources.labels(status=status).set(0)
+        _seen_inventory_statuses.clear()
+        _seen_inventory_statuses.update(current_statuses)
+
+        for status in _STUCK_STATUSES:
+            pipeline_stuck_sources.labels(status=status).set(stuck_counts.get(status, 0))
+
+        current_failures: set[tuple[str, str]] = set()
+        for (stage, reason), count in failure_counts.items():
+            pipeline_attempt_failures_24h.labels(
+                stage=stage, failure_reason=reason
+            ).set(count)
+            current_failures.add((stage, reason))
+        for stage, reason in _seen_failure_labels - current_failures:
+            pipeline_attempt_failures_24h.labels(
+                stage=stage, failure_reason=reason
+            ).set(0)
+        _seen_failure_labels.clear()
+        _seen_failure_labels.update(current_failures)
+    except Exception as e:  # pragma: no cover
+        logger.warning(f"[metrics] set_pipeline_inventory_metrics failed: {e}")
 
 
 def generate_worker_metrics() -> bytes:
