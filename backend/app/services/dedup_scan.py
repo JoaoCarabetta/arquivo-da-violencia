@@ -130,6 +130,118 @@ def _parse_since(since: str | date) -> date:
     return date.fromisoformat(since)
 
 
+def _scan_bucket_for_near_duplicates(
+    members: list[dict],
+    *,
+    event_day: str = "",
+    city: str = "",
+) -> tuple[list[dict], list[dict]]:
+    """Scan one date/city bucket and return (pair_rows, group_summaries)."""
+    uf = _UnionFind()
+    pair_rows: list[dict] = []
+
+    if len(members) < 2:
+        return pair_rows, []
+
+    if len(members) > MAX_BUCKET_SIZE:
+        members = members[:MAX_BUCKET_SIZE]
+
+    for i in range(len(members)):
+        for j in range(i + 1, len(members)):
+            a, b = members[i], members[j]
+            hit = pair_signal(a, b)
+            if not hit:
+                continue
+            similarity, signal = hit
+            uf.union(a["id"], b["id"])
+            survivor_id = pick_survivor_id(
+                [
+                    {"id": a["id"], "source_count": a.get("source_count") or 1},
+                    {"id": b["id"], "source_count": b.get("source_count") or 1},
+                ]
+            )
+            pair_rows.append({
+                "id_a": a["id"],
+                "id_b": b["id"],
+                "similarity": round(similarity, 3),
+                "signal": signal,
+                "title_a": (a.get("title") or "")[:120],
+                "title_b": (b.get("title") or "")[:120],
+                "city": a.get("city") or city,
+                "event_date": event_day or _date_key(a.get("event_date")) or "",
+                "source_count_a": a.get("source_count") or 1,
+                "source_count_b": b.get("source_count") or 1,
+                "suggested_survivor_id": survivor_id,
+            })
+
+    groups: dict[int, list[dict]] = defaultdict(list)
+    for row in members:
+        if row["id"] in uf.parent:
+            root = uf.find(row["id"])
+            groups[root].append(row)
+
+    group_summaries = []
+    for root, group_members in groups.items():
+        if len(group_members) < 2:
+            continue
+        survivor_id = pick_survivor_id(
+            [
+                {"id": m["id"], "source_count": m.get("source_count") or 1}
+                for m in group_members
+            ]
+        )
+        group_summaries.append({
+            "group_id": root,
+            "member_ids": [m["id"] for m in group_members],
+            "survivor_id": survivor_id,
+            "loser_ids": [m["id"] for m in group_members if m["id"] != survivor_id],
+            "city": group_members[0].get("city") or city,
+            "event_date": event_day or _date_key(group_members[0]["event_date"]),
+            "size": len(group_members),
+        })
+
+    for pair in pair_rows:
+        pair["group_id"] = uf.find(pair["id_a"])
+
+    return pair_rows, group_summaries
+
+
+async def find_near_duplicate_groups_in_bucket(
+    event_date: str | date | None,
+    city: str | None,
+) -> list[dict]:
+    """Return near-duplicate group summaries for one date/city bucket."""
+    if not city:
+        return []
+
+    day_key = _date_key(event_date)
+    if not day_key:
+        return []
+
+    async with async_session_maker() as session:
+        result = await session.execute(
+            text("""
+                SELECT id, title, city, state, event_date, neighborhood,
+                       victims_summary, chronological_description, merged_data,
+                       source_count
+                FROM unique_event
+                WHERE LOWER(TRIM(city)) = LOWER(TRIM(:city))
+                  AND date(event_date) = :event_date
+                  AND (content_class IS NULL OR content_class = 'incident')
+                ORDER BY id
+            """),
+            {"city": city, "event_date": day_key},
+        )
+        members = [dict(r._mapping) for r in result.fetchall()]
+
+    _, group_summaries = _scan_bucket_for_near_duplicates(
+        members,
+        event_day=day_key,
+        city=city,
+    )
+    return group_summaries
+
+
 async def find_near_duplicate_groups(since: str | date) -> tuple[list[dict], list[dict]]:
     """Return (pair_rows, group_summaries)."""
     since_date = _parse_since(since)
@@ -155,67 +267,16 @@ async def find_near_duplicate_groups(since: str | date) -> tuple[list[dict], lis
         key = (_date_key(row["event_date"]) or "", _norm(row["city"]))
         buckets[key].append(row)
 
-    uf = _UnionFind()
     pair_rows: list[dict] = []
+    group_summaries: list[dict] = []
 
     for (event_day, city), members in buckets.items():
-        if len(members) < 2:
-            continue
-        if len(members) > MAX_BUCKET_SIZE:
-            members = members[:MAX_BUCKET_SIZE]
-
-        for i in range(len(members)):
-            for j in range(i + 1, len(members)):
-                a, b = members[i], members[j]
-                hit = pair_signal(a, b)
-                if not hit:
-                    continue
-                similarity, signal = hit
-                uf.union(a["id"], b["id"])
-                survivor_id = pick_survivor_id(
-                    [
-                        {"id": a["id"], "source_count": a.get("source_count") or 1},
-                        {"id": b["id"], "source_count": b.get("source_count") or 1},
-                    ]
-                )
-                pair_rows.append({
-                    "id_a": a["id"],
-                    "id_b": b["id"],
-                    "similarity": round(similarity, 3),
-                    "signal": signal,
-                    "title_a": (a.get("title") or "")[:120],
-                    "title_b": (b.get("title") or "")[:120],
-                    "city": a.get("city") or "",
-                    "event_date": event_day,
-                    "source_count_a": a.get("source_count") or 1,
-                    "source_count_b": b.get("source_count") or 1,
-                    "suggested_survivor_id": survivor_id,
-                })
-
-    groups: dict[int, list[dict]] = defaultdict(list)
-    for row in rows:
-        if row["id"] in uf.parent:
-            root = uf.find(row["id"])
-            groups[root].append(row)
-
-    group_summaries = []
-    for root, members in groups.items():
-        if len(members) < 2:
-            continue
-        survivor_id = pick_survivor_id(
-            [{"id": m["id"], "source_count": m.get("source_count") or 1} for m in members]
+        bucket_pairs, bucket_groups = _scan_bucket_for_near_duplicates(
+            members,
+            event_day=event_day,
+            city=city,
         )
-        group_summaries.append({
-            "group_id": root,
-            "member_ids": [m["id"] for m in members],
-            "survivor_id": survivor_id,
-            "loser_ids": [m["id"] for m in members if m["id"] != survivor_id],
-            "city": members[0].get("city"),
-            "event_date": _date_key(members[0]["event_date"]),
-            "size": len(members),
-        })
-
-    for pair in pair_rows:
-        pair["group_id"] = uf.find(pair["id_a"])
+        pair_rows.extend(bucket_pairs)
+        group_summaries.extend(bucket_groups)
 
     return pair_rows, group_summaries

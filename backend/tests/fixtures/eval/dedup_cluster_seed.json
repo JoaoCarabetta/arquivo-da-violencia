@@ -1,0 +1,216 @@
+{
+  "meta": {
+    "stage": "dedup_cluster",
+    "version": 1,
+    "source_db": "eval/results/proposed/scratch-20260708-snapshot.db",
+    "seed": null,
+    "labeled_count": 3,
+    "pending_count": 0
+  },
+  "cases": [
+    {
+      "id": "dc-prod-contagem-10916",
+      "tags": [
+        "prod",
+        "title_overlap",
+        "events_4"
+      ],
+      "label_status": "labeled",
+      "input": {
+        "events": [
+          {
+            "id": 10916,
+            "title": "FEMINICÍDIO - RESIDÊNCIA CARAJÁS - 04/07/2026",
+            "event_date": "2026-07-04",
+            "city": "Contagem",
+            "state": "MG",
+            "homicide_type": "Feminicídio",
+            "chronological_description": "No dia 04 de julho de 2026, em Contagem/MG, Kauã Bryan de Oliveira da Rocha, de 21 anos, dirigiu-se à residência da vítima Wal, mulher trans de 45 anos, localizada no bairro Carajás, após encontrarem-se em uma adega. No local, utilizaram drogas. Em determinado momento, a vítima teria tentado desabotoar o botão da calça do autor, momento em que Kauã Bryan deferiu ao menos 25 golpes de faca contra Wal. Após o crime, o autor tentou destruir os vestígios, utilizando isqueiros para incendiar o cabelo e o corpo da vítima. Em seguida, subtraiu o aparelho celular e o cartão de crédito da vítima, evadindo-se do local e dirigindo-se a uma distribuidora de bebidas para continuar consumindo bebidas alcoólicas. Horas depois, foi preso em flagrante pela Polícia Militar. Em audiência de custódia realizada em 06/07/2026, o juiz determinou a prisão preventiva do autor.",
+            "victim_names": [
+              "Wal"
+            ]
+          },
+          {
+            "id": 10926,
+            "title": "FEMINICÍDIO - RESIDÊNCIA CARAJÁS - 04/07/2026",
+            "event_date": "2026-07-04",
+            "city": "Contagem",
+            "state": "MG",
+            "homicide_type": "Feminicídio",
+            "chronological_description": "Em data de 04/07/2026, por volta das 10h, na residência da vítima, no bairro Carajás, em Contagem/MG, a vítima, uma mulher transgênero de 45 anos, convidou o suspeito, homem de 22 anos, para sua casa após se conhecerem em uma adega. No local, consumiram bebida alcoólica. Segundo o suspeito, a vítima teria feito uma investida sexual sem seu consentimento, momento em que ele desferiu golpes de faca contra a vítima, causando ao menos 25 perfurações. Após o ataque, o suspeito dormiu no local até as 16h. Ao acordar, tentou atear fogo ao corpo com isqueiros para destruir vestígios, causando queimaduras parciais nos cabelos da vítima. O corpo foi encontrado no quarto. O suspeito foi posteriormente localizado por policiais militares, ferido e amarrado a uma placa de sinalização, após ter sido agredido por dois homens não identificados. Ele confessou a autoria das facadas e foi preso em flagrante.",
+            "victim_names": []
+          },
+          {
+            "id": 10937,
+            "title": "FEMINICÍDIO - RESIDÊNCIA BAIRRO CARAJÁS - 04/07/2026",
+            "event_date": "2026-07-04",
+            "city": "Contagem",
+            "state": "MG",
+            "homicide_type": "Feminicídio",
+            "chronological_description": "No dia 04 de julho de 2026, por volta das 10h, na residência da vítima localizada no bairro Carajás, Contagem/MG, a vítima, uma mulher transgênero de 45 anos, foi morta com ao menos 25 facadas desferidas pelo suspeito, um homem de 22 anos. Segundo relato do suspeito à Polícia Militar, ambos se conheceram na noite anterior (03/07) em uma adega, consumiram bebidas alcoólicas e cocaína, e a vítima o convidou para ir até sua casa na manhã do dia 04. No local, continuaram consumindo bebida alcoólica. O suspeito alegou que a vítima fez uma investida sexual sem seu consentimento, e que ele reagiu desferindo os golpes de faca. Após o ataque, o suspeito permaneceu no apartamento até aproximadamente 16h, quando tentou atear fogo ao corpo da vítima com isqueiros para destruir vestígios. O corpo foi encontrado no quarto com múltiplas perfurações e cabelos parcialmente queimados. A faca usada no crime e dois isqueiros foram apreendidos. Posteriormente, o suspeito foi localizado pela polícia ferido e amarrado a uma placa de sinalização de trânsito, agredido por pessoas não identificadas, e encaminhado para atendimento médico antes de ser conduzido à delegacia.",
+            "victim_names": []
+          },
+          {
+            "id": 10944,
+            "title": "FEMINICÍDIO - RESIDÊNCIA CARAJÁS - 04/07/2026",
+            "event_date": "2026-07-04",
+            "city": "Contagem",
+            "state": "MG",
+            "homicide_type": "Feminicídio",
+            "chronological_description": "No dia 4 de julho de 2026, na residência localizada no bairro Carajás, Contagem/MG, a vítima, uma mulher trans de 45 anos, foi morta a facadas. O autor, Kauã Bryan de Oliveira da Rocha, de 21 anos, conheceu a vítima em uma adega, onde consumiram bebidas alcoólicas e drogas juntos. Em seguida, dirigiram-se à residência da vítima. Segundo relato do autor, em determinado momento a vítima teria tentado praticar ato sexual sem consentimento, o que motivou o autor a desferir múltiplos golpes de faca contra a vítima. O autor permaneceu no local após o crime, dormiu na residência e posteriormente tentou incendiar o corpo da vítima utilizando um isqueiro. Em seguida, deixou o imóvel e retornou a uma adega, onde continuou consumindo bebidas alcoólicas. Após a descoberta do crime, moradores da região agrediram o autor com pedaços de madeira e pedras e o amarraram a uma placa de sinalização de trânsito. A Polícia Militar foi acionada, encontrou a vítima sobre a cama com diversas facadas e sinais de queimadura nos cabelos, e localizou o autor amarrado e ferido. Uma faca e dois isqueiros foram apreendidos. O autor confessou o crime aos militares, recebeu atendimento médico na UPA Ressaca, foi conduzido à delegacia, ouvido e autuado em flagrante por homicídio. Após audiência de custódia, permaneceu preso preventivamente.",
+            "victim_names": [
+              "não informado"
+            ]
+          }
+        ]
+      },
+      "expected": {
+        "clusters": [
+          [
+            1,
+            2,
+            3,
+            4
+          ]
+        ]
+      },
+      "metadata": {
+        "notes": "Prod pending cluster raw ids [10916, 10926, 10937, 10944]"
+      }
+    },
+    {
+      "id": "dc-prod-sabara-10921",
+      "tags": [
+        "prod",
+        "title_overlap",
+        "events_5"
+      ],
+      "label_status": "labeled",
+      "input": {
+        "events": [
+          {
+            "id": 10921,
+            "title": "HOMICÍDIO - RESIDÊNCIA VILA MICHEL - 06/07/2026",
+            "event_date": "2026-07-06",
+            "city": "Sabará",
+            "state": "MG",
+            "homicide_type": "Homicídio",
+            "chronological_description": "Em data de 06/07/2026, durante a madrugada, na residência do casal situada no bairro Vila Michel, Sabará/MG, a autora, de 55 anos, desferiu golpes de faca contra a vítima, seu marido de 58 anos, causando-lhe a morte. A vítima encontrava-se debilitada em razão de AVC e demência. Segundo relato da autora aos policiais, durante a madrugada ela consertava a grade de proteção da cama do marido quando ele começou a chutar a estrutura e a gritar, momento em que a autora alegou ter 'surtado' e não se recordar do ocorrido, apenas de estar com a faca na mão após o crime. A sobrinha da vítima compareceu ao local e encontrou a autora sentada no chão, chorando, com a faca utilizada entre as pernas. A equipe policial constatou rigidez cadavérica na vítima.",
+            "victim_names": []
+          },
+          {
+            "id": 10923,
+            "title": "HOMICÍDIO - RESIDÊNCIA SABARÁ - 06/07/2026",
+            "event_date": "2026-07-06",
+            "city": "Sabará",
+            "state": "MG",
+            "homicide_type": "Homicídio",
+            "chronological_description": "Na manhã de 6 de julho de 2026, a vítima, homem de 58 anos, encontrava-se em sua residência em Sabará/MG, juntamente com sua esposa de 55 anos. Segundo relato da suspeita, desde sexta-feira (3/7) a vítima vinha proferindo xingamentos contra a esposa e, na madrugada do dia do crime, teria agredido a mulher com um puxão de cabelo. Em reação, a suspeita dirigiu-se à cozinha, pegou uma faca e desferiu golpes contra a vítima, que estava deitada na cama. A sobrinha da vítima, ao chegar ao local, encontrou a suspeita chorando ao pé da cama, com uma faca suja de sangue, e acionou a Polícia Militar de Minas Gerais (PMMG). O Serviço de Atendimento Móvel de Urgência (Samu) foi chamado e constatou o óbito. A suspeita confessou o crime e foi presa em flagrante. A Polícia Civil foi acionada para a remoção do corpo e prosseguimento das investigações.",
+            "victim_names": []
+          },
+          {
+            "id": 10933,
+            "title": "HOMICÍDIO SIMPLES - RESIDÊNCIA SABARÁ - 06/07/2026",
+            "event_date": "2026-07-06",
+            "city": "Sabará",
+            "state": "MG",
+            "homicide_type": "Homicídio",
+            "chronological_description": "Na data de 06 de julho de 2026, em residência localizada em Sabará/MG, a vítima, homem de 58 anos, foi encontrado sem vida com múltiplas lesões perfurocortantes (facadas) pelo corpo. A autora, sua esposa de 55 anos, foi localizada no local e confessou o crime. Segundo relato, a autora alegou ter agido em surto após o marido chutar a grade de proteção da cama. A perícia compareceu ao local e o corpo foi encaminhado ao IML.",
+            "victim_names": []
+          },
+          {
+            "id": 10941,
+            "title": "HOMICÍDIO - RESIDÊNCIA VILA MICHEL - 06/07/2026",
+            "event_date": "2026-07-06",
+            "city": "Sabará",
+            "state": "MG",
+            "homicide_type": "Homicídio",
+            "chronological_description": "Na manhã de 6 de julho de 2026, por volta das 7h32, na residência localizada na Vila Michel, Sabará/MG, a autora, de 55 anos, após alegar surto psicótico decorrente do estresse de cuidar do marido, que sofria de AVC e demência, desferiu golpes de faca contra a vítima, seu cônjuge de 58 anos, causando-lhe a morte. Conforme relato, a autora dirigiu-se à cozinha, pegou uma faca e retornou ao quarto, onde efetuou o golpe. A sobrinha do casal, ao chegar ao local, encontrou a autora sentada no chão ao lado da cama com a faca ensanguentada entre as pernas, e a vítima debaixo da coberta com sangue no tórax e sem sinais vitais. A Polícia Militar foi acionada e, ao chegar, encontrou a autora na mesma posição, mas a faca estava sobre a mesa da sala. O Serviço de Atendimento Móvel de Urgência (Samu) constatou o óbito. A autora foi detida e relatou não se lembrar do ocorrido após pegar a faca. Em sua versão, descreveu dias anteriores de agressões verbais e físicas por parte da vítima, relacionadas ao estresse do cuidado e a um relacionamento extraconjugal passado.",
+            "victim_names": []
+          },
+          {
+            "id": 10954,
+            "title": "HOMICÍDIO - RESIDÊNCIA SABARÁ - 06/07/2026",
+            "event_date": "2026-07-06",
+            "city": "Sabará",
+            "state": "MG",
+            "homicide_type": "Homicídio",
+            "chronological_description": "No dia 6 de julho de 2026, pela manhã, na residência do casal em Sabará (MG), a autora, de 55 anos, desferiu golpes de faca contra o marido, de 58 anos, na região do tórax. Segundo relato da autora à polícia, o marido apresentava episódios frequentes de agressividade e ofensas após ter sofrido AVC, e na madrugada do crime voltou a agir violentamente. Após tentar contê-lo, ela foi até a cozinha, pegou uma faca e retornou ao quarto, desferindo os golpes. A vítima foi encontrada sem sinais vitais por uma sobrinha do casal, que foi ao local para ajudar nos cuidados com o homem. O Serviço de Atendimento Móvel de Urgência (Samu) confirmou o óbito. A autora foi presa e o caso será investigado pela Polícia Civil de Minas Gerais.",
+            "victim_names": []
+          }
+        ]
+      },
+      "expected": {
+        "clusters": [
+          [
+            1,
+            2,
+            3,
+            4,
+            5
+          ]
+        ]
+      },
+      "metadata": {
+        "notes": "Prod pending cluster raw ids [10921, 10923, 10933, 10941, 10954]"
+      }
+    },
+    {
+      "id": "dc-prod-cuiaba-10955",
+      "tags": [
+        "prod",
+        "title_overlap",
+        "events_3"
+      ],
+      "label_status": "labeled",
+      "input": {
+        "events": [
+          {
+            "id": 10955,
+            "title": "HOMICÍDIO QUALIFICADO - CASA ABANDONADA CENTRO NORTE - 07/07/2026",
+            "event_date": "2026-07-07",
+            "city": "Cuiabá",
+            "state": "MT",
+            "homicide_type": "Homicídio Qualificado",
+            "chronological_description": "Na madrugada do dia 07/07/2026, em data e horário não especificados com precisão, ao menos um criminoso não identificado cometeu homicídio qualificado contra Edvaldo Silva de Jesus, de 31 anos, dentro de uma casa abandonada situada na esquina da Rua São Benedito com a Avenida Tenente-Coronel Duarte (Prainha), bairro Centro Norte, em Cuiabá-MT. O autor ou autores degolaram a vítima, causando perfurações na região do pescoço, e deixaram o corpo caído de bruços no imóvel. Por volta das 8h da manhã do mesmo dia, pessoas em situação de rua encontraram o corpo e informaram policiais militares que prestam apoio à Secretaria Municipal de Mobilidade Urbana. Os policiais entraram na residência, localizaram a vítima e acionaram o Samu, que confirmou o óbito no local. A perícia da Politec constatou rigidez cadavérica e estimou que a morte ocorrera cerca de seis horas antes do encontro do corpo. A identidade da vítima foi confirmada por meio do sistema de monitoramento da tornozeleira eletrônica que ela utilizava. A Polícia Civil, por meio da Delegacia Especializada de Homicídios e Proteção à Pessoa (DHPP), isolou a área, realizou levantamentos periciais, recolheu vestígios e busca imagens de câmeras de segurança. Até o momento, não há informações sobre a motivação do crime nem sobre a quantidade de autores envolvidos.",
+            "victim_names": [
+              "Edvaldo Silva de Jesus"
+            ]
+          },
+          {
+            "id": 10958,
+            "title": "HOMICÍDIO - CASA ABANDONADA CENTRO CUIABÁ - 07/07/2026",
+            "event_date": "2026-07-07",
+            "city": "Cuiabá",
+            "state": "MT",
+            "homicide_type": "Homicídio",
+            "chronological_description": "Na madrugada do dia 07/07/2026, em data não especificada com precisão, um homem ainda não identificado foi morto em uma casa abandonada na região da Prainha, no Centro de Cuiabá, MT. A vítima, que utilizava tornozeleira eletrônica, apresentava sinais de degolamento. O corpo foi localizado na manhã do mesmo dia. Equipes da Perícia Oficial e Identificação Técnica (Politec) foram acionadas para realizar os trabalhos periciais. O caso será investigado pela Polícia Civil, que apura a motivação e a autoria do homicídio.",
+            "victim_names": []
+          },
+          {
+            "id": 10963,
+            "title": "HOMICÍDIO SIMPLES - CASA ABANDONADA CENTRO DE CUIABÁ - 07/07/2026",
+            "event_date": "2026-07-07",
+            "city": "Cuiabá",
+            "state": "MT",
+            "homicide_type": "Homicídio",
+            "chronological_description": "No dia 7 de julho de 2026, por volta das 8h, policiais militares foram acionados por pessoas em situação de rua para uma casa abandonada no cruzamento da Rua São Benedito com a Avenida Tenente Coronel Duarte, em Cuiabá/MT. No interior do imóvel, foi localizado o corpo de um homem ainda não identificado, o qual utilizava tornozeleira eletrônica. A vítima apresentava ferimentos causados por arma cortante. Suspeita-se que o crime tenha ocorrido durante a madrugada do mesmo dia. Equipes da Perícia Oficial e Identificação Técnica (Politec) foram acionadas para realização de perícia no local. O caso segue sob investigação da Polícia Civil.",
+            "victim_names": []
+          }
+        ]
+      },
+      "expected": {
+        "clusters": [
+          [
+            1,
+            2,
+            3
+          ]
+        ]
+      },
+      "metadata": {
+        "notes": "Prod pending cluster raw ids [10955, 10958, 10963]"
+      }
+    }
+  ]
+}

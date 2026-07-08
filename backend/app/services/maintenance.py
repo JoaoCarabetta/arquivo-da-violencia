@@ -573,3 +573,57 @@ async def merge_near_duplicate_unique_events(
         )
 
     return audit
+
+
+async def auto_merge_near_duplicates_in_bucket(
+    event_date: date | datetime | str | None,
+    city: str | None,
+    *,
+    dry_run: bool = False,
+) -> dict:
+    """Scan one date/city bucket and merge near-duplicate UniqueEvents."""
+    from app.services.dedup_scan import find_near_duplicate_groups_in_bucket
+
+    if not city:
+        return {
+            "dry_run": dry_run,
+            "event_date": _event_date_key(event_date),
+            "city": city,
+            "groups_found": 0,
+            "events_merged": 0,
+            "raw_events_relinked": 0,
+            "merges": [],
+        }
+
+    group_summaries = await find_near_duplicate_groups_in_bucket(event_date, city)
+    audit: dict[str, Any] = {
+        "dry_run": dry_run,
+        "event_date": _event_date_key(event_date),
+        "city": city,
+        "groups_found": len(group_summaries),
+        "events_merged": 0,
+        "raw_events_relinked": 0,
+        "merges": [],
+    }
+
+    for group in group_summaries:
+        merge_result = await merge_unique_events_by_ids(
+            group["survivor_id"],
+            group["loser_ids"],
+            dry_run=dry_run,
+        )
+        audit["merges"].append(merge_result)
+        audit["events_merged"] += merge_result.get("events_merged", 0)
+        audit["raw_events_relinked"] += merge_result.get("raw_events_relinked", 0)
+
+    if group_summaries:
+        logger.info(
+            "[MERGE] Bucket {city} {date}: {groups} near-dup group(s), "
+            "{events} event(s) merged",
+            city=city,
+            date=audit["event_date"],
+            groups=audit["groups_found"],
+            events=audit["events_merged"],
+        )
+
+    return audit
