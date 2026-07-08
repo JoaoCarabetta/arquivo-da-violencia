@@ -199,6 +199,17 @@ SOBRE homicide_dynamic.method — OBRIGATÓRIO PREENCHER:
 SOBRE TÍTULOS:
 - Se não há data completa verificada, use "DATA NÃO INFORMADA" no título
 - Exemplo: "FEMINICÍDIO - RESIDÊNCIA SANTA CRUZ - DATA NÃO INFORMADA"
+
+SOBRE NOMES DE VÍTIMAS (identifiable_victims) — OBRIGATÓRIO QUANDO O TEXTO NOMEIA:
+- Se o texto traz nome próprio, apelido ou nome social da vítima (ex.: "Wal", "Gesse Alves de
+  Sena", "Gustavo Rafael Campos Siqueira"), PREENCHA identifiable_victims[].name com esse
+  nome. NÃO deixe name = null só porque idade/gênero já bastam para o resumo.
+- Prefira o nome mais completo disponível no texto; se só houver primeiro nome ou apelido,
+  use-o mesmo assim (melhor nome parcial do que anônimo).
+- Só omita name quando o texto realmente não identifica a pessoa (ex.: "um homem de 31 anos"
+  sem nome). Nesses casos age/gender podem ficar preenchidos e name = null.
+- Nomes parciais ou sociais ("Wal (identificada apenas como)") ainda contam como nome —
+  registre-os; isso evita UniqueEvents anônimos que não deduplicam com fontes nomeadas.
 """
 
 

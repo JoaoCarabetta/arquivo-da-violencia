@@ -4,7 +4,7 @@
     "version": 1,
     "source_db": "production",
     "seed": null,
-    "labeled_count": 4,
+    "labeled_count": 10,
     "pending_count": 0
   },
   "cases": [
@@ -229,6 +229,334 @@
       },
       "metadata": {
         "notes": "Celeste Martins feminicide Salvador 2026-07-03"
+      }
+    },
+    {
+      "id": "prod-dedup_match-9780-9788",
+      "tags": [
+        "positive",
+        "prod",
+        "named_vs_anonymous",
+        "mo_context"
+      ],
+      "label_status": "labeled",
+      "input": {
+        "raw_event": {
+          "id": 10786,
+          "title": "HOMICÍDIO - RESIDÊNCIA EM CONTAGEM - 04/07/2026",
+          "event_date": "2026-07-04",
+          "city": "Contagem",
+          "state": "MG",
+          "neighborhood": "Carajás",
+          "homicide_type": "Homicídio",
+          "chronological_description": "No dia 04/07/2026, por volta das 10h, no interior de uma kitnet no bairro Carajás, em Contagem/MG, o suspeito, homem de 21 anos, desferiu aproximadamente 25 golpes de faca contra a vítima, mulher trans de 45 anos, causando sua morte. Segundo o suspeito, ele conheceu a vítima em uma adega, consumiram bebidas e drogas, e foram para a casa dela. Ele tentou incendiar o corpo após o crime.",
+          "victim_names": []
+        },
+        "candidates": [
+          {
+            "id": 9780,
+            "title": "FEMINICÍDIO - RESIDÊNCIA DA VÍTIMA CONTAGEM - 04/07/2026",
+            "event_date": "2026-07-04",
+            "city": "Contagem",
+            "state": "MG",
+            "neighborhood": "Carajás",
+            "homicide_type": "Feminicídio",
+            "chronological_description": "No dia 3 de julho de 2026, a vítima Wal, mulher trans de 45 anos, conheceu Kauã Bryan de Oliveira da Rocha em uma adega. Na manhã de 4 de julho, Wal convidou Kauã para sua casa no bairro Carajás, Contagem/MG. Na residência, Kauã desferiu ao menos 25 facadas e tentou incendiar o corpo.",
+            "victims_summary": "Wal, mulher trans de 45 anos, foi morta por Kauã Bryan de Oliveira da Rocha com ao menos 25 facadas.",
+            "victim_count": 1,
+            "source_count": 3
+          },
+          {
+            "id": 9836,
+            "title": "Homicídio doloso após discussão de trânsito - Jacareí - 05/07/2026",
+            "event_date": "2026-07-05",
+            "city": "Jacareí",
+            "state": "SP",
+            "homicide_type": "Homicídio",
+            "chronological_description": "Weverton Innocente, 45 anos, morto após discussão de trânsito em Jacareí.",
+            "victims_summary": "Weverton Innocente, 45 anos",
+            "victim_count": 1,
+            "source_count": 1
+          }
+        ]
+      },
+      "expected": {
+        "match": true,
+        "unique_event_id": 9780
+      },
+      "metadata": {
+        "notes": "Contagem Wal named vs anonymous — post-2026-07-04 near-dup"
+      }
+    },
+    {
+      "id": "prod-dedup_match-9867-9873",
+      "tags": [
+        "positive",
+        "prod",
+        "named_vs_anonymous"
+      ],
+      "label_status": "labeled",
+      "input": {
+        "raw_event": {
+          "id": 10883,
+          "title": "INTERVENÇÃO POLICIAL - IMÓVEL ABANDONADO QUADRA 305 NORTE - 06/07/2026",
+          "event_date": "2026-07-06",
+          "city": "Palmas",
+          "state": "TO",
+          "neighborhood": "Centro",
+          "homicide_type": "Intervenção policial",
+          "chronological_description": "Na manhã de 6 de julho de 2026, policiais militares avistaram um homem de 32 anos com múltiplas passagens criminais dentro de um imóvel abandonado na quadra 305 Norte, centro de Palmas/TO (antiga base da PM). Durante a abordagem, o homem teria atacado um policial com uma faca e foi baleado; socorrido ao Hospital Geral de Palmas, onde veio a óbito.",
+          "victim_names": []
+        },
+        "candidates": [
+          {
+            "id": 9867,
+            "title": "INTERVENÇÃO POLICIAL - PRÉDIO ABANDONADO ARNO 32 - 06/07/2026",
+            "event_date": "2026-07-06",
+            "city": "Palmas",
+            "state": "TO",
+            "neighborhood": "Arno 32 (antiga 305 Norte)",
+            "homicide_type": "Intervenção policial",
+            "chronological_description": "Na manhã do dia 6 de julho de 2026, policiais avistaram Gesse Alves de Sena, 32 anos, dentro de prédio abandonado na Arno 32 (antiga 305 Norte), Palmas-TO. Ao ser abordado, Gesse teria avançado contra a polícia e foi baleado.",
+            "victims_summary": "Gesse Alves de Sena, 32 anos, morreu após ser baleado por policiais em prédio abandonado.",
+            "victim_count": 1,
+            "source_count": 2
+          },
+          {
+            "id": 9919,
+            "title": "Homicídio Qualificado - Terreno Baldio Cidade Universitária - 06/07/2026",
+            "event_date": "2026-07-06",
+            "city": "Maceió",
+            "state": "AL",
+            "homicide_type": "Homicídio Qualificado",
+            "chronological_description": "Peterson Ykaro Gomes Cardoso, 6 anos, vítima de estupro e asfixia em Maceió.",
+            "victims_summary": "Peterson Ykaro Gomes Cardoso, 6 anos",
+            "victim_count": 1,
+            "source_count": 1
+          }
+        ]
+      },
+      "expected": {
+        "match": true,
+        "unique_event_id": 9867
+      },
+      "metadata": {
+        "notes": "Palmas Arno 32 / 305 Norte named vs anonymous"
+      }
+    },
+    {
+      "id": "prod-dedup_match-9917-9918",
+      "tags": [
+        "positive",
+        "prod",
+        "named_vs_anonymous"
+      ],
+      "label_status": "labeled",
+      "input": {
+        "raw_event": {
+          "id": 10953,
+          "title": "HOMICÍDIO SIMPLES - BAR EM SÃO JOSÉ DOS CAMPOS - 06/07/2026",
+          "event_date": "2026-07-06",
+          "city": "São José dos Campos",
+          "state": "SP",
+          "neighborhood": "Parque Industrial",
+          "homicide_type": "Homicídio simples",
+          "chronological_description": "No dia 27 de junho de 2026, um homem de 31 anos foi agredido por seguranças de um bar em São José dos Campos/SP com chutes, estrangulamento e enforcamento. Internado no Hospital Clínica Sul (Parque Industrial), veio a óbito em 06/07/2026.",
+          "victim_names": []
+        },
+        "candidates": [
+          {
+            "id": 9917,
+            "title": "Homicídio por agressão de seguranças em bar - São José dos Campos - 06/07/2026",
+            "event_date": "2026-07-06",
+            "city": "São José dos Campos",
+            "state": "SP",
+            "neighborhood": "Parque Industrial",
+            "homicide_type": "Homicídio simples",
+            "chronological_description": "Em 27 de junho de 2026, Gustavo Rafael Campos Siqueira, 31 anos, foi agredido por seguranças de um bar na Avenida Cassiano Ricardo, São José dos Campos/SP. Sofreu chutes, estrangulamento e fratura na face; internado no Hospital Clínica Sul, morreu em 06/07/2026.",
+            "victims_summary": "Gustavo Rafael Campos Siqueira, 31 anos",
+            "victim_count": 1,
+            "source_count": 4
+          },
+          {
+            "id": 9920,
+            "title": "Homicídio de jovem de 18 anos no Conjunto Pedro Teixeira 2 - Maceió",
+            "event_date": "2026-07-06",
+            "city": "Maceió",
+            "state": "AL",
+            "homicide_type": "Homicídio",
+            "chronological_description": "Jovem de 18 anos encontrado morto em Santa Amélia, Maceió.",
+            "victims_summary": "Jovem de 18 anos",
+            "victim_count": 1,
+            "source_count": 1
+          }
+        ]
+      },
+      "expected": {
+        "match": true,
+        "unique_event_id": 9917
+      },
+      "metadata": {
+        "notes": "SJC Gustavo named vs anonymous bar assault"
+      }
+    },
+    {
+      "id": "prod-dedup_match-9816-9822",
+      "tags": [
+        "positive",
+        "prod",
+        "named_vs_anonymous"
+      ],
+      "label_status": "labeled",
+      "input": {
+        "raw_event": {
+          "id": 10818,
+          "title": "INTERVENÇÃO POLICIAL - VIA PÚBLICA BAIRRO POPULAR NOVA - 05/07/2026",
+          "event_date": "2026-07-05",
+          "city": "Corumbá",
+          "state": "MS",
+          "neighborhood": "Popular Nova",
+          "homicide_type": "Intervenção policial",
+          "chronological_description": "Na tarde do dia 5 de julho de 2026, durante a Operação Jovem Guerreiro, equipes do Batalhão de Choque da Polícia Militar abordaram um veículo com placas bolivianas no Bairro Popular Nova, Corumbá/MS. Dois homens bolivianos investigados por tráfico e vínculo com o PCC morreram no confronto.",
+          "victim_names": []
+        },
+        "candidates": [
+          {
+            "id": 9822,
+            "title": "INTERVENÇÃO POLICIAL - CORUMBÁ - 05/07/2026",
+            "event_date": "2026-07-05",
+            "city": "Corumbá",
+            "state": "MS",
+            "homicide_type": "Intervenção policial",
+            "chronological_description": "No dia 5 de julho de 2026, durante a Operação Jovem Guerreiro, o Batalhão de Choque localizou veículo com placa boliviana em Corumbá. Luis David Justiniano Flores, 29 anos, e Alixberto Vasquez Corrales, 32 anos (Coiote), ambos bolivianos, morreram no confronto.",
+            "victims_summary": "Luis David Justiniano Flores, 29 anos, e Alixberto Vasquez Corrales, 32 anos",
+            "victim_count": 2,
+            "source_count": 2
+          },
+          {
+            "id": 9837,
+            "title": "Homicídio em residência no Parque dos Príncipes em Jacareí",
+            "event_date": "2026-07-05",
+            "city": "Jacareí",
+            "state": "SP",
+            "homicide_type": "Homicídio",
+            "chronological_description": "Gilberto Messias de Souza, 54 anos, encontrado sem vida em residência.",
+            "victims_summary": "Gilberto Messias de Souza, 54 anos",
+            "victim_count": 1,
+            "source_count": 1
+          }
+        ]
+      },
+      "expected": {
+        "match": true,
+        "unique_event_id": 9822
+      },
+      "metadata": {
+        "notes": "Corumbá Operação Jovem Guerreiro anonymous vs named"
+      }
+    },
+    {
+      "id": "prod-dedup_match-9945-9946",
+      "tags": [
+        "positive",
+        "prod",
+        "name_conflict",
+        "mo_context"
+      ],
+      "label_status": "labeled",
+      "input": {
+        "raw_event": {
+          "id": 11002,
+          "title": "HOMICÍDIO QUALIFICADO - RESIDÊNCIA ZONA RURAL ALHANDRA - 07/07/2026",
+          "event_date": "2026-07-07",
+          "city": "Alhandra",
+          "state": "PB",
+          "neighborhood": "zona rural",
+          "homicide_type": "Homicídio Qualificado",
+          "chronological_description": "Na noite de 07/07/2026, na zona rural de Alhandra, PB, Jailson (36 anos) estava em casa com a esposa e o filho. Cinco suspeitos mascarados chegaram a pé, adentraram a residência e retiraram a vítima para a via pública. Efetuaram mais de 30 tiros de calibres 9mm e .40, a maioria no rosto e cabeça.",
+          "victim_names": [
+            "Jailson"
+          ]
+        },
+        "candidates": [
+          {
+            "id": 9945,
+            "title": "Homicídio Simples - Residência em Alhandra (Grande João Pessoa) - 07/07/2026",
+            "event_date": "2026-07-07",
+            "city": "Alhandra",
+            "state": "PB",
+            "homicide_type": "Homicídio simples",
+            "chronological_description": "Na noite de 7 de julho de 2026, em Alhandra, PB, Leandro Barros Maciel (36 anos) estava em sua residência com a esposa e o filho de 8 anos. Cinco indivíduos mascarados e armados chegaram a pé, invadiram o imóvel, retiraram a vítima e efetuaram mais de 30 disparos predominantemente na região craniana.",
+            "victims_summary": "Leandro Barros Maciel, 36 anos, morto com mais de 30 disparos",
+            "victim_count": 1,
+            "source_count": 1
+          },
+          {
+            "id": 9915,
+            "title": "HOMICÍDIO - CASA ABANDONADA CENTRO CUIABÁ - 07/07/2026",
+            "event_date": "2026-07-07",
+            "city": "Cuiabá",
+            "state": "MT",
+            "homicide_type": "Homicídio",
+            "chronological_description": "Homem encontrado morto em casa abandonada no centro de Cuiabá.",
+            "victims_summary": "Homem não identificado",
+            "victim_count": 1,
+            "source_count": 1
+          }
+        ]
+      },
+      "expected": {
+        "match": true,
+        "unique_event_id": 9945
+      },
+      "metadata": {
+        "notes": "Alhandra Leandro vs Jailson same MO name conflict"
+      }
+    },
+    {
+      "id": "dm-neg-jacarei-9836-9837",
+      "tags": [
+        "negative",
+        "prod",
+        "same_city_day"
+      ],
+      "label_status": "labeled",
+      "input": {
+        "raw_event": {
+          "id": 20001,
+          "title": "Homicídio doloso por dolo eventual após discussão de trânsito - Jardim das Indústrias - 05/07/2026",
+          "event_date": "2026-07-05",
+          "city": "Jacareí",
+          "state": "SP",
+          "neighborhood": "Jardim das Indústrias",
+          "homicide_type": "Homicídio",
+          "chronological_description": "Weverton Innocente, 45 anos, motociclista, falecido no local após discussão de trânsito no Jardim das Indústrias, Jacareí/SP.",
+          "victim_names": [
+            "Weverton Innocente"
+          ]
+        },
+        "candidates": [
+          {
+            "id": 9837,
+            "title": "Homicídio em residência no Parque dos Príncipes em Jacareí",
+            "event_date": "2026-07-05",
+            "city": "Jacareí",
+            "state": "SP",
+            "neighborhood": "Parque dos Príncipes",
+            "homicide_type": "Homicídio",
+            "chronological_description": "Gilberto Messias de Souza, 54 anos, encontrado sem vida com ferimentos no pescoço e nas costas em residência no Parque dos Príncipes, Jacareí.",
+            "victims_summary": "Gilberto Messias de Souza, 54 anos",
+            "victim_count": 1,
+            "source_count": 1
+          }
+        ]
+      },
+      "expected": {
+        "match": false,
+        "unique_event_id": null
+      },
+      "metadata": {
+        "notes": "Two distinct Jacareí deaths same day — must not merge"
       }
     }
   ]

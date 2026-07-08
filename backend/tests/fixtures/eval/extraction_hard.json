@@ -4,7 +4,7 @@
     "version": 1,
     "source_db": null,
     "seed": null,
-    "labeled_count": 20,
+    "labeled_count": 21,
     "pending_count": 0,
     "generator_model": "gemini-2.5-pro"
   },
@@ -1078,6 +1078,66 @@
       "metadata": {
         "source_id": null,
         "notes": "Caso extremo de artigo curto e ausência de informações. Testa a robustez do modelo para extrair o mínimo (local) e preencher o resto como nulo ou não especificado sem inventar dados. Contenção contra alucinação. | label fixed: publisher (Campo Grande News) desambigua para MS"
+      }
+    },
+    {
+      "id": "prod-extraction-prefer-named-wal",
+      "tags": [
+        "prod",
+        "named_victim",
+        "prefer_name"
+      ],
+      "label_status": "labeled",
+      "input": {
+        "content": "Wal, mulher trans de 45 anos, foi assassinada com cerca de 25 facadas em sua kitnet no bairro Carajás, em Contagem (MG), na manhã de 4 de julho de 2026. O suspeito Kauã Bryan de Oliveira da Rocha, de 21 anos, tentou incendiar o corpo após o crime. A Polícia Civil investiga o caso como feminicídio.",
+        "metadata": {
+          "headline": "Mulher trans é morta a facadas em Contagem; suspeito tentou queimar o corpo",
+          "published_at": "2026-07-04T15:00:00Z",
+          "publisher": "eval-fixture",
+          "url": "https://example.local/contagem-wal"
+        }
+      },
+      "expected": {
+        "date_time": {
+          "date": "2026-07-04",
+          "date_verification": {
+            "has_explicit_date": true
+          }
+        },
+        "location_info": {
+          "city": "Contagem",
+          "state": "MG",
+          "neighborhood": "Carajás"
+        },
+        "victims": {
+          "number_of_victims": 1,
+          "identifiable_victims": [
+            {
+              "name": "Wal"
+            }
+          ]
+        },
+        "homicide_dynamic": {
+          "method": "Arma branca"
+        },
+        "event_family": "homicidio",
+        "event_subtype": "feminicidio",
+        "content_class": "incident"
+      },
+      "metadata": {
+        "notes": "Prefer extracting name Wal when present (prompt regression). Name checked manually / via prompt; scored fields are stable taxonomy/location."
+      },
+      "scoring": {
+        "required_fields": [
+          "date_time.date",
+          "location_info.city",
+          "location_info.state",
+          "victims.number_of_victims",
+          "event_family",
+          "event_subtype",
+          "homicide_dynamic.method",
+          "content_class"
+        ]
       }
     }
   ]
