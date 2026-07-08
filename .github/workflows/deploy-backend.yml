@@ -123,6 +123,35 @@ jobs:
             nginx -t && systemctl reload nginx || systemctl start nginx
             echo "✅ Host nginx config updated"
 
+      - name: Backfill cleanup (staging)
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          script_stop: true
+          script: |
+            set -euo pipefail
+            cd /root/arquivo-da-violencia
+            echo "==> staging backfill dry-run"
+            docker compose -p staging exec -T api \
+              python scripts/backfill_prod_cleanup.py --dry-run --since 2026-01-01
+            echo "==> staging backfill execute"
+            docker compose -p staging exec -T api \
+              python scripts/backfill_prod_cleanup.py --execute --since 2026-01-01
+            docker compose -p staging exec -T api python - <<'PY'
+            import asyncio
+            from arq import create_pool
+            from arq.connections import RedisSettings
+            async def main():
+                redis = await create_pool(RedisSettings(host="redis", port=6379))
+                await redis.enqueue_job("classify_pending_task", 300, 10)
+                await redis.enqueue_job("download_classified_task", 200)
+                await redis.enqueue_job("extract_ready_task", 100)
+                await redis.enqueue_job("batch_enrich_task", 50)
+            asyncio.run(main())
+            PY
+
   deploy-production:
     name: Deploy to Production
     needs: build
@@ -182,3 +211,39 @@ jobs:
             git checkout master
             git reset --hard origin/master
             bash scripts/sync-staging-db.sh
+
+  backfill-production:
+    name: Backfill Production Data
+    needs: sync-staging-db
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/master' || (github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'production')
+
+    steps:
+      - name: Backfill cleanup (production)
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          script_stop: true
+          script: |
+            set -euo pipefail
+            cd /root/arquivo-da-violencia
+            echo "==> production backfill dry-run"
+            docker compose -p prod exec -T api \
+              python scripts/backfill_prod_cleanup.py --dry-run --since 2026-01-01
+            echo "==> production backfill execute"
+            docker compose -p prod exec -T api \
+              python scripts/backfill_prod_cleanup.py --execute --since 2026-01-01
+            docker compose -p prod exec -T api python - <<'PY'
+            import asyncio
+            from arq import create_pool
+            from arq.connections import RedisSettings
+            async def main():
+                redis = await create_pool(RedisSettings(host="redis", port=6379))
+                await redis.enqueue_job("classify_pending_task", 300, 10)
+                await redis.enqueue_job("download_classified_task", 200)
+                await redis.enqueue_job("extract_ready_task", 100)
+                await redis.enqueue_job("batch_enrich_task", 50)
+            asyncio.run(main())
+            PY
