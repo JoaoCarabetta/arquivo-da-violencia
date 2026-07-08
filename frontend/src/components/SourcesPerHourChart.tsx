@@ -17,7 +17,7 @@ import {
 import { fetchSourcesByHour } from "@/lib/api"
 import { Loader2 } from "lucide-react"
 
-// Status labels and colors
+// Status labels and colors (see index.css --chart-* tokens)
 const statusLabels: Record<string, string> = {
   ready_for_classification: "Aguardando Classificação",
   discarded: "Descartado",
@@ -29,13 +29,13 @@ const statusLabels: Record<string, string> = {
 }
 
 const statusColors: Record<string, string> = {
-  ready_for_classification: "var(--color-chart-1)", // blue
-  discarded: "var(--color-chart-2)", // gray
-  ready_for_download: "var(--color-chart-3)", // yellow
-  failed_in_download: "var(--color-chart-4)", // red
-  ready_for_extraction: "var(--color-chart-5)", // orange
-  failed_in_extraction: "var(--destructive)", // destructive red
-  extracted: "var(--color-chart-6)", // green
+  ready_for_classification: "var(--color-chart-1)", // blue — not yet classified
+  discarded: "var(--color-chart-2)", // red — classified out
+  ready_for_download: "var(--color-chart-3)", // gold — passed classification
+  failed_in_download: "var(--color-chart-4)", // green — download failure
+  ready_for_extraction: "var(--color-chart-5)", // gray — awaiting extraction
+  failed_in_extraction: "var(--destructive)", // dark red — extraction failure
+  extracted: "var(--color-chart-6)", // green — fully processed
 }
 
 const statusOrder = [
@@ -177,7 +177,8 @@ export function SourcesPerHourChart() {
       <CardHeader>
         <CardTitle>Sources Fetched Per Hour</CardTitle>
         <CardDescription>
-          Showing {total.toLocaleString()} total sources for the last {hours} hours
+          Showing {total.toLocaleString()} total sources for the last {hours} hours.
+          Blue = awaiting classification; red = classified and discarded.
         </CardDescription>
       </CardHeader>
       <CardContent>

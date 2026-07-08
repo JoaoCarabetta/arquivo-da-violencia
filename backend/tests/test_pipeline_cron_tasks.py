@@ -11,7 +11,7 @@ from app.tasks.pipeline import (
 
 
 @pytest.mark.asyncio
-async def test_ingest_cities_hourly_does_not_enqueue_classify():
+async def test_ingest_cities_hourly_enqueues_classify_after_ingest():
     ctx = {"redis": AsyncMock()}
     ingest_result = {"total_sources_created": 3, "status": "completed"}
 
@@ -30,10 +30,9 @@ async def test_ingest_cities_hourly_does_not_enqueue_classify():
 
     mock_maint.assert_awaited_once()
     mock_ingest.assert_awaited_once_with(
-        ctx, cities=None, when="1h", enqueue_classify=False
+        ctx, cities=None, when="1h", enqueue_classify=True
     )
     assert result == ingest_result
-    ctx["redis"].enqueue_job.assert_not_called()
 
 
 @pytest.mark.asyncio

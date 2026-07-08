@@ -640,15 +640,16 @@ async def ingest_cities_hourly(
     when: str = "1h",
 ) -> dict:
     """
-    Hourly cron: ingest only.
+    Hourly cron: ingest, then enqueue headline classification.
 
-    Kept short so the :05 tick always runs even while backlog processing from
-    a prior hour is still in progress (separate cron at :35).
+    Ingest stays short (no inline LLM). Classification is queued immediately so
+    new sources are not left waiting until the :35 backlog cron — which can be
+    delayed when a prior backlog run is still in progress (unique=True, 2h cap).
     """
     logger.info("[INGEST_HOURLY] Starting hourly city ingest")
     await _run_pipeline_maintenance()
     return await ingest_cities_task(
-        ctx, cities=cities, when=when, enqueue_classify=False
+        ctx, cities=cities, when=when, enqueue_classify=True
     )
 
 
