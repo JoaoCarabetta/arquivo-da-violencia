@@ -532,22 +532,28 @@ REGRAS DE MATCHING (em ordem de importância):
 1. **VÍTIMA** (peso MÁXIMO): Se a extração e um candidato mencionam a MESMA VÍTIMA (mesmo nome ou nome muito similar), são o MESMO evento, MESMO QUE outros detalhes difiram.
    - Exemplo: "João Silva" e "Joao da Silva" = MESMA pessoa
    - Exemplo: fontes diferentes podem focar em aspectos diferentes do mesmo crime
+   - Nome completo vs apenas primeiro nome / apelido da MESMA pessoa = MESMO evento
+   - Uma fonte NOMEADA e outra ANÔNIMA (só idade/gênero) no mesmo dia/cidade com o MESMO modus operandi = provavelmente o MESMO evento
 
-2. **TÍTULO** (peso alto): Manchetes/títulos muito similares sobre o mesmo crime indicam o MESMO evento,
+2. **MODUS OPERANDI / CONTEXTO** (peso alto quando nomes divergem): Se nomes diferem ou uma lado é anônimo, AINDA ASSIM faça match quando coincidem vários detalhes distintivos do crime (ex.: ~25 facadas + tentativa de queimar o corpo; 5 mascarados + >30 tiros na cabeça com esposa e filho presentes; prédio abandonado Arno 32 / Quadra 305 Norte; Operação Jovem Guerreiro com dois bolivianos). Nomes conflitantes em outlets diferentes NÃO bastam sozinhos para rejeitar o match se o MO for idêntico.
+
+3. **TÍTULO** (peso alto): Manchetes/títulos muito similares sobre o mesmo crime indicam o MESMO evento,
    mesmo com pequenas diferenças de data (±3 dias) ou redação entre fontes.
 
-3. **DATA + LOCAL** (peso alto): Mesmo dia + mesma cidade/bairro sugere mesmo evento.
+4. **DATA + LOCAL** (peso alto): Mesmo dia + mesma cidade/bairro sugere mesmo evento.
    - Endereços equivalentes contam como o MESMO local (ex.: rodovia SC-281 = Avenida sobre a mesma via;
      "bar em Confresa" = "bar Jardim Planalto" quando vítima e descrição coincidem).
    - "companheiro" e "namorado" referindo-se ao mesmo suspeito NÃO impedem match.
+   - Apelidos de bairro equivalentes (Carajás = Conjunto Carajás; Arno 32 = antiga 305 Norte).
 
-4. **DESCRIÇÃO** (peso médio): Descrições similares do crime ajudam a confirmar, mas fontes diferentes podem descrever o mesmo evento de formas diferentes.
+5. **DESCRIÇÃO** (peso médio): Descrições similares do crime ajudam a confirmar, mas fontes diferentes podem descrever o mesmo evento de formas diferentes.
    - "Homem baleado no Complexo da Maré" e "Tiroteio deixa um morto na Maré" podem ser o MESMO evento
 
-IMPORTANTE: Prefira match quando há evidência convergente (vítima, título ou local+data).
+IMPORTANTE: Prefira match quando há evidência convergente (vítima, MO, título ou local+data).
 Se a evidência for fraca ou ambígua, responda que NÃO há match.
 Cidades diferentes = eventos DIFERENTES, salvo se a mesma vítima identificada aparecer em ambos.
-Mesmo dia + mesma cidade NÃO basta se vítimas ou descrições indicam incidentes claramente distintos.
+Mesmo dia + mesma cidade NÃO basta se vítimas ou descrições indicam incidentes claramente distintos
+(ex.: feminicídio vs homicídio masculino no mesmo município; criança vs adulto; locais/bairros sem relação).
 
 Responda com:
 - match: true/false
