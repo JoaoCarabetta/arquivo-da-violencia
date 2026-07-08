@@ -152,4 +152,5 @@ Pipeline metrics: Prometheus + Grafana on a dedicated VPS (`62.238.12.182`).
 - **Manual deploy:** `bash infra/observability/deploy.sh` (see [docs/observability-self-hosted.md](docs/observability-self-hosted.md))
 - **CI:** [`.github/workflows/deploy-observability.yml`](.github/workflows/deploy-observability.yml) on `master` when `infra/observability/**` changes
 - **Health check:** `bash scripts/check-observability.sh --prod`
+- **Alerts:** Prometheus rules + Alertmanager on obs VPS → Telegram (all) + Cursor agent (critical). Test: `bash scripts/test-alert-router.sh --obs warning`
 - API `/metrics` = health gauges; worker `:9091/metrics` = task metrics only

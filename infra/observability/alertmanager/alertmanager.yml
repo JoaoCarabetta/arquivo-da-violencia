@@ -1,0 +1,40 @@
+global:
+  resolve_timeout: 5m
+
+route:
+  receiver: alert-router
+  group_by: [alertname, severity]
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 4h
+  routes:
+    - match:
+        severity: critical
+      receiver: alert-router
+      repeat_interval: 1h
+    - match:
+        severity: warning
+      receiver: alert-router
+      repeat_interval: 6h
+
+receivers:
+  - name: alert-router
+    webhook_configs:
+      - url: http://alert-router:8080/alerts
+        send_resolved: true
+        http_config:
+          authorization:
+            type: Bearer
+            credentials_file: /etc/alertmanager/secrets/webhook_bearer
+
+inhibit_rules:
+  - source_matchers:
+      - severity="critical"
+    target_matchers:
+      - severity="warning"
+    equal: [category, host]
+
+  - source_matchers:
+      - alertname="WorkerDown"
+    target_matchers:
+      - alertname="HeartbeatMissesWarning"

@@ -79,6 +79,29 @@ if $PROD; then
   else
     fail 'Prometheus missing pipeline_worker_alive{service="api"} (check scrape + backend deploy)'
   fi
+
+  rules_result=$(ssh -o BatchMode=yes -o ConnectTimeout=15 -i "$PROD_SSH_KEY" root@62.238.12.182 \
+    'docker exec obs-prometheus wget -qO- "http://localhost:9090/api/v1/rules"' 2>/dev/null || true)
+  if echo "$rules_result" | grep -q 'WorkerDown'; then
+    pass "Prometheus alert rules loaded (WorkerDown)"
+  else
+    fail "Prometheus alert rules missing (check rules mount + deploy)"
+  fi
+
+  am_result=$(ssh -o BatchMode=yes -o ConnectTimeout=15 -i "$PROD_SSH_KEY" root@62.238.12.182 \
+    'docker exec obs-alertmanager wget -qO- http://localhost:9093/-/ready' 2>/dev/null || true)
+  if echo "$am_result" | grep -q 'OK'; then
+    pass "Alertmanager ready"
+  else
+    fail "Alertmanager not ready"
+  fi
+
+  if ssh -o BatchMode=yes -o ConnectTimeout=15 -i "$PROD_SSH_KEY" root@62.238.12.182 \
+    'docker exec obs-alert-router python -c "import urllib.request; urllib.request.urlopen(\"http://127.0.0.1:8080/health\")"' >/dev/null 2>&1; then
+    pass "Alert-router health OK"
+  else
+    fail "Alert-router not healthy"
+  fi
 fi
 
 echo "=== $failures failure(s) ==="

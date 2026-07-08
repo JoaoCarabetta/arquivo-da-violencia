@@ -179,6 +179,7 @@ scripts/*
 !scripts/check-pipeline-health.sh
 !scripts/run_prod_backfill.sh
 !scripts/check-observability.sh
+!scripts/test-alert-router.sh
 !scripts/hash-env-passwords.py
 !scripts/preflight-auth.py
 !scripts/lib/
