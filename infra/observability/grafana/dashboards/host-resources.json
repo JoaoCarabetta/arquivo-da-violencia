@@ -2,12 +2,12 @@
   "title": "Arquivo da Violência - Host resources",
   "uid": "arquivo-hosts",
   "schemaVersion": 39,
-  "version": 1,
+  "version": 2,
   "timezone": "browser",
   "refresh": "1m",
   "tags": ["arquivo", "infrastructure", "node_exporter"],
   "time": {
-    "from": "now-24h",
+    "from": "now-6h",
     "to": "now"
   },
   "links": [
@@ -25,13 +25,20 @@
         "label": "Host",
         "type": "query",
         "datasource": { "type": "prometheus", "uid": "prometheus" },
-        "query": "label_values(node_uname_info, host)",
+        "definition": "label_values(up{job=~\"arquivo-prod-node|obs-node\"}, host)",
+        "query": {
+          "qryType": 1,
+          "query": "label_values(up{job=~\"arquivo-prod-node|obs-node\"}, host)",
+          "refId": "PrometheusVariableQueryEditor-VariableQuery"
+        },
         "refresh": 2,
         "includeAll": true,
-        "multi": true,
+        "allValue": ".+",
+        "multi": false,
         "current": {
           "text": "All",
-          "value": "$__all"
+          "value": "$__all",
+          "selected": true
         }
       }
     ]
@@ -59,9 +66,10 @@
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "(1 - (node_memory_MemAvailable_bytes{host=~\"$host\"} / node_memory_MemTotal_bytes{host=~\"$host\"})) * 100",
+          "expr": "(1 - (node_memory_MemAvailable_bytes{host=~\"${host:regex}\"} / node_memory_MemTotal_bytes{host=~\"${host:regex}\"})) * 100",
           "legendFormat": "{{host}}",
-          "refId": "A"
+          "refId": "A",
+          "instant": true
         }
       ],
       "fieldConfig": {
@@ -96,9 +104,10 @@
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "(1 - (node_filesystem_avail_bytes{host=~\"$host\",mountpoint=\"/\",fstype!=\"rootfs\"} / node_filesystem_size_bytes{host=~\"$host\",mountpoint=\"/\",fstype!=\"rootfs\"})) * 100",
+          "expr": "(1 - (node_filesystem_avail_bytes{host=~\"${host:regex}\",mountpoint=\"/\",fstype!=\"rootfs\"} / node_filesystem_size_bytes{host=~\"${host:regex}\",mountpoint=\"/\",fstype!=\"rootfs\"})) * 100",
           "legendFormat": "{{host}}",
-          "refId": "A"
+          "refId": "A",
+          "instant": true
         }
       ],
       "fieldConfig": {
@@ -121,7 +130,7 @@
     {
       "id": 3,
       "title": "CPU used",
-      "description": "Non-idle CPU over the last 5 minutes.",
+      "description": "Non-idle CPU over the last 2 minutes.",
       "type": "gauge",
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "gridPos": { "x": 16, "y": 1, "w": 8, "h": 6 },
@@ -133,9 +142,10 @@
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "100 - (avg by (host) (rate(node_cpu_seconds_total{host=~\"$host\",mode=\"idle\"}[5m])) * 100)",
+          "expr": "100 - (avg by (host) (rate(node_cpu_seconds_total{host=~\"${host:regex}\",mode=\"idle\"}[2m])) * 100)",
           "legendFormat": "{{host}}",
-          "refId": "A"
+          "refId": "A",
+          "instant": true
         }
       ],
       "fieldConfig": {
@@ -144,6 +154,7 @@
           "min": 0,
           "max": 100,
           "decimals": 1,
+          "noValue": "warming up",
           "thresholds": {
             "mode": "absolute",
             "steps": [
@@ -158,7 +169,7 @@
     {
       "id": 101,
       "type": "row",
-      "title": "24h trends",
+      "title": "Trends",
       "gridPos": { "x": 0, "y": 7, "w": 24, "h": 1 },
       "collapsed": false
     },
@@ -175,7 +186,7 @@
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "(1 - (node_memory_MemAvailable_bytes{host=~\"$host\"} / node_memory_MemTotal_bytes{host=~\"$host\"})) * 100",
+          "expr": "(1 - (node_memory_MemAvailable_bytes{host=~\"${host:regex}\"} / node_memory_MemTotal_bytes{host=~\"${host:regex}\"})) * 100",
           "legendFormat": "{{host}}",
           "refId": "A"
         }
@@ -207,7 +218,7 @@
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "(1 - (node_filesystem_avail_bytes{host=~\"$host\",mountpoint=\"/\",fstype!=\"rootfs\"} / node_filesystem_size_bytes{host=~\"$host\",mountpoint=\"/\",fstype!=\"rootfs\"})) * 100",
+          "expr": "(1 - (node_filesystem_avail_bytes{host=~\"${host:regex}\",mountpoint=\"/\",fstype!=\"rootfs\"} / node_filesystem_size_bytes{host=~\"${host:regex}\",mountpoint=\"/\",fstype!=\"rootfs\"})) * 100",
           "legendFormat": "{{host}}",
           "refId": "A"
         }
@@ -239,7 +250,7 @@
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "100 - (avg by (host) (rate(node_cpu_seconds_total{host=~\"$host\",mode=\"idle\"}[5m])) * 100)",
+          "expr": "100 - (avg by (host) (rate(node_cpu_seconds_total{host=~\"${host:regex}\",mode=\"idle\"}[2m])) * 100)",
           "legendFormat": "{{host}}",
           "refId": "A"
         }
@@ -280,15 +291,17 @@
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "node_memory_MemTotal_bytes{host=~\"$host\"} - node_memory_MemAvailable_bytes{host=~\"$host\"}",
+          "expr": "node_memory_MemTotal_bytes{host=~\"${host:regex}\"} - node_memory_MemAvailable_bytes{host=~\"${host:regex}\"}",
           "legendFormat": "{{host}} used",
-          "refId": "A"
+          "refId": "A",
+          "instant": true
         },
         {
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "node_memory_MemTotal_bytes{host=~\"$host\"}",
+          "expr": "node_memory_MemTotal_bytes{host=~\"${host:regex}\"}",
           "legendFormat": "{{host}} total",
-          "refId": "B"
+          "refId": "B",
+          "instant": true
         }
       ],
       "fieldConfig": {
@@ -321,15 +334,17 @@
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "node_filesystem_size_bytes{host=~\"$host\",mountpoint=\"/\",fstype!=\"rootfs\"} - node_filesystem_avail_bytes{host=~\"$host\",mountpoint=\"/\",fstype!=\"rootfs\"}",
+          "expr": "node_filesystem_size_bytes{host=~\"${host:regex}\",mountpoint=\"/\",fstype!=\"rootfs\"} - node_filesystem_avail_bytes{host=~\"${host:regex}\",mountpoint=\"/\",fstype!=\"rootfs\"}",
           "legendFormat": "{{host}} used",
-          "refId": "A"
+          "refId": "A",
+          "instant": true
         },
         {
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "node_filesystem_size_bytes{host=~\"$host\",mountpoint=\"/\",fstype!=\"rootfs\"}",
+          "expr": "node_filesystem_size_bytes{host=~\"${host:regex}\",mountpoint=\"/\",fstype!=\"rootfs\"}",
           "legendFormat": "{{host}} total",
-          "refId": "B"
+          "refId": "B",
+          "instant": true
         }
       ],
       "fieldConfig": {
@@ -355,7 +370,7 @@
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "up{job=~\"arquivo-prod-node|obs-node\",host=~\"$host\"}",
+          "expr": "up{job=~\"arquivo-prod-node|obs-node\",host=~\"${host:regex}\"}",
           "legendFormat": "{{host}} ({{job}})",
           "refId": "A",
           "instant": true
