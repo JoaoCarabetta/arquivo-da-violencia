@@ -52,22 +52,21 @@ operational questions:
 
 | Section | Answers |
 |---------|---------|
-| **Infrastructure** | Worker heartbeat, Redis, queue depth, scrape health |
-| **Pipeline Steps** | Per-step success rate and throughput (ingest → geocode), attempt failures |
-| **Crons** | Minutes since last successful `ingest_cities_hourly` / `process_cities_backlog` |
-| **Bugs** | Open GitHub `pipeline-failure` issues, new bugs and recurrences in range |
+| **Pipeline map** | Item counts at each step (same data as `/admin`) |
+| **Where is it stuck?** | Stuck in-flight items, backlog queues, worker/cron health |
+| **Failures (24h)** | Count, share %, and cause from `pipeline_attempt` |
 
-Default time range is **6 hours** (hourly crons). Performance panels (duration,
-content size) are in a collapsed row at the bottom.
+Inventory gauges refresh every **5 minutes** from Postgres via the API monitor.
 
 ### Metrics reference
 
 | Metric | Registry | Source |
 |--------|----------|--------|
+| `pipeline_inventory_sources{status}` | API | Live source counts by pipeline status |
+| `pipeline_inventory_total` / `_violent_death` / `_raw_events` / `_unique_events` | API | Summary totals matching `/admin` |
+| `pipeline_stuck_sources{status}` | API | Items in classifying/downloading/extracting > 15 min |
+| `pipeline_attempt_failures_24h{stage,failure_reason}` | API | Failed attempts in last 24h with cause |
 | `pipeline_cron_last_success_timestamp{cron}` | Worker | Set when cron task succeeds |
-| `pipeline_cron_runs_total{cron,outcome}` | Worker | Every cron execution |
-| `pipeline_failure_issues_created_total{task}` | Worker | New GitHub issue created |
-| `pipeline_failure_issue_recurrences_total{task}` | Worker | Comment on existing issue |
 | `pipeline_open_failure_issues` | API | Polled from GitHub every 5 min |
 
 ### GitHub Actions secrets
