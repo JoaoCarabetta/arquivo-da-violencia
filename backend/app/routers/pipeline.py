@@ -396,12 +396,12 @@ async def get_pipeline_status():
 
 async def collect_pipeline_status() -> dict:
     """Collect worker/queue/cron status from Redis."""
+    pool = None
     try:
         pool = await get_arq_pool()
         queued_jobs = await pool.queued_jobs()
         raw_health = await pool.get(HEALTH_CHECK_KEY)
         raw_info = await pool.get(WORKER_INFO_KEY)
-        await pool.close()
 
         worker_alive = raw_health is not None
         worker_health = None
@@ -450,6 +450,9 @@ async def collect_pipeline_status() -> dict:
             "error": str(e),
             "queued_jobs": 0,
         }
+    finally:
+        if pool is not None:
+            await pool.close()
 
 
 @router.get("/city-stats")

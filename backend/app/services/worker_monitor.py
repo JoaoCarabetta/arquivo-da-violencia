@@ -60,7 +60,11 @@ async def monitor_worker_health(stop_event: asyncio.Event) -> None:
             redis_ok = _apply_status_metrics(status)
             alive = bool(status.get("worker_alive")) if redis_ok else False
 
-            if alive:
+            if not redis_ok:
+                logger.warning(
+                    "[WorkerMonitor] Redis unavailable; skipping heartbeat check"
+                )
+            elif alive:
                 if alerted_down:
                     seconds_down = consecutive_misses * CHECK_INTERVAL_SECONDS
                     logger.info("[WorkerMonitor] Worker heartbeat recovered")
