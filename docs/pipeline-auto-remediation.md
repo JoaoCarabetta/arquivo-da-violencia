@@ -201,3 +201,19 @@ gh api repos/JoaoCarabetta/arquivo-da-violencia/dispatches -f event_type=pipelin
 ```
 
 Use `pipeline-diagnose` for the same run plus worker/API logs on failure.
+
+### Anti-storm guards (2026-07-09)
+
+A notify → Cursor agent → `pipeline-remediate` → `--notify` loop spawned dozens
+of agents and repeatedly restarted the worker. Mitigations:
+
+| Guard | Where |
+|-------|--------|
+| `concurrency: pipeline-health-prod` (cancel-in-progress) | `.github/workflows/pipeline-health.yml` |
+| `--notify` only on `schedule` / explicit test — **not** on `repository_dispatch` | same workflow |
+| `script_stop: false` so diagnose logs print after unhealthy exit | same workflow |
+| Webhook cooldown file (`PIPELINE_HEALTH_WEBHOOK_COOLDOWN_SECONDS`, default 2700) | `scripts/check-pipeline-health.sh` |
+| Wait up to 60s for heartbeat after worker restart | same script |
+
+Agents must dispatch **at most one** `pipeline-remediate` per incident and must
+not re-POST the Cursor webhook.

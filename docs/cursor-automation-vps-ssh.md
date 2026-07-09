@@ -95,6 +95,13 @@ the playbook below. Payload may include `"source": "prometheus-alertmanager"`.
 
 5. Report: root cause, VPS actions, PR link if any, health check result.
 
+IMPORTANT anti-storm rules:
+- Dispatch `pipeline-remediate` **at most once** per incident.
+- Do **not** re-POST or re-trigger the Cursor webhook.
+- If many sibling agents are already running for the same alert, do not
+  dispatch more remediates — wait and re-check live metrics instead.
+- Prefer live gauges (`http://$VPS_HOST:8000/metrics`) before acting.
+
 Docs: docs/pipeline-auto-remediation.md
 ```
 

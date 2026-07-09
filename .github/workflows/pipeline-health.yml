@@ -33,6 +33,12 @@ on:
         default: false
         type: boolean
 
+# One health/remediate job at a time. Concurrent remediates restart the worker
+# repeatedly and enqueue classify jobs in a storm (seen 2026-07-09).
+concurrency:
+  group: pipeline-health-prod
+  cancel-in-progress: true
+
 jobs:
   check-production:
     name: Check prod pipeline on VPS
@@ -44,7 +50,9 @@ jobs:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
-          script_stop: true
+          # false so diagnose logs still print after a non-zero health exit
+          script_stop: false
+          command_timeout: 15m
           script: |
             set -euo pipefail
             cd /root/arquivo-da-violencia
@@ -56,9 +64,16 @@ jobs:
             git checkout -f "$BRANCH"
             git reset --hard "origin/$BRANCH"
             export PIPELINE_HEALTH_WEBHOOK_AUTH="${{ secrets.CURSOR_AUTOMATION_TOKEN }}"
-            ARGS="--notify --json"
             EVENT="${{ github.event_name }}"
             DISPATCH_ACTION="${{ github.event.action }}"
+            # Cursor webhook only on schedule / explicit test — never on
+            # repository_dispatch. Agents that receive the webhook often
+            # dispatch pipeline-remediate; notifying again creates a loop.
+            ARGS="--json"
+            if [ "$EVENT" = "schedule" ] \
+              || { [ "$EVENT" = "workflow_dispatch" ] && [ "${{ inputs.test_webhook }}" = "true" ]; }; then
+              ARGS="$ARGS --notify"
+            fi
             # Tier-A auto-remediation: safe for scheduled checks and on-demand dispatch.
             if [ "$EVENT" = "schedule" ] \
               || { [ "$EVENT" = "repository_dispatch" ] && [ "$DISPATCH_ACTION" = "pipeline-remediate" ]; } \
@@ -72,29 +87,27 @@ jobs:
             bash scripts/check-pipeline-health.sh $ARGS
             HEALTH_EXIT=$?
             set -e
-            if [ "$HEALTH_EXIT" -ne 0 ]; then
-              SHOULD_DIAGNOSE=false
-              if [ "$EVENT" = "workflow_dispatch" ] && [ "${{ inputs.diagnose }}" = "true" ]; then
-                SHOULD_DIAGNOSE=true
-              fi
-              if [ "$EVENT" = "repository_dispatch" ] && [ "$DISPATCH_ACTION" = "pipeline-diagnose" ]; then
-                SHOULD_DIAGNOSE=true
-              fi
-              if [ "$SHOULD_DIAGNOSE" = true ]; then
-                echo "=== Worker logs (last 2h, tail 150) ==="
-                docker logs arquivo-worker --since 2h 2>&1 | tail -150 || true
-                echo "=== API errors (last 2h) ==="
-                docker logs arquivo-api --since 2h 2>&1 | grep -i error | tail -30 || true
-                echo "=== pipeline_attempt failures (last 2h) ==="
-                docker compose -p prod exec -T postgres psql -U arquivo -d arquivo_prod -c "
-                  SELECT stage, failure_reason, COUNT(*)
-                  FROM pipeline_attempt
-                  WHERE created_at > now() - interval '2 hours' AND outcome = 'failure'
-                  GROUP BY 1,2 ORDER BY 3 DESC LIMIT 10;
-                " || true
-              fi
-              exit "$HEALTH_EXIT"
+            SHOULD_DIAGNOSE=false
+            if [ "$EVENT" = "workflow_dispatch" ] && [ "${{ inputs.diagnose }}" = "true" ]; then
+              SHOULD_DIAGNOSE=true
             fi
+            if [ "$EVENT" = "repository_dispatch" ] && [ "$DISPATCH_ACTION" = "pipeline-diagnose" ]; then
+              SHOULD_DIAGNOSE=true
+            fi
+            if [ "$SHOULD_DIAGNOSE" = true ]; then
+              echo "=== Worker logs (last 2h, tail 150) ==="
+              docker logs arquivo-worker --since 2h 2>&1 | tail -150 || true
+              echo "=== API errors (last 2h) ==="
+              docker logs arquivo-api --since 2h 2>&1 | grep -i error | tail -30 || true
+              echo "=== pipeline_attempt failures (last 2h) ==="
+              docker compose -p prod exec -T postgres psql -U arquivo -d arquivo_prod -c "
+                SELECT stage, failure_reason, COUNT(*)
+                FROM pipeline_attempt
+                WHERE created_at > now() - interval '2 hours' AND outcome = 'failure'
+                GROUP BY 1,2 ORDER BY 3 DESC LIMIT 10;
+              " || true
+            fi
+            exit "$HEALTH_EXIT"
 
       - name: Summarize failure in GitHub Actions
         if: failure()

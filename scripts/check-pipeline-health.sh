@@ -321,12 +321,27 @@ tier_a_restart_worker() {
         return 1
     fi
     DETAILS+=("REMEDIATE: worker_restarted")
-    filtered=()
-    for f in "${FAILURES[@]}"; do
-        [[ "$f" == worker_heartbeat_missing* ]] && continue
-        filtered+=("$f")
+    # Give ARQ time to rewrite the health-check key (interval=30s) before we
+    # clear the failure or enqueue more work. Concurrent remediates previously
+    # thrashed the worker and never let the heartbeat settle.
+    local waited=0
+    local hb=""
+    while [ "$waited" -lt 60 ]; do
+        sleep 5
+        waited=$((waited + 5))
+        hb="$(docker compose $COMPOSE_PROD exec -T redis redis-cli GET "$REDIS_HEALTH_KEY" 2>/dev/null | tr -d '\r' || true)"
+        if [ -n "$hb" ] && [ "$hb" != "(nil)" ]; then
+            DETAILS+=("REMEDIATE: worker_heartbeat_recovered_after_${waited}s")
+            filtered=()
+            for f in "${FAILURES[@]}"; do
+                [[ "$f" == worker_heartbeat_missing* ]] && continue
+                filtered+=("$f")
+            done
+            FAILURES=("${filtered[@]}")
+            return 0
+        fi
     done
-    FAILURES=("${filtered[@]}")
+    DETAILS+=("REMEDIATE: worker_heartbeat_still_missing_after_${waited}s")
     return 0
 }
 
@@ -503,6 +518,18 @@ else
     fi
 fi
 
+# Cursor webhook cooldown: prevent notify → agent → remediate → notify storms.
+# File mtime is the last successful webhook; default 45 minutes.
+WEBHOOK_COOLDOWN_SECONDS="${PIPELINE_HEALTH_WEBHOOK_COOLDOWN_SECONDS:-2700}"
+WEBHOOK_COOLDOWN_FILE="${PIPELINE_HEALTH_WEBHOOK_COOLDOWN_FILE:-/tmp/pipeline-health-webhook.cooldown}"
+
+webhook_cooldown_active() {
+    [ -f "$WEBHOOK_COOLDOWN_FILE" ] || return 1
+    local age
+    age=$(( $(date +%s) - $(stat -c %Y "$WEBHOOK_COOLDOWN_FILE" 2>/dev/null || echo 0) ))
+    [ "$age" -lt "$WEBHOOK_COOLDOWN_SECONDS" ]
+}
+
 if [ "$STATUS" = "unhealthy" ] && [ "$NOTIFY" = true ]; then
     summary="Pipeline UNHEALTHY on $(hostname -s)
 Failures: $(IFS=, ; echo "${FAILURES[*]}")"
@@ -511,7 +538,12 @@ Failures: $(IFS=, ; echo "${FAILURES[*]}")"
 Warnings: $(IFS=, ; echo "${WARNINGS[*]}")"
     fi
     send_telegram "$summary"
-    if ! send_webhook "$(python3 - <<PY
+    # Cooldown stops agent storms. Workflow also omits --notify on
+    # repository_dispatch so remediate runs never re-fire the webhook.
+    if webhook_cooldown_active; then
+        DETAILS+=("SKIP: cursor_webhook(cooldown_${WEBHOOK_COOLDOWN_SECONDS}s)")
+    else
+        if ! send_webhook "$(python3 - <<PY
 import json
 print(json.dumps({
     "status": "unhealthy",
@@ -519,11 +551,15 @@ print(json.dumps({
     "warnings": $(json_array ${WARNINGS[@]+"${WARNINGS[@]}"}),
     "host": "$(hostname -s)",
     "timestamp": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
-    "prompt": "Production pipeline unhealthy. SSH to hetzner-arv, run scripts/check-pipeline-health.sh, inspect docker logs arquivo-worker --since 2h and pipeline_attempt in arquivo_prod. Apply Tier-A remediation if safe; otherwise open a PR to develop with a minimal fix. Do not push master directly.",
+    "prompt": "Production pipeline unhealthy. SSH to hetzner-arv, run scripts/check-pipeline-health.sh, inspect docker logs arquivo-worker --since 2h and pipeline_attempt in arquivo_prod. Apply Tier-A remediation if safe; otherwise open a PR to develop with a minimal fix. Do not push master directly. Do NOT dispatch pipeline-remediate more than once; do not re-notify the webhook.",
 }))
 PY
 )"; then
-        record_warning "webhook_notify_failed(${WEBHOOK_LAST_ERROR:-unknown})"
+            record_warning "webhook_notify_failed(${WEBHOOK_LAST_ERROR:-unknown})"
+        else
+            touch "$WEBHOOK_COOLDOWN_FILE" 2>/dev/null || true
+            DETAILS+=("OK: cursor_webhook_sent")
+        fi
     fi
 fi
 
