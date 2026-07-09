@@ -35,9 +35,10 @@ jobs:
             docker compose -p prod exec -T redis redis-cli ZCARD arquivo:production || true
             docker ps --filter name=arquivo-worker --format 'table {{.Names}}\t{{.Status}}'
             echo "=== enqueue ingest_cities_full_pipeline only ==="
-            docker compose -p prod cp scripts/enqueue_ingest_once.py api:/tmp/enqueue_ingest_once.py
-            docker compose -p prod exec -T -w /app api python /tmp/enqueue_ingest_once.py
-            sleep 60
+            # Must live under /app so `import app` resolves (python /tmp/... puts /tmp on sys.path).
+            docker compose -p prod cp scripts/enqueue_ingest_once.py api:/app/enqueue_ingest_once.py
+            docker compose -p prod exec -T api python /app/enqueue_ingest_once.py
+            sleep 75
             echo "=== post heartbeat / queue ==="
             docker compose -p prod exec -T redis redis-cli GET arquivo:production:health-check || true
             docker compose -p prod exec -T redis redis-cli ZCARD arquivo:production || true
