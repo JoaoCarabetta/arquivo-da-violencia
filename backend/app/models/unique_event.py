@@ -52,7 +52,23 @@ class UniqueEventBase(SQLModel):
     perpetrator_count: int | None = Field(default=None)
     identified_perpetrator_count: int | None = Field(default=None)
     security_force_involved: bool | None = Field(default=None, index=True)
-    
+
+    # === Criminal group / police operation context (derived from extraction) ===
+    criminal_group_connected: bool | None = Field(default=None, index=True)
+    criminal_group_activity: str | None = Field(default=None, max_length=50)
+    criminal_group_activity_description: str | None = Field(default=None)
+    criminal_groups: str | None = Field(default=None, max_length=512)
+    criminal_group_attacked: str | None = Field(default=None, max_length=256)
+    police_operation_connected: bool | None = Field(default=None, index=True)
+    police_operation_force: str | None = Field(default=None, max_length=100)
+    police_operation_targeted_armed_groups: bool | None = Field(default=None)
+    off_duty_police_perpetrator: bool | None = Field(default=None)
+    off_duty_police_context: str | None = Field(default=None, max_length=50)
+    politician_or_candidate_victim: bool | None = Field(default=None, index=True)
+    victim_political_status: str | None = Field(default=None, max_length=256)
+    victim_political_office: str | None = Field(default=None, max_length=512)
+    victim_political_party: str | None = Field(default=None, max_length=256)
+
     # === Summary fields ===
     title: str | None = Field(default=None, max_length=512)
     chronological_description: str | None = Field(default=None)

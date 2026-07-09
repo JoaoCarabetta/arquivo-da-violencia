@@ -55,7 +55,8 @@ async def test_public_event_detail_includes_dictionary_fields(
     assert data["location_precision"] == "approximate"
     assert data["perpetrator_count"] == 1
     assert data["updated_at"] is not None
-    assert "merged_data" not in data
+    assert data["merged_data"] == {"internal": True}
+    assert data["criminal_group_connected"] is None
     assert "confirmed" not in data
     assert "place_id" not in data
 

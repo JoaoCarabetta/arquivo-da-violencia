@@ -13,7 +13,7 @@ from app.config import get_settings
 from app.database import async_session_maker
 from app.models import RawEvent, SourceGoogleNews, SourceStatus
 from app.services import diagnostics
-from app.services.extraction_schemas import ViolentDeathEvent
+from app.services.extraction_derived import derive_security_force_involved
 from app.services.extraction_heuristics import apply_extraction_heuristics
 from app.taxonomy import format_legacy_homicide_type
 
@@ -25,30 +25,6 @@ def content_class_failure_reason(content_class: str) -> str:
     if content_class == "foreign":
         return diagnostics.FOREIGN_CONTENT
     return diagnostics.NON_INCIDENT_CONTENT
-
-
-def derive_security_force_involved(event: ViolentDeathEvent) -> bool | None:
-    """Return True if any party is flagged as security force, False if explicitly not, else None."""
-    flags: list[bool | None] = []
-
-    for victim in event.victims.identifiable_victims:
-        flags.append(victim.is_security_force)
-    if event.victims.unidentified_groups:
-        for group in event.victims.unidentified_groups:
-            flags.append(group.is_security_force)
-
-    if event.perpetrators:
-        for perpetrator in event.perpetrators.identifiable_perpetrators:
-            flags.append(perpetrator.is_security_force)
-        if event.perpetrators.unidentified_groups:
-            for group in event.perpetrators.unidentified_groups:
-                flags.append(group.is_security_force)
-
-    if any(flag is True for flag in flags):
-        return True
-    if flags and all(flag is False for flag in flags):
-        return False
-    return None
 
 
 # System prompt for extraction
@@ -210,6 +186,40 @@ SOBRE NOMES DE VÍTIMAS (identifiable_victims) — OBRIGATÓRIO QUANDO O TEXTO N
   sem nome). Nesses casos age/gender podem ficar preenchidos e name = null.
 - Nomes parciais ou sociais ("Wal (identificada apenas como)") ainda contam como nome —
   registre-os; isso evita UniqueEvents anônimos que não deduplicam com fontes nomeadas.
+
+SOBRE AGENTES DE SEGURANÇA (vítimas e autores identificáveis):
+- is_security_force=true para PM, PC, PF, PRF, guarda municipal, policial penal, etc.
+- security_agent_type: somente se is_security_force=true (PM, PC, PF, PRF, penal, outro).
+- security_agent_on_duty: somente se is_security_force=true — true=em serviço/patrulha;
+  false=folga/fora de expediente/à paisana; null= texto não informa.
+
+SOBRE VÍTIMA POLÍTICA (identifiable_victims[].political_role):
+- Preencher political_role SOMENTE quando o texto identifica a vítima como política ou candidata.
+- is_politician_or_candidate=true; status=elected | candidate | former_elected (ex-vereador → former_elected).
+- office: cargo sem prefixo "ex-" (ex.: "vereador" mesmo para ex-vereador).
+- party: sigla/nome conforme texto; null se não mencionado — NÃO inferir partido.
+
+SOBRE GRUPOS CRIMINOSOS (homicide_dynamic.criminal_group_context):
+- Use APENAS informação explícita sobre ESTE homicídio. NÃO inferir de "área dominada pelo tráfico"
+  ou antecedentes sem ligação declarada ao caso.
+- connected=true quando texto liga o crime a facção/grupo/milícia/organização criminosa.
+- groups: nomes verbatim (PCC, Comando Vermelho, milícia, etc.).
+- activity: enum — internal-discipline, internal-dispute, population-discipline,
+  informant-elimination, debt-enforcement, territorial-dispute, economic-dispute,
+  retaliatory, police-ambush, protest (inclui violência anti-estado/reação a política),
+  collateral, unspecified (conectado mas mecanismo incerto).
+- Se múltiplos se aplicam: territorial-dispute > economic-dispute > retaliatory > unspecified.
+- group_attacked / rival_actor / target_force / policy_trigger: somente quando explícitos; null se incerto.
+- activity_description: detalhe extra grounded no texto quando enum não basta.
+
+SOBRE OPERAÇÃO POLICIAL (homicide_dynamic.police_operation_context):
+- Distinto de event_subtype=intervencao_policial — registre os fatos da operação aqui.
+- connected=true quando morte ocorreu durante operação policial oficial descrita.
+- responsible_force, operation_name, targeted_armed_groups conforme texto.
+
+SOBRE POLICIAL AUTOR FORA DE SERVIÇO (homicide_dynamic):
+- off_duty_police_perpetrator=true quando policial é autor/perpetrador fora de operação oficial.
+- off_duty_police_context: genuine_reaction | moonlighting | criminal_organization conforme texto.
 """
 
 

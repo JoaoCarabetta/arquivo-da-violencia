@@ -26,6 +26,7 @@ from unidecode import unidecode
 from app.config import get_settings
 from app.database import async_session_maker
 from app.models import RawEvent, UniqueEvent
+from app.services.extraction_derived import derive_public_fields_from_data
 from app.services.telegram import notify_new_death
 from app.taxonomy import format_legacy_homicide_type, parse_legacy_homicide_type
 
@@ -1072,6 +1073,7 @@ async def create_unique_event_from_cluster(cluster: list[RawEvent]) -> UniqueEve
     content_class = _content_class_from_raw_event(best)
     event_family, event_subtype = _taxonomy_from_raw_event(best)
     homicide_label = format_legacy_homicide_type(event_family, event_subtype)
+    public_fields = derive_public_fields_from_data(best.extraction_data)
     
     async with async_session_maker() as session:
         # Create UniqueEvent
@@ -1082,6 +1084,11 @@ async def create_unique_event_from_cluster(cluster: list[RawEvent]) -> UniqueEve
                     country, state, city, neighborhood, street, establishment, full_location_description,
                     victim_count, identified_victim_count, victims_summary,
                     perpetrator_count, security_force_involved,
+                    criminal_group_connected, criminal_group_activity, criminal_group_activity_description,
+                    criminal_groups, criminal_group_attacked,
+                    police_operation_connected, police_operation_force, police_operation_targeted_armed_groups,
+                    off_duty_police_perpetrator, off_duty_police_context,
+                    politician_or_candidate_victim, victim_political_status, victim_political_office, victim_political_party,
                     title, chronological_description, additional_context,
                     merged_data, source_count, content_class, confirmed, needs_enrichment,
                     created_at, updated_at
@@ -1090,6 +1097,11 @@ async def create_unique_event_from_cluster(cluster: list[RawEvent]) -> UniqueEve
                     :country, :state, :city, :neighborhood, :street, :establishment, :full_location_description,
                     :victim_count, :identified_victim_count, :victims_summary,
                     :perpetrator_count, :security_force_involved,
+                    :criminal_group_connected, :criminal_group_activity, :criminal_group_activity_description,
+                    :criminal_groups, :criminal_group_attacked,
+                    :police_operation_connected, :police_operation_force, :police_operation_targeted_armed_groups,
+                    :off_duty_police_perpetrator, :off_duty_police_context,
+                    :politician_or_candidate_victim, :victim_political_status, :victim_political_office, :victim_political_party,
                     :title, :chronological_description, :additional_context,
                     :merged_data, :source_count, :content_class, false, true,
                     CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
@@ -1115,7 +1127,21 @@ async def create_unique_event_from_cluster(cluster: list[RawEvent]) -> UniqueEve
                 "identified_victim_count": best.identified_victim_count,
                 "victims_summary": victims_summary,
                 "perpetrator_count": best.perpetrator_count,
-                "security_force_involved": best.security_force_involved,
+                "security_force_involved": public_fields["security_force_involved"],
+                "criminal_group_connected": public_fields["criminal_group_connected"],
+                "criminal_group_activity": public_fields["criminal_group_activity"],
+                "criminal_group_activity_description": public_fields["criminal_group_activity_description"],
+                "criminal_groups": public_fields["criminal_groups"],
+                "criminal_group_attacked": public_fields["criminal_group_attacked"],
+                "police_operation_connected": public_fields["police_operation_connected"],
+                "police_operation_force": public_fields["police_operation_force"],
+                "police_operation_targeted_armed_groups": public_fields["police_operation_targeted_armed_groups"],
+                "off_duty_police_perpetrator": public_fields["off_duty_police_perpetrator"],
+                "off_duty_police_context": public_fields["off_duty_police_context"],
+                "politician_or_candidate_victim": public_fields["politician_or_candidate_victim"],
+                "victim_political_status": public_fields["victim_political_status"],
+                "victim_political_office": public_fields["victim_political_office"],
+                "victim_political_party": public_fields["victim_political_party"],
                 "title": best.title,
                 "chronological_description": best.chronological_description,
                 "additional_context": best.extraction_data.get("additional_context") if best.extraction_data else None,

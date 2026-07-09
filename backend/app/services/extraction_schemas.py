@@ -16,6 +16,27 @@ from app.taxonomy import (
 # Re-export for callers that imported from here previously.
 HomicideType = str  # deprecated: use event_family + event_subtype
 
+SecurityAgentType = Literal["PM", "PC", "PF", "PRF", "penal", "outro"]
+
+PoliticalStatus = Literal["elected", "candidate", "former_elected"]
+
+CriminalGroupActivity = Literal[
+    "internal-discipline",
+    "internal-dispute",
+    "population-discipline",
+    "informant-elimination",
+    "debt-enforcement",
+    "territorial-dispute",
+    "economic-dispute",
+    "retaliatory",
+    "police-ambush",
+    "protest",
+    "collateral",
+    "unspecified",
+]
+
+OffDutyPoliceContext = Literal["genuine_reaction", "moonlighting", "criminal_organization"]
+
 
 # ---- Classes for Structured Extraction ----
 
@@ -68,6 +89,21 @@ class IdentifiablePerpetrator(BaseModel):
         None,
         description="Indica se o autor é integrante das forças de segurança pública (Ex: policial militar, policial civil, etc.). True se for, False se não for, None se não mencionado.",
     )
+    security_agent_type: Optional[SecurityAgentType] = Field(
+        None,
+        description=(
+            "Corpo policial do autor, somente se is_security_force=true. "
+            "PM=Polícia Militar; PC=Polícia Civil; PF=Polícia Federal; PRF=Polícia Rodoviária Federal; "
+            "penal=policial penal; outro=outro órgão. Null se is_security_force não for true."
+        ),
+    )
+    security_agent_on_duty: Optional[bool] = Field(
+        None,
+        description=(
+            "Somente se is_security_force=true: true=em serviço; false=folga/fora de expediente; "
+            "null=texto não informa."
+        ),
+    )
     description: Optional[str] = Field(
         None, description="Descrição física ou características do autor mencionadas"
     )
@@ -113,6 +149,30 @@ class Perpetrators(BaseModel):
     )
 
 
+class PoliticalRole(BaseModel):
+    """Cargo político da vítima, quando explicitamente identificada como política ou candidata."""
+
+    is_politician_or_candidate: bool = Field(
+        ...,
+        description="True somente se o texto identifica a vítima como detentora de cargo eletivo ou candidata.",
+    )
+    status: Optional[PoliticalStatus] = Field(
+        None,
+        description=(
+            "elected=mandato atual; candidate=candidato; former_elected=ex-mandatário (ex-vereador). "
+            "Null se não explicitado."
+        ),
+    )
+    office: Optional[str] = Field(
+        None,
+        description='Cargo conforme texto (ex.: "vereador", "prefeito"). Para ex-mandatário use o cargo sem "ex-".',
+    )
+    party: Optional[str] = Field(
+        None,
+        description='Partido conforme texto (sigla ou nome). Null se não mencionado — não inferir.',
+    )
+
+
 class IdentifiableVictim(BaseModel):
     """Dados estruturados da vítima de morte violenta."""
 
@@ -134,6 +194,25 @@ class IdentifiableVictim(BaseModel):
     is_security_force: Optional[bool] = Field(
         None,
         description="Indica se a vítima é integrante das forças de segurança pública (Ex: policial militar, policial civil, guarda municipal, etc.). True se for, False se não for, None se não mencionado.",
+    )
+    security_agent_type: Optional[SecurityAgentType] = Field(
+        None,
+        description=(
+            "Corpo policial da vítima, somente se is_security_force=true. "
+            "PM=Polícia Militar; PC=Polícia Civil; PF=Polícia Federal; PRF=Polícia Rodoviária Federal; "
+            "penal=policial penal; outro=outro órgão. Null se is_security_force não for true."
+        ),
+    )
+    security_agent_on_duty: Optional[bool] = Field(
+        None,
+        description=(
+            "Somente se is_security_force=true: true=em serviço; false=folga/fora de expediente; "
+            "null=texto não informa."
+        ),
+    )
+    political_role: Optional[PoliticalRole] = Field(
+        None,
+        description="Preencher somente quando o texto identifica a vítima como política ou candidata.",
     )
     description: Optional[str] = Field(
         None, description="Descrição física ou características mencionadas"
@@ -357,6 +436,71 @@ class DateTime(BaseModel):
         return self
 
 
+class CriminalGroupContext(BaseModel):
+    """Contexto de atividade de grupos criminosos armados/organizados."""
+
+    connected: Optional[bool] = Field(
+        None,
+        description=(
+            "True se o homicídio está explicitamente ligado a atividade de grupo criminoso armado/organizado. "
+            "False se explicitamente desligado. Null se não mencionado. "
+            "NÃO inferir de 'área dominada pelo tráfico' sem ligação a este caso."
+        ),
+    )
+    groups: Optional[list[str]] = Field(
+        None,
+        description='Nomes de facções/grupos conforme texto (ex.: "PCC", "Comando Vermelho"). Verbatim.',
+    )
+    activity: Optional[CriminalGroupActivity] = Field(
+        None,
+        description=(
+            "Mecanismo específico da atividade criminal. Use unspecified se conectado mas mecanismo incerto. "
+            "Prioridade se múltiplos: territorial-dispute > economic-dispute > retaliatory > unspecified."
+        ),
+    )
+    activity_description: Optional[str] = Field(
+        None,
+        description="Detalhe adicional do mecanismo quando o enum não basta; deve ser grounded no texto.",
+    )
+    group_attacked: Optional[str] = Field(
+        None,
+        description="Grupo atacado em territorial-dispute ou retaliatory, somente se explícito. Null se incerto.",
+    )
+    rival_actor: Optional[str] = Field(
+        None,
+        description="Rival em economic-dispute (grupo, negócio ou indivíduo), somente se explícito.",
+    )
+    target_force: Optional[str] = Field(
+        None,
+        description="Força policial alvo em police-ambush (PM, PC, etc.), somente se explícito.",
+    )
+    policy_trigger: Optional[str] = Field(
+        None,
+        description="Gatilho de protest (política/medida estatal), somente se explícito.",
+    )
+
+
+class PoliceOperationContext(BaseModel):
+    """Contexto de operação policial oficial."""
+
+    connected: Optional[bool] = Field(
+        None,
+        description="True se morte ocorreu durante operação policial oficial explicitamente descrita.",
+    )
+    responsible_force: Optional[str] = Field(
+        None,
+        description='Força responsável conforme texto (ex.: "PM", "Polícia Civil"). Null se não mencionado.',
+    )
+    targeted_armed_groups: Optional[bool] = Field(
+        None,
+        description="True se a operação visava combater grupos criminosos armados, conforme texto.",
+    )
+    operation_name: Optional[str] = Field(
+        None,
+        description='Nome da operação se mencionado (ex.: "Operação Verão").',
+    )
+
+
 class HomicideDynamic(BaseModel):
     """Dinâmica da morte violenta estruturada."""
 
@@ -417,6 +561,29 @@ class HomicideDynamic(BaseModel):
         - Incluir informações não verificadas no texto
         - Inventar datas completas
         """,
+    )
+
+    criminal_group_context: Optional[CriminalGroupContext] = Field(
+        None,
+        description="Contexto de grupos criminosos/facções/milícias ligado a este homicídio.",
+    )
+    police_operation_context: Optional[PoliceOperationContext] = Field(
+        None,
+        description="Contexto de operação policial oficial ligada a este homicídio.",
+    )
+    off_duty_police_perpetrator: Optional[bool] = Field(
+        None,
+        description=(
+            "True se um policial foi autor/perpetrador fora de serviço (não operação oficial). "
+            "Null se não aplicável ou não mencionado."
+        ),
+    )
+    off_duty_police_context: Optional[OffDutyPoliceContext] = Field(
+        None,
+        description=(
+            "Somente se off_duty_police_perpetrator=true: genuine_reaction, moonlighting, "
+            "ou criminal_organization conforme texto."
+        ),
     )
 
 

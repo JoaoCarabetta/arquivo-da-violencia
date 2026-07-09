@@ -3,7 +3,7 @@
 import pytest
 from pydantic import ValidationError
 
-from app.services.extraction import derive_security_force_involved
+from app.services.extraction_derived import derive_security_force_involved
 from app.services.extraction_schemas import (
     DateTime,
     DateVerification,
