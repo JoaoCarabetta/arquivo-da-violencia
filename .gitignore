@@ -182,7 +182,6 @@ scripts/*
 !scripts/test-alert-router.sh
 !scripts/hash-env-passwords.py
 !scripts/preflight-auth.py
-!scripts/enqueue_ingest_once.py
 !scripts/lib/
 !scripts/lib/deploy-common.sh
 
