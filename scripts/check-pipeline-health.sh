@@ -322,13 +322,24 @@ tier_a_restart_worker() {
         return 1
     fi
     DETAILS+=("REMEDIATE: worker_restarted")
-    filtered=()
-    for f in "${FAILURES[@]}"; do
-        [[ "$f" == worker_heartbeat_missing* ]] && continue
-        filtered+=("$f")
+    # Wait for ARQ to re-register the Redis heartbeat before clearing the failure.
+    local i hb=""
+    for i in 1 2 3 4 5 6; do
+        sleep 5
+        hb="$(docker compose $COMPOSE_PROD exec -T redis redis-cli GET "$REDIS_HEALTH_KEY" 2>/dev/null | tr -d '\r' || true)"
+        if [ -n "$hb" ] && [ "$hb" != "(nil)" ]; then
+            DETAILS+=("OK: worker_heartbeat_after_restart")
+            filtered=()
+            for f in "${FAILURES[@]}"; do
+                [[ "$f" == worker_heartbeat_missing* ]] && continue
+                filtered+=("$f")
+            done
+            FAILURES=("${filtered[@]}")
+            return 0
+        fi
     done
-    FAILURES=("${filtered[@]}")
-    return 0
+    record_failure "remediate_worker_heartbeat_still_missing"
+    return 1
 }
 
 if [ "$REMEDIATE" = true ]; then
@@ -356,10 +367,12 @@ if [ "$REMEDIATE" = true ]; then
             had_recent_ingest=true
         fi
     done
-    if [ "$had_no_heartbeat" = true ] || [ "$had_queue_jam" = true ]; then
+    # Restart only when heartbeat is missing. Restarting on queue jam alone
+    # cancels in-flight ingest/cron and can thrash the worker under alert storms.
+    if [ "$had_no_heartbeat" = true ]; then
         tier_a_restart_worker || true
-        # Give the worker a moment to re-register heartbeat before enqueueing jobs.
-        sleep 5
+        tier_a_clear_arq_queue || true
+    elif [ "$had_queue_jam" = true ]; then
         tier_a_clear_arq_queue || true
     fi
     # Missing ingest must always re-enqueue the full pipeline — even when a

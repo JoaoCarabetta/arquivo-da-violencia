@@ -99,9 +99,11 @@ full alert rule reference.
 Allowed without a PR:
 
 ```bash
-# Reset stranded transient statuses, clear jammed ARQ locks, restart worker,
-# and re-enqueue ingest/classify as needed (covers no_recent_pipeline_run,
-# backlog_active_but_no_recent_ingest, arq_queue_jammed, worker_heartbeat_missing)
+# Reset stranded transient statuses, clear jammed ARQ locks, restart worker
+# only when heartbeat is missing (queue jam alone does not restart — that
+# cancels in-flight ingest), and re-enqueue ingest/classify as needed
+# (covers no_recent_pipeline_run, backlog_active_but_no_recent_ingest,
+# arq_queue_jammed, worker_heartbeat_missing)
 bash scripts/check-pipeline-health.sh --remediate
 
 # Manual re-enqueue if the script is unavailable
