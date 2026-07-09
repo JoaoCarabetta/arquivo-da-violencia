@@ -33,6 +33,10 @@ on:
         default: false
         type: boolean
 
+concurrency:
+  group: pipeline-health-prod
+  cancel-in-progress: true
+
 jobs:
   check-production:
     name: Check prod pipeline on VPS
@@ -44,7 +48,10 @@ jobs:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
-          script_stop: true
+          # Must be false: health check exits 1 when unhealthy, and diagnose
+          # logs run after that. script_stop:true aborted before docker logs.
+          script_stop: false
+          command_timeout: 15m
           script: |
             set -euo pipefail
             cd /root/arquivo-da-violencia
