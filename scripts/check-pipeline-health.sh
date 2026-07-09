@@ -308,6 +308,7 @@ PY
     filtered=()
     for f in "${FAILURES[@]}"; do
         [[ "$f" == no_recent_pipeline_run* ]] && continue
+        [[ "$f" == backlog_active_but_no_recent_ingest* ]] && continue
         filtered+=("$f")
     done
     FAILURES=("${filtered[@]}")
@@ -321,6 +322,17 @@ tier_a_restart_worker() {
         return 1
     fi
     DETAILS+=("REMEDIATE: worker_restarted")
+    # Wait for Redis heartbeat so follow-up checks / concurrent remediates
+    # do not treat a graceful restart as another WorkerDown.
+    local i hb
+    for i in 1 2 3 4 5 6 7 8 9 10; do
+        sleep 3
+        hb="$(docker compose $COMPOSE_PROD exec -T redis redis-cli GET "$REDIS_HEALTH_KEY" 2>/dev/null | tr -d '\r' || true)"
+        if [ -n "$hb" ] && [ "$hb" != "(nil)" ]; then
+            DETAILS+=("OK: worker_heartbeat_after_restart")
+            break
+        fi
+    done
     filtered=()
     for f in "${FAILURES[@]}"; do
         [[ "$f" == worker_heartbeat_missing* ]] && continue
@@ -333,6 +345,7 @@ tier_a_restart_worker() {
 if [ "$REMEDIATE" = true ]; then
     had_stuck=false
     had_no_pipeline=false
+    had_stale_ingest=false
     had_no_heartbeat=false
     had_queue_jam=false
     had_recent_ingest=false
@@ -341,6 +354,8 @@ if [ "$REMEDIATE" = true ]; then
             had_stuck=true
         elif [[ "$f" == no_recent_pipeline_run* ]]; then
             had_no_pipeline=true
+        elif [[ "$f" == backlog_active_but_no_recent_ingest* ]]; then
+            had_stale_ingest=true
         elif [[ "$f" == worker_heartbeat_missing* ]]; then
             had_no_heartbeat=true
         elif [[ "$f" == arq_queue_jammed* ]]; then
@@ -352,14 +367,22 @@ if [ "$REMEDIATE" = true ]; then
             had_recent_ingest=true
         fi
     done
-    if [ "$had_no_heartbeat" = true ] || [ "$had_queue_jam" = true ]; then
+    # Restart ONLY when the Redis heartbeat is missing. Queue jam alone used to
+    # restart a healthy worker, which cleared the heartbeat and cascaded into
+    # WorkerDown / webhook remediates thrashing the container.
+    if [ "$had_no_heartbeat" = true ]; then
         tier_a_restart_worker || true
         tier_a_clear_arq_queue || true
+    elif [ "$had_queue_jam" = true ]; then
+        tier_a_clear_arq_queue || true
+    fi
+    # Missing ingest must always re-enqueue the full pipeline — even when a
+    # queue jam also triggers classify (classify alone never starts ingest).
+    if [ "$had_no_pipeline" = true ] || [ "$had_stale_ingest" = true ]; then
+        tier_a_enqueue_pipeline || true
     fi
     if [ "$had_queue_jam" = true ] || { [ "$had_no_pipeline" = true ] && [ "$had_recent_ingest" = true ]; }; then
         tier_a_enqueue_classify || true
-    elif [ "$had_no_pipeline" = true ]; then
-        tier_a_enqueue_pipeline || true
     fi
     if [ "$had_stuck" = true ]; then
         echo_step "🔧 Tier-A: resetting stuck transient source statuses..."
