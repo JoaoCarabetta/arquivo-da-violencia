@@ -86,6 +86,7 @@ full alert rule reference.
 | `arquivo-worker` Docker health | Worker container unhealthy |
 | Redis key `arq:queue:health-check` | Worker process not heartbeating |
 | Recent `CITIES_PIPELINE` in worker logs (100 min) | Hourly cron did not run (when cron enabled) |
+| `backlog_active_but_no_recent_ingest` | Stage activity without a fresh ingest start (Tier-A re-enqueues full pipeline) |
 | Stuck `classifying` / `downloading` / `extracting` > 15 min | Worker crashed mid-batch |
 | Classification `errors > 0` in last 2 h logs | Usually Postgres dialect / boolean bug |
 | `Maintenance step failed` / `ProgrammingError` in logs | SQL not portable to Postgres |
@@ -98,10 +99,11 @@ full alert rule reference.
 Allowed without a PR:
 
 ```bash
-# Reset stranded transient statuses
+# Reset stranded transient statuses + re-enqueue ingest when cron start is stale
+# (covers no_recent_pipeline_run and backlog_active_but_no_recent_ingest)
 bash scripts/check-pipeline-health.sh --remediate
 
-# Re-enqueue classification / full pipeline
+# Manual re-enqueue if needed
 docker compose -p prod exec -T api python - <<'PY'
 import asyncio
 from arq import create_pool
@@ -118,6 +120,9 @@ PY
 # Restart worker if heartbeat missing (after deploy)
 docker compose -p prod restart worker
 ```
+
+`repository_dispatch` remediates must **not** pass `--notify` (avoids Cursor webhook
+loops). Scheduled / `workflow_dispatch` checks still notify.
 
 ### Tier B — Code fix → PR to `develop`
 

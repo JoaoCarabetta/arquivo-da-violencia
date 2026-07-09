@@ -308,6 +308,7 @@ PY
     filtered=()
     for f in "${FAILURES[@]}"; do
         [[ "$f" == no_recent_pipeline_run* ]] && continue
+        [[ "$f" == backlog_active_but_no_recent_ingest* ]] && continue
         filtered+=("$f")
     done
     FAILURES=("${filtered[@]}")
@@ -320,6 +321,8 @@ tier_a_restart_worker() {
         record_failure "remediate_restart_worker_failed"
         return 1
     fi
+    # Give the worker time to rewrite the Redis heartbeat before follow-up enqueues.
+    sleep 8
     DETAILS+=("REMEDIATE: worker_restarted")
     filtered=()
     for f in "${FAILURES[@]}"; do
@@ -333,33 +336,33 @@ tier_a_restart_worker() {
 if [ "$REMEDIATE" = true ]; then
     had_stuck=false
     had_no_pipeline=false
+    had_missing_ingest=false
     had_no_heartbeat=false
     had_queue_jam=false
-    had_recent_ingest=false
     for f in "${FAILURES[@]:-}"; do
         if [[ "$f" == stuck_sources* ]]; then
             had_stuck=true
         elif [[ "$f" == no_recent_pipeline_run* ]]; then
             had_no_pipeline=true
+        elif [[ "$f" == backlog_active_but_no_recent_ingest* ]]; then
+            # Backlog/stage activity without a fresh ingest start — still need a pipeline job.
+            had_missing_ingest=true
         elif [[ "$f" == worker_heartbeat_missing* ]]; then
             had_no_heartbeat=true
         elif [[ "$f" == arq_queue_jammed* ]]; then
             had_queue_jam=true
         fi
     done
-    for d in "${DETAILS[@]:-}"; do
-        if [[ "$d" == OK:\ recent_ingest ]]; then
-            had_recent_ingest=true
-        fi
-    done
     if [ "$had_no_heartbeat" = true ] || [ "$had_queue_jam" = true ]; then
         tier_a_restart_worker || true
         tier_a_clear_arq_queue || true
     fi
-    if [ "$had_queue_jam" = true ] || { [ "$had_no_pipeline" = true ] && [ "$had_recent_ingest" = true ]; }; then
-        tier_a_enqueue_classify || true
-    elif [ "$had_no_pipeline" = true ]; then
+    # Prefer full ingest when cron start logs are stale (with or without residual activity).
+    if [ "$had_no_pipeline" = true ] || [ "$had_missing_ingest" = true ]; then
         tier_a_enqueue_pipeline || true
+    elif [ "$had_queue_jam" = true ]; then
+        # Queue jam alone: drain classification backlog after unlock/restart.
+        tier_a_enqueue_classify || true
     fi
     if [ "$had_stuck" = true ]; then
         echo_step "🔧 Tier-A: resetting stuck transient source statuses..."

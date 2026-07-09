@@ -33,6 +33,12 @@ on:
         default: false
         type: boolean
 
+# One health/remediate run at a time — parallel remediates thrash worker restarts
+# and can re-fire the Cursor webhook in a loop.
+concurrency:
+  group: pipeline-health-prod
+  cancel-in-progress: true
+
 jobs:
   check-production:
     name: Check prod pipeline on VPS
@@ -56,9 +62,15 @@ jobs:
             git checkout -f "$BRANCH"
             git reset --hard "origin/$BRANCH"
             export PIPELINE_HEALTH_WEBHOOK_AUTH="${{ secrets.CURSOR_AUTOMATION_TOKEN }}"
-            ARGS="--notify --json"
+            ARGS="--json"
             EVENT="${{ github.event_name }}"
             DISPATCH_ACTION="${{ github.event.action }}"
+            # Notify on schedule / manual runs only. repository_dispatch is used by
+            # the on-call agent; --notify there re-triggers the Cursor webhook loop.
+            if [ "$EVENT" = "schedule" ] \
+              || [ "$EVENT" = "workflow_dispatch" ]; then
+              ARGS="$ARGS --notify"
+            fi
             # Tier-A auto-remediation: safe for scheduled checks and on-demand dispatch.
             if [ "$EVENT" = "schedule" ] \
               || { [ "$EVENT" = "repository_dispatch" ] && [ "$DISPATCH_ACTION" = "pipeline-remediate" ]; } \
