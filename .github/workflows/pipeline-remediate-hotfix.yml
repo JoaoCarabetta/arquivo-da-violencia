@@ -1,5 +1,4 @@
 # One-shot: run fixed Tier-A remediator on prod from this branch (SSH via deploy secrets).
-# Safe to keep; only runs on workflow_dispatch or explicit repository_dispatch.
 name: Pipeline Remediate Hotfix
 
 on:
@@ -26,15 +25,22 @@ jobs:
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
           script_stop: true
+          command_timeout: 15m
           script: |
             set -euo pipefail
             cd /root/arquivo-da-violencia
-            git fetch origin cursor/pipeline-auto-remediation-d739
-            git show origin/cursor/pipeline-auto-remediation-d739:scripts/check-pipeline-health.sh \
-              > /tmp/check-pipeline-health-hotfix.sh
-            chmod +x /tmp/check-pipeline-health-hotfix.sh
+            git fetch origin cursor/pipeline-auto-remediation-d739 master
+            # Overlay fixed script into working tree (keeps scripts/lib path working).
+            git checkout -f origin/cursor/pipeline-auto-remediation-d739 -- scripts/check-pipeline-health.sh
+            # No --notify: avoid Cursor webhook feedback loops while remediating.
             set +e
-            bash /tmp/check-pipeline-health-hotfix.sh --remediate --json --notify
+            bash scripts/check-pipeline-health.sh --remediate --json
+            HEALTH_EXIT=$?
+            set -e
+            echo "=== Post-remediate wait (45s) for ingest start / heartbeat ==="
+            sleep 45
+            set +e
+            bash scripts/check-pipeline-health.sh --json
             HEALTH_EXIT=$?
             set -e
             echo "=== Worker logs (last 2h, tail 80) ==="
@@ -46,8 +52,6 @@ jobs:
               WHERE created_at > now() - interval '2 hours' AND outcome = 'failure'
               GROUP BY 1,2 ORDER BY 3 DESC LIMIT 10;
             " || true
-            # Keep prod checkout on master
-            git fetch origin master
             git checkout -f master
             git reset --hard origin/master
             exit "$HEALTH_EXIT"

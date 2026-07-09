@@ -194,6 +194,7 @@ Environment variables (optional, in VPS `.env`):
 | `PIPELINE_HEALTH_STUCK_SOURCE_MINUTES` | 15 | Stuck transient status threshold |
 | `PIPELINE_HEALTH_READY_BACKLOG_WARN` | 1500 | Warn when backlog exceeds this |
 | `PIPELINE_HEALTH_WEBHOOK_URL` | — | POST JSON alert on failure |
+| (behavior) | — | With `--remediate --notify`, Telegram still fires but the Cursor webhook is skipped to avoid agent↔remediate loops |
 
 Scheduled checks and `repository_dispatch` type `pipeline-remediate` run
 `--remediate` automatically (Tier-A: re-enqueue pipeline, restart worker,

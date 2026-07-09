@@ -520,7 +520,11 @@ Failures: $(IFS=, ; echo "${FAILURES[*]}")"
 Warnings: $(IFS=, ; echo "${WARNINGS[*]}")"
     fi
     send_telegram "$summary"
-    if ! send_webhook "$(python3 - <<PY
+    # Skip Cursor webhook after --remediate to avoid agent↔remediate feedback loops.
+    # Telegram still notifies humans; scheduled checks without successful remediate still webhook.
+    if [ "$REMEDIATE" = true ]; then
+        DETAILS+=("INFO: webhook_skipped_after_remediate")
+    elif ! send_webhook "$(python3 - <<PY
 import json
 print(json.dumps({
     "status": "unhealthy",
