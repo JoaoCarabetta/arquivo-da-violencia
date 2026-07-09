@@ -34,9 +34,10 @@ on:
         type: boolean
 
 concurrency:
-  # Prevent parallel remediates from restart-thrashing the worker.
+  # Serialize remediates so they cannot restart-thrash the worker in parallel.
+  # Do not cancel-in-progress: diagnose dispatches must not abort an active remediate.
   group: pipeline-health-prod
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   check-production:
