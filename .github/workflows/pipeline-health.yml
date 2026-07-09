@@ -68,10 +68,11 @@ jobs:
             if [ "$EVENT" = "workflow_dispatch" ] && [ "${{ inputs.test_webhook }}" = "true" ]; then
               ARGS="$ARGS --test-webhook"
             fi
-            set +e
-            bash scripts/check-pipeline-health.sh $ARGS
-            HEALTH_EXIT=$?
-            set -e
+            # Keep going after a failed health check so --diagnose can print logs.
+            # appleboy script_stop=true aborts on any non-zero command exit, so we
+            # must not let the health script's exit code surface as a bare command.
+            HEALTH_EXIT=0
+            bash scripts/check-pipeline-health.sh $ARGS || HEALTH_EXIT=$?
             if [ "$HEALTH_EXIT" -ne 0 ]; then
               SHOULD_DIAGNOSE=false
               if [ "$EVENT" = "workflow_dispatch" ] && [ "${{ inputs.diagnose }}" = "true" ]; then

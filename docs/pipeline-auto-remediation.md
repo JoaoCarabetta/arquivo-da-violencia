@@ -86,6 +86,7 @@ full alert rule reference.
 | `arquivo-worker` Docker health | Worker container unhealthy |
 | Redis key `arq:queue:health-check` | Worker process not heartbeating |
 | Recent `CITIES_PIPELINE` in worker logs (100 min) | Hourly cron did not run (when cron enabled) |
+| Activity without recent ingest start (`backlog_active_but_no_recent_ingest`) | Worker is draining old work but hourly ingest did not start — Tier-A re-enqueues `ingest_cities_full_pipeline` |
 | Stuck `classifying` / `downloading` / `extracting` > 15 min | Worker crashed mid-batch |
 | Classification `errors > 0` in last 2 h logs | Usually Postgres dialect / boolean bug |
 | `Maintenance step failed` / `ProgrammingError` in logs | SQL not portable to Postgres |
@@ -98,9 +99,22 @@ full alert rule reference.
 Allowed without a PR:
 
 ```bash
-# Reset stranded transient statuses
+# Reset stranded transient statuses, re-enqueue missing ingest, restart worker
 bash scripts/check-pipeline-health.sh --remediate
+```
 
+`--remediate` maps failures to actions:
+
+| Failure | Action |
+|---------|--------|
+| `worker_heartbeat_missing` / `arq_queue_jammed` | Restart worker + clear ARQ locks |
+| `no_recent_pipeline_run` / `backlog_active_but_no_recent_ingest` | Enqueue `ingest_cities_full_pipeline` |
+| `arq_queue_jammed` (or no-pipeline with recent ingest OK) | Also enqueue `classify_pending_task` |
+| `stuck_sources` | Reset transient statuses |
+
+Manual equivalents if you need them outside the script:
+
+```bash
 # Re-enqueue classification / full pipeline
 docker compose -p prod exec -T api python - <<'PY'
 import asyncio

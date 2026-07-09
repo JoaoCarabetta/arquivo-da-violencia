@@ -85,6 +85,9 @@ the playbook below. Payload may include `"source": "prometheus-alertmanager"`.
      docker compose -p prod restart worker
    - arq_queue_jammed / QueueDepthCritical:
      bash scripts/check-pipeline-health.sh --remediate
+   - backlog_active_but_no_recent_ingest / no_recent_pipeline_run:
+     bash scripts/check-pipeline-health.sh --remediate
+     (re-enqueues `ingest_cities_full_pipeline`; do not treat active backlog alone as healthy)
    - HostDiskCritical / HostMemoryCritical:
      df -h; docker system df; prune logs/images if safe
    - ApiScrapeDown / WorkerScrapeDown / ObservabilityScrapeDown:
