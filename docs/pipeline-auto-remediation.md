@@ -197,4 +197,9 @@ reset stuck sources). Cloud agents without VPS SSH can trigger remediation via:
 gh api repos/JoaoCarabetta/arquivo-da-violencia/dispatches -f event_type=pipeline-remediate
 ```
 
-Use `pipeline-diagnose` for the same run plus worker/API logs on failure.
+Use `pipeline-diagnose` for the same run plus worker/API logs on failure
+(**without** `--notify`, so diagnose does not re-fire the Cursor webhook).
+
+The Pipeline Health workflow uses a single concurrency group
+(`pipeline-health-prod`, cancel-in-progress) so stacked diagnose/remediate
+dispatches cannot thrash the worker with overlapping restarts.

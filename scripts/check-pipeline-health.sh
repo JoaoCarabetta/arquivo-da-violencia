@@ -330,16 +330,17 @@ tier_a_restart_worker() {
         hb="$(docker compose $COMPOSE_PROD exec -T redis redis-cli GET "$REDIS_HEALTH_KEY" 2>/dev/null | tr -d '\r' || true)"
         if [ -n "$hb" ] && [ "$hb" != "(nil)" ]; then
             DETAILS+=("OK: worker_heartbeat_after_restart")
-            break
+            filtered=()
+            for f in "${FAILURES[@]}"; do
+                [[ "$f" == worker_heartbeat_missing* ]] && continue
+                filtered+=("$f")
+            done
+            FAILURES=("${filtered[@]}")
+            return 0
         fi
     done
-    filtered=()
-    for f in "${FAILURES[@]}"; do
-        [[ "$f" == worker_heartbeat_missing* ]] && continue
-        filtered+=("$f")
-    done
-    FAILURES=("${filtered[@]}")
-    return 0
+    record_failure "remediate_worker_heartbeat_still_missing"
+    return 1
 }
 
 if [ "$REMEDIATE" = true ]; then
@@ -379,10 +380,13 @@ if [ "$REMEDIATE" = true ]; then
     # Prefer classify when ingest recently started (or queue was jammed with
     # ready backlog). Otherwise kick a full cities pipeline when cron/ingest
     # has gone quiet — including backlog_active_but_no_recent_ingest.
+    # Missing ingest must always re-enqueue the full pipeline — even when a
+    # queue jam also triggered classify (classify alone never starts ingest).
+    if [ "$had_no_pipeline" = true ] || [ "$had_stale_ingest" = true ]; then
+        tier_a_enqueue_pipeline || true
+    fi
     if [ "$had_queue_jam" = true ] || { [ "$had_no_pipeline" = true ] && [ "$had_recent_ingest" = true ]; }; then
         tier_a_enqueue_classify || true
-    elif [ "$had_no_pipeline" = true ] || [ "$had_stale_ingest" = true ]; then
-        tier_a_enqueue_pipeline || true
     fi
     if [ "$had_stuck" = true ]; then
         echo_step "🔧 Tier-A: resetting stuck transient source statuses..."
