@@ -33,6 +33,12 @@ on:
         default: false
         type: boolean
 
+# Only one VPS health/remediate run at a time. Concurrent remediates restart the
+# worker repeatedly and amplify Cursor webhook storms.
+concurrency:
+  group: pipeline-health-prod
+  cancel-in-progress: true
+
 jobs:
   check-production:
     name: Check prod pipeline on VPS
