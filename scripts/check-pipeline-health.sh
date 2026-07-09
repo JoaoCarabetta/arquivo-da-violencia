@@ -324,15 +324,36 @@ tier_a_restart_worker() {
     filtered=()
     for f in "${FAILURES[@]}"; do
         [[ "$f" == worker_heartbeat_missing* ]] && continue
+        [[ "$f" == worker_container_unhealthy* ]] && continue
         filtered+=("$f")
     done
     FAILURES=("${filtered[@]}")
     return 0
 }
 
+tier_a_wait_for_heartbeat() {
+    local max_wait_s="${PIPELINE_HEALTH_RESTART_WAIT_SECONDS:-90}"
+    local waited=0
+    echo_step "🔧 Tier-A: waiting up to ${max_wait_s}s for worker heartbeat after restart..."
+    while [ "$waited" -lt "$max_wait_s" ]; do
+        local hb
+        hb="$(docker compose $COMPOSE_PROD exec -T redis redis-cli GET "$REDIS_HEALTH_KEY" 2>/dev/null | tr -d '\r' || true)"
+        if [ -n "$hb" ] && [ "$hb" != "(nil)" ]; then
+            DETAILS+=("REMEDIATE: worker_heartbeat_recovered(after=${waited}s)")
+            DETAILS+=("OK: worker_heartbeat")
+            return 0
+        fi
+        sleep 5
+        waited=$((waited + 5))
+    done
+    record_failure "remediate_worker_heartbeat_still_missing(after_${max_wait_s}s)"
+    return 1
+}
+
 if [ "$REMEDIATE" = true ]; then
     had_stuck=false
     had_no_pipeline=false
+    had_backlog_no_ingest=false
     had_no_heartbeat=false
     had_queue_jam=false
     had_recent_ingest=false
@@ -341,7 +362,9 @@ if [ "$REMEDIATE" = true ]; then
             had_stuck=true
         elif [[ "$f" == no_recent_pipeline_run* ]]; then
             had_no_pipeline=true
-        elif [[ "$f" == worker_heartbeat_missing* ]]; then
+        elif [[ "$f" == backlog_active_but_no_recent_ingest* ]]; then
+            had_backlog_no_ingest=true
+        elif [[ "$f" == worker_heartbeat_missing* ]] || [[ "$f" == worker_container_unhealthy* ]]; then
             had_no_heartbeat=true
         elif [[ "$f" == arq_queue_jammed* ]]; then
             had_queue_jam=true
@@ -352,14 +375,43 @@ if [ "$REMEDIATE" = true ]; then
             had_recent_ingest=true
         fi
     done
+    # Restart once, then wait — do not clear in-progress locks here (concurrent
+    # remediates were deleting live job locks and thrashing the worker).
     if [ "$had_no_heartbeat" = true ] || [ "$had_queue_jam" = true ]; then
         tier_a_restart_worker || true
-        tier_a_clear_arq_queue || true
+        if tier_a_wait_for_heartbeat; then
+            if [ "$had_queue_jam" = true ]; then
+                filtered=()
+                for f in "${FAILURES[@]}"; do
+                    [[ "$f" == arq_queue_jammed* ]] && continue
+                    filtered+=("$f")
+                done
+                FAILURES=("${filtered[@]}")
+                DETAILS+=("REMEDIATE: queue_jam_deferred_to_recovered_worker")
+            fi
+        fi
     fi
-    if [ "$had_queue_jam" = true ] || { [ "$had_no_pipeline" = true ] && [ "$had_recent_ingest" = true ]; }; then
-        tier_a_enqueue_classify || true
-    elif [ "$had_no_pipeline" = true ]; then
+    # Missing ingest must always re-enqueue the cities pipeline. Previously a
+    # concurrent queue-jam steered remediates into classify-only and left
+    # no_recent_pipeline_run / backlog_active_but_no_recent_ingest uncleared.
+    if [ "$had_no_pipeline" = true ] || [ "$had_backlog_no_ingest" = true ]; then
         tier_a_enqueue_pipeline || true
+        if [ "$had_backlog_no_ingest" = true ]; then
+            filtered=()
+            for f in "${FAILURES[@]}"; do
+                [[ "$f" == backlog_active_but_no_recent_ingest* ]] && continue
+                filtered+=("$f")
+            done
+            FAILURES=("${filtered[@]}")
+        fi
+    fi
+    # Classify only when the worker is alive, queue is jammed, and ingest is OK.
+    if [ "$had_queue_jam" = true ] && [ "$had_no_heartbeat" = false ] \
+        && [ "$had_no_pipeline" = false ] && [ "$had_backlog_no_ingest" = false ]; then
+        tier_a_clear_arq_queue || true
+        tier_a_enqueue_classify || true
+    elif [ "$had_no_pipeline" = true ] && [ "$had_recent_ingest" = true ]; then
+        tier_a_enqueue_classify || true
     fi
     if [ "$had_stuck" = true ]; then
         echo_step "🔧 Tier-A: resetting stuck transient source statuses..."

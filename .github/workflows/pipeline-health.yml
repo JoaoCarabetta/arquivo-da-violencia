@@ -33,6 +33,11 @@ on:
         default: false
         type: boolean
 
+concurrency:
+  # Prevent overlapping remediates from thrashing the worker (restart storms).
+  group: pipeline-health-prod
+  cancel-in-progress: true
+
 jobs:
   check-production:
     name: Check prod pipeline on VPS
@@ -44,7 +49,8 @@ jobs:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
-          script_stop: true
+          # false so diagnose logs still run after a non-zero health exit
+          script_stop: false
           script: |
             set -euo pipefail
             cd /root/arquivo-da-violencia

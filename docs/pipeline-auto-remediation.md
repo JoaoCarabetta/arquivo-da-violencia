@@ -86,6 +86,7 @@ full alert rule reference.
 | `arquivo-worker` Docker health | Worker container unhealthy |
 | Redis key `arq:queue:health-check` | Worker process not heartbeating |
 | Recent `CITIES_PIPELINE` in worker logs (100 min) | Hourly cron did not run (when cron enabled) |
+| `backlog_active_but_no_recent_ingest` | Stage activity without a fresh ingest start (cron on) |
 | Stuck `classifying` / `downloading` / `extracting` > 15 min | Worker crashed mid-batch |
 | Classification `errors > 0` in last 2 h logs | Usually Postgres dialect / boolean bug |
 | `Maintenance step failed` / `ProgrammingError` in logs | SQL not portable to Postgres |
@@ -98,25 +99,38 @@ full alert rule reference.
 Allowed without a PR:
 
 ```bash
-# Reset stranded transient statuses
+# Reset stranded transient statuses, restart worker, re-enqueue pipeline
 bash scripts/check-pipeline-health.sh --remediate
+```
 
-# Re-enqueue classification / full pipeline
+`--remediate` maps failures to actions:
+
+| Failure | Action |
+|---------|--------|
+| `worker_heartbeat_missing` / `worker_container_unhealthy` / `arq_queue_jammed` | Restart worker, wait for heartbeat (default 90s) |
+| `no_recent_pipeline_run` / `backlog_active_but_no_recent_ingest` | Enqueue `ingest_cities_full_pipeline` |
+| `stuck_sources` | Reset transient statuses |
+| `arq_queue_jammed` alone (worker alive, ingest OK) | Clear stale locks + enqueue classify |
+
+Do **not** fire many concurrent `pipeline-remediate` dispatches — overlapping
+restarts clear live ARQ locks and thrash the worker. The GitHub workflow uses a
+concurrency group so only one health job runs at a time.
+
+```bash
+# Manual equivalents if needed
+docker compose -p prod restart worker
+
 docker compose -p prod exec -T api python - <<'PY'
 import asyncio
-from arq import create_pool
-from arq.connections import RedisSettings
+from app.tasks.worker import create_arq_pool
 
 async def main():
-    redis = await create_pool(RedisSettings(host="redis", port=6379))
-    await redis.enqueue_job("classify_pending_task", 200, 10)
+    redis = await create_arq_pool()
     await redis.enqueue_job("ingest_cities_full_pipeline", None, "1h")
+    await redis.aclose()
 
 asyncio.run(main())
 PY
-
-# Restart worker if heartbeat missing (after deploy)
-docker compose -p prod restart worker
 ```
 
 ### Tier B — Code fix → PR to `develop`
