@@ -116,6 +116,10 @@ docker compose -p prod restart worker
 
 Do **not** restart the worker for queue jam alone — that clears the heartbeat and can cascade into WorkerDown / remediates thrashing.
 
+**Notify loop guard:** `--remediate` skips the Cursor webhook even when `--notify`
+is set (Telegram still fires). Concurrent remediates take a flock. The GitHub
+workflow omits `--notify` for `repository_dispatch` (remediate/diagnose).
+
 ### Tier B — Code fix → PR to `develop`
 
 When logs show application bugs (examples from Postgres migration):

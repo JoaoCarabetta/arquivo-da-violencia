@@ -65,6 +65,29 @@ FAILURES=()
 WARNINGS=()
 DETAILS=()
 
+# Serialize remediates so concurrent GH Actions / agents cannot stack work.
+LOCK_FILE="${PIPELINE_HEALTH_LOCK_FILE:-/tmp/arquivo-pipeline-health.lock}"
+if [ "$REMEDIATE" = true ]; then
+    exec 9>"$LOCK_FILE"
+    if ! flock -w 180 9; then
+        echo "Could not acquire remediate lock ($LOCK_FILE); another check is running." >&2
+        if [ "$JSON" = true ]; then
+            python3 - <<'PY'
+import json
+from datetime import datetime, timezone
+print(json.dumps({
+    "status": "skipped",
+    "failures": [],
+    "warnings": ["remediate_lock_busy"],
+    "details": ["SKIP: remediate_lock_busy"],
+    "timestamp": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+}))
+PY
+        fi
+        exit 0
+    fi
+fi
+
 read_env_var() {
     local key="$1"
     local env_file="$REPO_DIR/.env"
@@ -534,7 +557,11 @@ Failures: $(IFS=, ; echo "${FAILURES[*]}")"
 Warnings: $(IFS=, ; echo "${WARNINGS[*]}")"
     fi
     send_telegram "$summary"
-    if ! send_webhook "$(python3 - <<PY
+    # Skip Cursor webhook during --remediate: residual failures would re-trigger
+    # the on-call agent and stack concurrent remediates (notify loop).
+    if [ "$REMEDIATE" = true ]; then
+        DETAILS+=("INFO: skipped_webhook_during_remediate")
+    elif ! send_webhook "$(python3 - <<PY
 import json
 print(json.dumps({
     "status": "unhealthy",
