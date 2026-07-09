@@ -4,6 +4,10 @@
 # SSH to the VPS every 30 minutes and run scripts/check-pipeline-health.sh.
 # On failure the script notifies Telegram (from VPS .env) and an optional
 # PIPELINE_HEALTH_WEBHOOK_URL (e.g. Cursor Automation).
+#
+# IMPORTANT: repository_dispatch remediates must NOT re-fire the Cursor webhook
+# (that creates an agent → dispatch → notify → agent storm). Scheduled checks
+# still notify; --remediate itself also skips the webhook inside the health script.
 # =============================================================================
 
 name: Pipeline Health
@@ -29,6 +33,16 @@ on:
         type: boolean
       test_webhook:
         description: 'POST test payload to Cursor Automation webhook after the check'
+        required: false
+        default: false
+        type: boolean
+      silence_webhook:
+        description: 'Emergency: comment out PIPELINE_HEALTH_WEBHOOK_URL on VPS (break agent storm)'
+        required: false
+        default: false
+        type: boolean
+      restore_webhook:
+        description: 'Restore PIPELINE_HEALTH_WEBHOOK_URL previously silenced on VPS'
         required: false
         default: false
         type: boolean
@@ -73,10 +87,33 @@ jobs:
             set -uo pipefail
             cd /root/arquivo-da-violencia
             export PIPELINE_HEALTH_WEBHOOK_AUTH="${{ secrets.CURSOR_AUTOMATION_TOKEN }}"
-            ARGS="--notify --json"
+
+            if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.silence_webhook }}" = "true" ]; then
+              if grep -q '^PIPELINE_HEALTH_WEBHOOK_URL=' .env 2>/dev/null; then
+                sed -i.bak-storm 's/^PIPELINE_HEALTH_WEBHOOK_URL=/#STORM_SILENCE PIPELINE_HEALTH_WEBHOOK_URL=/' .env
+                echo "Silenced PIPELINE_HEALTH_WEBHOOK_URL on VPS (.env.bak-storm kept)"
+              else
+                echo "PIPELINE_HEALTH_WEBHOOK_URL already absent or silenced"
+              fi
+            fi
+            if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.restore_webhook }}" = "true" ]; then
+              if grep -q '^#STORM_SILENCE PIPELINE_HEALTH_WEBHOOK_URL=' .env 2>/dev/null; then
+                sed -i 's/^#STORM_SILENCE PIPELINE_HEALTH_WEBHOOK_URL=/PIPELINE_HEALTH_WEBHOOK_URL=/' .env
+                echo "Restored PIPELINE_HEALTH_WEBHOOK_URL on VPS"
+              else
+                echo "No silenced PIPELINE_HEALTH_WEBHOOK_URL marker found"
+              fi
+            fi
+
             EVENT="${{ github.event_name }}"
             DISPATCH_ACTION="${{ github.event.action }}"
-            # Tier-A auto-remediation: safe for scheduled checks and on-demand dispatch.
+            # Schedule keeps Telegram+webhook notify. Dispatch/manual remediates
+            # must not POST the Cursor webhook (feedback loop with automations).
+            if [ "$EVENT" = "schedule" ]; then
+              ARGS="--notify --json"
+            else
+              ARGS="--json"
+            fi
             if [ "$EVENT" = "schedule" ] \
               || { [ "$EVENT" = "repository_dispatch" ] && [ "$DISPATCH_ACTION" = "pipeline-remediate" ]; } \
               || { [ "$EVENT" = "workflow_dispatch" ] && [ "${{ inputs.remediate }}" = "true" ]; }; then

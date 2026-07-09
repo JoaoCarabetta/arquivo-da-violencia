@@ -198,3 +198,18 @@ gh api repos/JoaoCarabetta/arquivo-da-violencia/dispatches -f event_type=pipelin
 ```
 
 Use `pipeline-diagnose` for the same run plus worker/API logs on failure.
+
+### Webhook feedback-loop guard
+
+`--remediate` never POSTs the Cursor Automation webhook (Telegram still fires).
+`repository_dispatch` / manual remediates also omit `--notify`. Only the 30‑minute
+schedule uses `--notify` + webhook. Otherwise a failed remediate re-triggers
+agents that dispatch more remediates and thrash the worker.
+
+Emergency storm break (silences webhook URL in VPS `.env`):
+
+```bash
+gh workflow run pipeline-health.yml -f silence_webhook=true -f remediate=true -f diagnose=true
+```
+
+Restore later with `-f restore_webhook=true`.

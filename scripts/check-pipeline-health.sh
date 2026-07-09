@@ -336,6 +336,7 @@ tier_a_restart_worker() {
     filtered=()
     for f in "${FAILURES[@]}"; do
         [[ "$f" == worker_heartbeat_missing* ]] && continue
+        [[ "$f" == worker_container_unhealthy* ]] && continue
         filtered+=("$f")
     done
     FAILURES=("${filtered[@]}")
@@ -356,7 +357,7 @@ if [ "$REMEDIATE" = true ]; then
             had_no_pipeline=true
         elif [[ "$f" == backlog_active_but_no_recent_ingest* ]]; then
             had_stale_ingest=true
-        elif [[ "$f" == worker_heartbeat_missing* ]]; then
+        elif [[ "$f" == worker_heartbeat_missing* ]] || [[ "$f" == worker_container_unhealthy* ]]; then
             had_no_heartbeat=true
         elif [[ "$f" == arq_queue_jammed* ]]; then
             had_queue_jam=true
@@ -367,7 +368,7 @@ if [ "$REMEDIATE" = true ]; then
             had_recent_ingest=true
         fi
     done
-    # Restart ONLY when the Redis heartbeat is missing. Queue jam alone used to
+    # Restart ONLY when heartbeat/container is unhealthy. Queue jam alone used to
     # restart a healthy worker, which cleared the heartbeat and cascaded into
     # WorkerDown / webhook remediates thrashing the container.
     if [ "$had_no_heartbeat" = true ]; then
@@ -534,7 +535,11 @@ Failures: $(IFS=, ; echo "${FAILURES[*]}")"
 Warnings: $(IFS=, ; echo "${WARNINGS[*]}")"
     fi
     send_telegram "$summary"
-    if ! send_webhook "$(python3 - <<PY
+    # Never POST the Cursor Automation webhook during --remediate: failed remediates
+    # would re-trigger agents that dispatch more remediates (feedback storm).
+    if [ "$REMEDIATE" = true ]; then
+        DETAILS+=("INFO: webhook_skipped_during_remediate")
+    elif ! send_webhook "$(python3 - <<PY
 import json
 print(json.dumps({
     "status": "unhealthy",
