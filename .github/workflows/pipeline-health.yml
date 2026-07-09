@@ -33,32 +33,55 @@ on:
         default: false
         type: boolean
 
+concurrency:
+  # Prevent parallel remediates from restart-thrashing the worker.
+  group: pipeline-health-prod
+  cancel-in-progress: true
+
 jobs:
   check-production:
     name: Check prod pipeline on VPS
     runs-on: ubuntu-latest
     steps:
-      - name: Sync check script and run health check
+      - name: Checkout health script
+        uses: actions/checkout@v4
+        with:
+          sparse-checkout: |
+            scripts/check-pipeline-health.sh
+          sparse-checkout-cone-mode: false
+
+      - name: Sync check script to VPS
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          source: "scripts/check-pipeline-health.sh"
+          target: "/root/arquivo-da-violencia"
+          overwrite: true
+
+      - name: Run health check
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
-          script_stop: true
+          # Keep going after health exit 1 so diagnose logs still print.
+          script_stop: false
+          command_timeout: 15m
           script: |
-            set -euo pipefail
+            set -uo pipefail
             cd /root/arquivo-da-violencia
-            BRANCH="master"
-            if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-              BRANCH="${{ github.ref_name }}"
-            fi
-            git fetch origin "$BRANCH"
-            git checkout -f "$BRANCH"
-            git reset --hard "origin/$BRANCH"
             export PIPELINE_HEALTH_WEBHOOK_AUTH="${{ secrets.CURSOR_AUTOMATION_TOKEN }}"
-            ARGS="--notify --json"
+            ARGS="--json"
             EVENT="${{ github.event_name }}"
             DISPATCH_ACTION="${{ github.event.action }}"
+            # Notify on schedule / manual runs only. repository_dispatch is used by
+            # the on-call agent; --notify there re-triggers the Cursor webhook loop.
+            if [ "$EVENT" = "schedule" ] \
+              || [ "$EVENT" = "workflow_dispatch" ]; then
+              ARGS="$ARGS --notify"
+            fi
             # Tier-A auto-remediation: safe for scheduled checks and on-demand dispatch.
             if [ "$EVENT" = "schedule" ] \
               || { [ "$EVENT" = "repository_dispatch" ] && [ "$DISPATCH_ACTION" = "pipeline-remediate" ]; } \
