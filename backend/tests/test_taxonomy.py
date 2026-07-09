@@ -40,6 +40,7 @@ def test_validate_family_subtype_rejects_invalid_pair():
         ("Feminicídio", "homicidio", "feminicidio"),
         ("Latrocínio", "homicidio", "latrocinio"),
         ("Intervenção policial", "homicidio", "intervencao_policial"),
+        ("Policial vitimado", "homicidio", "simples"),
         ("Morte no trânsito", "homicidio", "morte_transito_doloso"),
         ("Tentativa de Homicídio", "tentativa", "simples"),
         ("Homicídio Culposo", "acidente_fatal", "culposo"),

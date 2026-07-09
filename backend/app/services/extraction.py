@@ -27,6 +27,26 @@ def content_class_failure_reason(content_class: str) -> str:
     return diagnostics.NON_INCIDENT_CONTENT
 
 
+def _tri_state_from_flags(flags: list[bool | None]) -> bool | None:
+    """Return True if any True, False if all explicit False, else None."""
+    if any(flag is True for flag in flags):
+        return True
+    if flags and all(flag is False for flag in flags):
+        return False
+    return None
+
+
+def derive_security_force_victim(event: ViolentDeathEvent) -> bool | None:
+    """Return True if any victim is flagged as security force, False if explicitly not, else None."""
+    flags: list[bool | None] = []
+    for victim in event.victims.identifiable_victims:
+        flags.append(victim.is_security_force)
+    if event.victims.unidentified_groups:
+        for group in event.victims.unidentified_groups:
+            flags.append(group.is_security_force)
+    return _tri_state_from_flags(flags)
+
+
 def derive_security_force_involved(event: ViolentDeathEvent) -> bool | None:
     """Return True if any party is flagged as security force, False if explicitly not, else None."""
     flags: list[bool | None] = []
@@ -44,11 +64,7 @@ def derive_security_force_involved(event: ViolentDeathEvent) -> bool | None:
             for group in event.perpetrators.unidentified_groups:
                 flags.append(group.is_security_force)
 
-    if any(flag is True for flag in flags):
-        return True
-    if flags and all(flag is False for flag in flags):
-        return False
-    return None
+    return _tri_state_from_flags(flags)
 
 
 # System prompt for extraction
@@ -149,6 +165,9 @@ Se event_family = "homicidio":
   primeiro e suspeitos morreram em "confronto" ou "troca de tiros" — nesses casos
   use "simples" (homicídio comum sob investigação do DHPP/DH).
 - "morte_transito_doloso": atropelamento intencional ou perseguição fatal com veículo
+- Vítima policial (PM, PC, PF, etc.): NÃO use subtipo especial — preencha is_security_force,
+  security_agent_type e security_agent_on_duty na vítima; event_subtype segue a dinâmica
+  do crime (simples, latrocinio, qualificado, etc.)
 
 Se event_family = "tentativa":
 - "simples", "feminicidio" ou "latrocinio" conforme o caso
@@ -163,6 +182,7 @@ REGRAS:
 - Sem óbito → event_family = "tentativa", nunca "homicidio"
 - Morte culposa/acidente sem dolo → event_family = "acidente_fatal"
 - Feminicídio, latrocínio e qualificado são SUBTIPOS de homicidio, não famílias separadas
+- intervencao_policial = policiais matam alguém; vítima policial = security_agent_* na vítima
 - event_family = "homicidio" exige content_class = "incident"
 
 SOBRE content_class — OBRIGATÓRIO EM TODA EXTRAÇÃO:
@@ -195,6 +215,19 @@ SOBRE homicide_dynamic.method — OBRIGATÓRIO PREENCHER:
   ou não divulgado, ou quando há pouquíssima informação sobre a dinâmica.
 - Não deixe null se o texto menciona tiros, disparos, facadas ou equivalentes.
 - Prefira "Não especificado" a "Outro" quando a perícia não identificou o objeto.
+
+SOBRE integrantes de forças de segurança (vítimas e autores identificáveis):
+- is_security_force = true para PM, PC, PF, PRF, policial penal, guarda municipal
+- security_agent_type (somente se is_security_force=true):
+  PM | PC | PF | PRF | penal | outro — null se is_security_force não for true
+- security_agent_on_duty (somente se is_security_force=true):
+  true = em serviço, patrulha ou operação; false = folga, fora de expediente ou à paisana;
+  null = texto não informa
+- Use estes campos tipados; NÃO deixe corporação ou folga apenas em occupation/description
+- NÃO confundir: intervencao_policial = policiais como autores do óbito; vítima policial
+  usa is_security_force + security_agent_* na vítima, event_subtype segue a dinâmica do crime
+- Grupos não identificados: use is_security_force em unidentified_groups; type/on_duty só
+  em identifiable_victims ou identifiable_perpetrators quando houver indivíduo descrito
 
 SOBRE TÍTULOS:
 - Se não há data completa verificada, use "DATA NÃO INFORMADA" no título
@@ -489,6 +522,7 @@ async def extract_source(source_id: int) -> RawEvent | None:
         return None
 
     security_force_involved = derive_security_force_involved(event)
+    security_force_victim = derive_security_force_victim(event)
 
     event_data = event.model_dump()
 
@@ -516,6 +550,7 @@ async def extract_source(source_id: int) -> RawEvent | None:
             identified_victim_count=event.victims.number_of_identifiable_victims,
             perpetrator_count=event.perpetrators.number_of_perpetrators if event.perpetrators else None,
             security_force_involved=security_force_involved,
+            security_force_victim=security_force_victim,
             event_family=event.event_family,
             event_subtype=event.event_subtype,
             homicide_type=format_legacy_homicide_type(event.event_family, event.event_subtype),

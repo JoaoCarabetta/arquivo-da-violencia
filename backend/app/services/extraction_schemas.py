@@ -16,6 +16,8 @@ from app.taxonomy import (
 # Re-export for callers that imported from here previously.
 HomicideType = str  # deprecated: use event_family + event_subtype
 
+SecurityAgentType = Literal["PM", "PC", "PF", "PRF", "penal", "outro"]
+
 
 # ---- Classes for Structured Extraction ----
 
@@ -67,6 +69,22 @@ class IdentifiablePerpetrator(BaseModel):
     is_security_force: Optional[bool] = Field(
         None,
         description="Indica se o autor é integrante das forças de segurança pública (Ex: policial militar, policial civil, etc.). True se for, False se não for, None se não mencionado.",
+    )
+    security_agent_type: Optional[SecurityAgentType] = Field(
+        None,
+        description=(
+            "Corpo policial do autor, somente se is_security_force=true. "
+            "PM=Polícia Militar ou guarda municipal equivalente; PC=Polícia Civil; "
+            "PF=Polícia Federal; PRF=Polícia Rodoviária Federal; penal=policial penal; "
+            "outro=outro órgão de segurança. Null se is_security_force não for true."
+        ),
+    )
+    security_agent_on_duty: Optional[bool] = Field(
+        None,
+        description=(
+            "Somente se is_security_force=true: true=em serviço, patrulha ou operação; "
+            "false=folga, fora de expediente ou à paisana; null=texto não informa."
+        ),
     )
     description: Optional[str] = Field(
         None, description="Descrição física ou características do autor mencionadas"
@@ -134,6 +152,22 @@ class IdentifiableVictim(BaseModel):
     is_security_force: Optional[bool] = Field(
         None,
         description="Indica se a vítima é integrante das forças de segurança pública (Ex: policial militar, policial civil, guarda municipal, etc.). True se for, False se não for, None se não mencionado.",
+    )
+    security_agent_type: Optional[SecurityAgentType] = Field(
+        None,
+        description=(
+            "Corpo policial da vítima, somente se is_security_force=true. "
+            "PM=Polícia Militar ou guarda municipal equivalente; PC=Polícia Civil; "
+            "PF=Polícia Federal; PRF=Polícia Rodoviária Federal; penal=policial penal; "
+            "outro=outro órgão de segurança. Null se is_security_force não for true."
+        ),
+    )
+    security_agent_on_duty: Optional[bool] = Field(
+        None,
+        description=(
+            "Somente se is_security_force=true: true=em serviço, patrulha ou operação; "
+            "false=folga, fora de expediente ou à paisana; null=texto não informa."
+        ),
     )
     description: Optional[str] = Field(
         None, description="Descrição física ou características mencionadas"

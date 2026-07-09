@@ -4,7 +4,7 @@
     "version": 1,
     "source_db": null,
     "seed": null,
-    "labeled_count": 21,
+    "labeled_count": 22,
     "pending_count": 0,
     "generator_model": "gemini-2.5-pro"
   },
@@ -1138,6 +1138,59 @@
           "homicide_dynamic.method",
           "content_class"
         ]
+      }
+    },
+    {
+      "id": "ext-security-agent-off-duty",
+      "tags": [
+        "security_agent",
+        "victim",
+        "off_duty"
+      ],
+      "label_status": "labeled",
+      "input": {
+        "content": "Um policial civil foi assassinado a tiros na noite desta sexta-feira, em Copacabana, na Zona Sul do Rio de Janeiro. Segundo a Polícia Civil, a vítima saía de um restaurante com a família quando foi abordada por criminosos armados. Testemunhas disseram que ele estava de folga e vestia roupas civis. O agente, lotado na Delegacia de Copacabana, foi atingido por disparos e morreu antes da chegada do socorro. Os autores fugiram em um carro. O caso será investigado pela Delegacia de Homicídios da Capital (DH).",
+        "metadata": {
+          "headline": "Policial civil é morto a tiros em Copacabana",
+          "published_at": "2025-03-14T09:00:00Z",
+          "publisher": "O Globo",
+          "url": "https://oglobo.globo.com/rio/policial-civil-morto-copacabana"
+        }
+      },
+      "expected": {
+        "event_family": "homicidio",
+        "event_subtype": "simples",
+        "content_class": "incident",
+        "location_info": {
+          "city": "Rio de Janeiro",
+          "state": "RJ",
+          "neighborhood": "Copacabana"
+        },
+        "victims": {
+          "identifiable_victims": [
+            {
+              "is_security_force": true,
+              "security_agent_type": "PC",
+              "security_agent_on_duty": false
+            }
+          ],
+          "number_of_victims": 1
+        }
+      },
+      "scoring": {
+        "required_fields": [
+          "event_subtype",
+          "content_class",
+          "location_info.city",
+          "location_info.state",
+          "victims.identifiable_victims.0.is_security_force",
+          "victims.identifiable_victims.0.security_agent_type",
+          "victims.identifiable_victims.0.security_agent_on_duty"
+        ]
+      },
+      "metadata": {
+        "source_id": null,
+        "notes": "Off-duty civil police victim — security_agent_* on identifiable victim, not a subtype."
       }
     }
   ]

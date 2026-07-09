@@ -131,3 +131,24 @@ def test_derive_security_force_returns_false_when_explicitly_civilian():
     event = _minimal_event()
     event.victims.identifiable_victims[0].is_security_force = False
     assert derive_security_force_involved(event) is False
+
+
+def test_identifiable_victim_security_agent_fields():
+    victim = IdentifiableVictim(
+        name="Agente",
+        is_security_force=True,
+        security_agent_type="PC",
+        security_agent_on_duty=False,
+    )
+    assert victim.security_agent_type == "PC"
+    assert victim.security_agent_on_duty is False
+
+
+def test_identifiable_victim_security_agent_type_requires_force_flag_semantics():
+    victim = IdentifiableVictim(
+        is_security_force=False,
+        security_agent_type=None,
+        security_agent_on_duty=None,
+    )
+    assert victim.security_agent_type is None
+    assert victim.security_agent_on_duty is None
