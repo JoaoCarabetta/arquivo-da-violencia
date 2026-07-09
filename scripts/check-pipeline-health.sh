@@ -335,7 +335,11 @@ tier_a_restart_worker() {
     done
     filtered=()
     for f in "${FAILURES[@]}"; do
+        # Docker health can lag Redis heartbeat after restart; drop both so
+        # --notify does not re-fire the Cursor webhook while the container
+        # is still "starting".
         [[ "$f" == worker_heartbeat_missing* ]] && continue
+        [[ "$f" == worker_container_unhealthy* ]] && continue
         filtered+=("$f")
     done
     FAILURES=("${filtered[@]}")
@@ -376,12 +380,14 @@ if [ "$REMEDIATE" = true ]; then
     elif [ "$had_queue_jam" = true ]; then
         tier_a_clear_arq_queue || true
     fi
-    # Prefer classify when ingest recently started (or queue was jammed with
-    # ready backlog). Otherwise kick a full cities pipeline when cron/ingest
-    # has gone quiet — including backlog_active_but_no_recent_ingest.
+    # Classify for queue jam / active backlog. Separately enqueue full pipeline
+    # when ingest has gone quiet — do not use elif here: queue_jam +
+    # no_recent_pipeline_run used to only classify, leaving the ingest failure
+    # uncleared so --notify re-fired the webhook remediation loop.
     if [ "$had_queue_jam" = true ] || { [ "$had_no_pipeline" = true ] && [ "$had_recent_ingest" = true ]; }; then
         tier_a_enqueue_classify || true
-    elif [ "$had_no_pipeline" = true ] || [ "$had_stale_ingest" = true ]; then
+    fi
+    if { [ "$had_no_pipeline" = true ] && [ "$had_recent_ingest" = false ]; } || [ "$had_stale_ingest" = true ]; then
         tier_a_enqueue_pipeline || true
     fi
     if [ "$had_stuck" = true ]; then
