@@ -321,13 +321,49 @@ tier_a_restart_worker() {
         return 1
     fi
     DETAILS+=("REMEDIATE: worker_restarted")
-    filtered=()
-    for f in "${FAILURES[@]}"; do
-        [[ "$f" == worker_heartbeat_missing* ]] && continue
-        filtered+=("$f")
+    # Give ARQ time to rewrite the Redis heartbeat key before clearing the failure.
+    local hb=""
+    local i
+    for i in 1 2 3 4 5 6; do
+        sleep 5
+        hb="$(docker compose $COMPOSE_PROD exec -T redis redis-cli GET "$REDIS_HEALTH_KEY" 2>/dev/null | tr -d '\r' || true)"
+        if [ -n "$hb" ] && [ "$hb" != "(nil)" ]; then
+            DETAILS+=("OK: worker_heartbeat_after_restart")
+            filtered=()
+            for f in "${FAILURES[@]}"; do
+                [[ "$f" == worker_heartbeat_missing* ]] && continue
+                filtered+=("$f")
+            done
+            FAILURES=("${filtered[@]}")
+            return 0
+        fi
     done
-    FAILURES=("${filtered[@]}")
-    return 0
+    DETAILS+=("FAIL: worker_heartbeat_still_missing_after_restart")
+    return 1
+}
+
+REMEDIATE_LOCK_KEY="${PIPELINE_HEALTH_REMEDIATE_LOCK_KEY:-arquivo:pipeline:remediate-lock}"
+REMEDIATE_LOCK_TTL_SECONDS="${PIPELINE_HEALTH_REMEDIATE_LOCK_TTL_SECONDS:-180}"
+REMEDIATE_LOCK_HELD=false
+
+tier_a_acquire_remediate_lock() {
+    local got
+    got="$(docker compose $COMPOSE_PROD exec -T redis redis-cli SET "$REMEDIATE_LOCK_KEY" "$(hostname -s)-$$" NX EX "$REMEDIATE_LOCK_TTL_SECONDS" 2>/dev/null | tr -d '\r' || true)"
+    if [ "$got" = "OK" ]; then
+        REMEDIATE_LOCK_HELD=true
+        DETAILS+=("REMEDIATE: lock_acquired(ttl=${REMEDIATE_LOCK_TTL_SECONDS}s)")
+        return 0
+    fi
+    DETAILS+=("REMEDIATE: skipped_lock_held")
+    return 1
+}
+
+tier_a_release_remediate_lock() {
+    if [ "$REMEDIATE_LOCK_HELD" != true ]; then
+        return 0
+    fi
+    docker compose $COMPOSE_PROD exec -T redis redis-cli DEL "$REMEDIATE_LOCK_KEY" >/dev/null 2>&1 || true
+    REMEDIATE_LOCK_HELD=false
 }
 
 if [ "$REMEDIATE" = true ]; then
@@ -352,18 +388,25 @@ if [ "$REMEDIATE" = true ]; then
             had_recent_ingest=true
         fi
     done
-    if [ "$had_no_heartbeat" = true ] || [ "$had_queue_jam" = true ]; then
-        tier_a_restart_worker || true
-        tier_a_clear_arq_queue || true
-    fi
-    if [ "$had_queue_jam" = true ] || { [ "$had_no_pipeline" = true ] && [ "$had_recent_ingest" = true ]; }; then
-        tier_a_enqueue_classify || true
-    elif [ "$had_no_pipeline" = true ]; then
-        tier_a_enqueue_pipeline || true
-    fi
-    if [ "$had_stuck" = true ]; then
-        echo_step "🔧 Tier-A: resetting stuck transient source statuses..."
-        if ! psql_prod "
+    if [ "$had_stuck" = true ] || [ "$had_no_pipeline" = true ] || [ "$had_no_heartbeat" = true ] || [ "$had_queue_jam" = true ]; then
+        if ! tier_a_acquire_remediate_lock; then
+            record_warning "remediate_skipped_concurrent"
+        else
+            if [ "$had_no_heartbeat" = true ] || [ "$had_queue_jam" = true ]; then
+                tier_a_restart_worker || true
+                tier_a_clear_arq_queue || true
+            fi
+            # Queue jam usually means stranded classify/download jobs; also re-enqueue the
+            # cities pipeline when the hourly run is overdue so remediate clears both.
+            if [ "$had_queue_jam" = true ] || { [ "$had_no_pipeline" = true ] && [ "$had_recent_ingest" = true ]; }; then
+                tier_a_enqueue_classify || true
+            fi
+            if [ "$had_no_pipeline" = true ]; then
+                tier_a_enqueue_pipeline || true
+            fi
+            if [ "$had_stuck" = true ]; then
+                echo_step "🔧 Tier-A: resetting stuck transient source statuses..."
+                if ! psql_prod "
 UPDATE source_google_news
 SET status = CASE status
     WHEN 'classifying' THEN 'ready_for_classification'
@@ -375,24 +418,27 @@ updated_at = CURRENT_TIMESTAMP
 WHERE status IN ('classifying', 'downloading', 'extracting')
   AND updated_at < now() - interval '${STUCK_SOURCE_MINUTES} minutes';
 " >/dev/null 2>&1; then
-            record_failure "remediate_stuck_sources_failed"
-        else
-            stuck_after="$(psql_prod "
+                    record_failure "remediate_stuck_sources_failed"
+                else
+                    stuck_after="$(psql_prod "
 SELECT COUNT(*)
 FROM source_google_news
 WHERE status IN ('classifying', 'downloading', 'extracting')
   AND updated_at < now() - interval '${STUCK_SOURCE_MINUTES} minutes';
 " 2>/dev/null || echo "error")"
-            DETAILS+=("REMEDIATE: stuck_sources_remaining=${stuck_after}")
-            if [ "$stuck_after" = "0" ]; then
-                filtered=()
-                for f in "${FAILURES[@]}"; do
-                    [[ "$f" == stuck_sources* ]] && continue
-                    filtered+=("$f")
-                done
-                FAILURES=("${filtered[@]}")
-                DETAILS+=("OK: stuck_sources_after_remediate")
+                    DETAILS+=("REMEDIATE: stuck_sources_remaining=${stuck_after}")
+                    if [ "$stuck_after" = "0" ]; then
+                        filtered=()
+                        for f in "${FAILURES[@]}"; do
+                            [[ "$f" == stuck_sources* ]] && continue
+                            filtered+=("$f")
+                        done
+                        FAILURES=("${filtered[@]}")
+                        DETAILS+=("OK: stuck_sources_after_remediate")
+                    fi
+                fi
             fi
+            tier_a_release_remediate_lock
         fi
     fi
 fi
@@ -511,7 +557,11 @@ Failures: $(IFS=, ; echo "${FAILURES[*]}")"
 Warnings: $(IFS=, ; echo "${WARNINGS[*]}")"
     fi
     send_telegram "$summary"
-    if ! send_webhook "$(python3 - <<PY
+    # Skip Cursor webhook during --remediate to avoid agent/dispatch cascades that
+    # repeatedly restart the worker while it is still coming up.
+    if [ "$REMEDIATE" = true ]; then
+        DETAILS+=("INFO: webhook_skipped_during_remediate")
+    elif ! send_webhook "$(python3 - <<PY
 import json
 print(json.dumps({
     "status": "unhealthy",
