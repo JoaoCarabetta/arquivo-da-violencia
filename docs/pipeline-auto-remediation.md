@@ -85,7 +85,8 @@ full alert rule reference.
 | `curl localhost:8000/health` | API down |
 | `arquivo-worker` Docker health | Worker container unhealthy |
 | Redis key `arq:queue:health-check` | Worker process not heartbeating |
-| Recent `CITIES_PIPELINE` in worker logs (100 min) | Hourly cron did not run (when cron enabled) |
+| Recent `CITIES_PIPELINE` / ingest start in worker logs (100 min) | Hourly cron did not run (when cron enabled) |
+| `backlog_active_but_no_recent_ingest` | Worker is processing (or has active sources) but no ingest *start* log in-window — usually after a restart mid-backlog |
 | Stuck `classifying` / `downloading` / `extracting` > 15 min | Worker crashed mid-batch |
 | Classification `errors > 0` in last 2 h logs | Usually Postgres dialect / boolean bug |
 | `Maintenance step failed` / `ProgrammingError` in logs | SQL not portable to Postgres |
@@ -98,25 +99,26 @@ full alert rule reference.
 Allowed without a PR:
 
 ```bash
-# Reset stranded transient statuses
+# Preferred: script maps failures → actions
+# - worker_heartbeat_missing / arq_queue_jammed → restart worker + clear locks
+# - no_recent_pipeline_run / backlog_active_but_no_recent_ingest → enqueue full pipeline
+# - stuck_sources → reset transient statuses
+# - arq_queue_jammed alone (ingest OK) → enqueue classify
 bash scripts/check-pipeline-health.sh --remediate
 
-# Re-enqueue classification / full pipeline
+# Manual equivalents if needed:
+docker compose -p prod restart worker
 docker compose -p prod exec -T api python - <<'PY'
 import asyncio
-from arq import create_pool
-from arq.connections import RedisSettings
+from app.tasks.worker import create_arq_pool
 
 async def main():
-    redis = await create_pool(RedisSettings(host="redis", port=6379))
-    await redis.enqueue_job("classify_pending_task", 200, 10)
+    redis = await create_arq_pool()
     await redis.enqueue_job("ingest_cities_full_pipeline", None, "1h")
+    await redis.aclose()
 
 asyncio.run(main())
 PY
-
-# Restart worker if heartbeat missing (after deploy)
-docker compose -p prod restart worker
 ```
 
 ### Tier B — Code fix → PR to `develop`

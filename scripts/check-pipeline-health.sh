@@ -308,6 +308,7 @@ PY
     filtered=()
     for f in "${FAILURES[@]}"; do
         [[ "$f" == no_recent_pipeline_run* ]] && continue
+        [[ "$f" == backlog_active_but_no_recent_ingest* ]] && continue
         filtered+=("$f")
     done
     FAILURES=("${filtered[@]}")
@@ -335,11 +336,14 @@ if [ "$REMEDIATE" = true ]; then
     had_no_pipeline=false
     had_no_heartbeat=false
     had_queue_jam=false
-    had_recent_ingest=false
     for f in "${FAILURES[@]:-}"; do
         if [[ "$f" == stuck_sources* ]]; then
             had_stuck=true
-        elif [[ "$f" == no_recent_pipeline_run* ]]; then
+        elif [[ "$f" == no_recent_pipeline_run* ]] \
+            || [[ "$f" == backlog_active_but_no_recent_ingest* ]]; then
+            # Missing cron/manual ingest start — re-enqueue full pipeline.
+            # Includes the case where backlog work is still active after a worker
+            # restart but no CITIES_PIPELINE/INGEST start log exists in-window.
             had_no_pipeline=true
         elif [[ "$f" == worker_heartbeat_missing* ]]; then
             had_no_heartbeat=true
@@ -347,19 +351,17 @@ if [ "$REMEDIATE" = true ]; then
             had_queue_jam=true
         fi
     done
-    for d in "${DETAILS[@]:-}"; do
-        if [[ "$d" == OK:\ recent_ingest ]]; then
-            had_recent_ingest=true
-        fi
-    done
     if [ "$had_no_heartbeat" = true ] || [ "$had_queue_jam" = true ]; then
         tier_a_restart_worker || true
         tier_a_clear_arq_queue || true
     fi
-    if [ "$had_queue_jam" = true ] || { [ "$had_no_pipeline" = true ] && [ "$had_recent_ingest" = true ]; }; then
-        tier_a_enqueue_classify || true
-    elif [ "$had_no_pipeline" = true ]; then
+    # Prefer full pipeline when ingest is missing. Do not let a concurrent
+    # queue-jam failure short-circuit into classify-only (that left prod stuck
+    # on backlog_active_but_no_recent_ingest after worker restart).
+    if [ "$had_no_pipeline" = true ]; then
         tier_a_enqueue_pipeline || true
+    elif [ "$had_queue_jam" = true ]; then
+        tier_a_enqueue_classify || true
     fi
     if [ "$had_stuck" = true ]; then
         echo_step "🔧 Tier-A: resetting stuck transient source statuses..."
