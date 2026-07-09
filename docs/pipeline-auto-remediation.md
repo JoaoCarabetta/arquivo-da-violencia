@@ -86,7 +86,6 @@ full alert rule reference.
 | `arquivo-worker` Docker health | Worker container unhealthy |
 | Redis key `arq:queue:health-check` | Worker process not heartbeating |
 | Recent `CITIES_PIPELINE` in worker logs (100 min) | Hourly cron did not run (when cron enabled) |
-| Active sources but no ingest start log (100 min) | Backlog/classify running without hourly ingest (`backlog_active_but_no_recent_ingest`) |
 | Stuck `classifying` / `downloading` / `extracting` > 15 min | Worker crashed mid-batch |
 | Classification `errors > 0` in last 2 h logs | Usually Postgres dialect / boolean bug |
 | `Maintenance step failed` / `ProgrammingError` in logs | SQL not portable to Postgres |
@@ -99,28 +98,23 @@ full alert rule reference.
 Allowed without a PR:
 
 ```bash
-# Reset stranded transient statuses, clear jammed ARQ locks, restart worker,
-# and re-enqueue ingest/classify as needed (covers no_recent_pipeline_run,
-# backlog_active_but_no_recent_ingest, arq_queue_jammed, worker_heartbeat_missing)
+# Reset stranded transient statuses, clear ARQ locks, re-enqueue as needed
 bash scripts/check-pipeline-health.sh --remediate
 
-# Manual re-enqueue if the script is unavailable
-docker compose -p prod exec -T api python - <<'PY'
-import asyncio
-from arq import create_pool
-from arq.connections import RedisSettings
-
-async def main():
-    redis = await create_pool(RedisSettings(host="redis", port=6379))
-    await redis.enqueue_job("classify_pending_task", 200, 10)
-    await redis.enqueue_job("ingest_cities_full_pipeline", None, "1h")
-
-asyncio.run(main())
-PY
-
-# Restart worker if heartbeat missing (after deploy)
+# Restart worker ONLY if Redis heartbeat key is missing
 docker compose -p prod restart worker
 ```
+
+`--remediate` mapping:
+
+| Failure | Action |
+|---------|--------|
+| `worker_heartbeat_missing` | Restart worker, wait for heartbeat, clear ARQ locks |
+| `arq_queue_jammed` | Clear ARQ locks + enqueue `classify_pending_task` (no restart) |
+| `no_recent_pipeline_run` / `backlog_active_but_no_recent_ingest` | Enqueue `ingest_cities_full_pipeline` |
+| `stuck_sources` | Reset transient statuses |
+
+Do **not** restart the worker for queue jam alone — that clears the heartbeat and can cascade into WorkerDown / remediates thrashing.
 
 ### Tier B — Code fix → PR to `develop`
 

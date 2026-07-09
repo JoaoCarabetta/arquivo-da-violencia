@@ -322,6 +322,17 @@ tier_a_restart_worker() {
         return 1
     fi
     DETAILS+=("REMEDIATE: worker_restarted")
+    # Wait for Redis heartbeat so follow-up checks / concurrent remediates
+    # do not treat a graceful restart as another WorkerDown.
+    local i hb
+    for i in 1 2 3 4 5 6 7 8 9 10; do
+        sleep 3
+        hb="$(docker compose $COMPOSE_PROD exec -T redis redis-cli GET "$REDIS_HEALTH_KEY" 2>/dev/null | tr -d '\r' || true)"
+        if [ -n "$hb" ] && [ "$hb" != "(nil)" ]; then
+            DETAILS+=("OK: worker_heartbeat_after_restart")
+            break
+        fi
+    done
     filtered=()
     for f in "${FAILURES[@]}"; do
         [[ "$f" == worker_heartbeat_missing* ]] && continue
@@ -334,7 +345,7 @@ tier_a_restart_worker() {
 if [ "$REMEDIATE" = true ]; then
     had_stuck=false
     had_no_pipeline=false
-    had_backlog_no_ingest=false
+    had_stale_ingest=false
     had_no_heartbeat=false
     had_queue_jam=false
     had_recent_ingest=false
@@ -344,7 +355,7 @@ if [ "$REMEDIATE" = true ]; then
         elif [[ "$f" == no_recent_pipeline_run* ]]; then
             had_no_pipeline=true
         elif [[ "$f" == backlog_active_but_no_recent_ingest* ]]; then
-            had_backlog_no_ingest=true
+            had_stale_ingest=true
         elif [[ "$f" == worker_heartbeat_missing* ]]; then
             had_no_heartbeat=true
         elif [[ "$f" == arq_queue_jammed* ]]; then
@@ -356,19 +367,22 @@ if [ "$REMEDIATE" = true ]; then
             had_recent_ingest=true
         fi
     done
-    if [ "$had_no_heartbeat" = true ] || [ "$had_queue_jam" = true ]; then
+    # Restart ONLY when the Redis heartbeat is missing. Queue jam alone used to
+    # restart a healthy worker, which cleared the heartbeat and cascaded into
+    # WorkerDown / webhook remediates thrashing the container.
+    if [ "$had_no_heartbeat" = true ]; then
         tier_a_restart_worker || true
-        # Give the worker a moment to re-register heartbeat before enqueueing jobs.
-        sleep 5
+        tier_a_clear_arq_queue || true
+    elif [ "$had_queue_jam" = true ]; then
         tier_a_clear_arq_queue || true
     fi
-    # Missing ingest must always re-enqueue the full pipeline — even when a
-    # queue jam also triggered classify (classify alone never starts ingest).
-    if [ "$had_no_pipeline" = true ] || [ "$had_backlog_no_ingest" = true ]; then
-        tier_a_enqueue_pipeline || true
-    fi
+    # Prefer classify when ingest recently started (or queue was jammed with
+    # ready backlog). Otherwise kick a full cities pipeline when cron/ingest
+    # has gone quiet — including backlog_active_but_no_recent_ingest.
     if [ "$had_queue_jam" = true ] || { [ "$had_no_pipeline" = true ] && [ "$had_recent_ingest" = true ]; }; then
         tier_a_enqueue_classify || true
+    elif [ "$had_no_pipeline" = true ] || [ "$had_stale_ingest" = true ]; then
+        tier_a_enqueue_pipeline || true
     fi
     if [ "$had_stuck" = true ]; then
         echo_step "🔧 Tier-A: resetting stuck transient source statuses..."
@@ -521,7 +535,7 @@ Warnings: $(IFS=, ; echo "${WARNINGS[*]}")"
     fi
     send_telegram "$summary"
     # Skip Cursor webhook after --remediate to avoid agent↔remediate feedback loops.
-    # Telegram still notifies humans; scheduled checks without successful remediate still webhook.
+    # Telegram still notifies humans; scheduled checks without --remediate still webhook.
     if [ "$REMEDIATE" = true ]; then
         DETAILS+=("INFO: webhook_skipped_after_remediate")
     elif ! send_webhook "$(python3 - <<PY
