@@ -343,6 +343,14 @@ tier_a_restart_worker() {
 }
 
 if [ "$REMEDIATE" = true ]; then
+    # Prevent concurrent remediates (alert storms) from thrashing the worker.
+    REMEDIATE_LOCK_KEY="${PIPELINE_HEALTH_REMEDIATE_LOCK_KEY:-pipeline:health:remediate-lock}"
+    REMEDIATE_LOCK_TTL="${PIPELINE_HEALTH_REMEDIATE_LOCK_TTL:-180}"
+    lock_ok="$(docker compose $COMPOSE_PROD exec -T redis redis-cli SET "$REMEDIATE_LOCK_KEY" "$(hostname)-$$" NX EX "$REMEDIATE_LOCK_TTL" 2>/dev/null | tr -d '\r' || true)"
+    if [ "$lock_ok" != "OK" ]; then
+        DETAILS+=("SKIP: remediate_lock_held")
+        record_warning "remediate_skipped_lock_held"
+    else
     had_stuck=false
     had_no_pipeline=false
     had_backlog_no_ingest=false
@@ -417,6 +425,7 @@ WHERE status IN ('classifying', 'downloading', 'extracting')
             fi
         fi
     fi
+    fi  # remediate lock acquired
 fi
 
 # --- Notify -------------------------------------------------------------------

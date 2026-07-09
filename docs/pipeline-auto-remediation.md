@@ -103,7 +103,8 @@ Allowed without a PR:
 # only when heartbeat is missing (queue jam alone does not restart — that
 # cancels in-flight ingest), and re-enqueue ingest/classify as needed
 # (covers no_recent_pipeline_run, backlog_active_but_no_recent_ingest,
-# arq_queue_jammed, worker_heartbeat_missing)
+# arq_queue_jammed, worker_heartbeat_missing). Concurrent remediates share a
+# Redis lock (TTL 180s) so alert storms cannot thrash the worker.
 bash scripts/check-pipeline-health.sh --remediate
 
 # Manual re-enqueue if the script is unavailable
