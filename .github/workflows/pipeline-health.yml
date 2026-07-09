@@ -74,9 +74,16 @@ jobs:
             set -uo pipefail
             cd /root/arquivo-da-violencia
             export PIPELINE_HEALTH_WEBHOOK_AUTH="${{ secrets.CURSOR_AUTOMATION_TOKEN }}"
-            ARGS="--notify --json"
+            ARGS="--json"
             EVENT="${{ github.event_name }}"
             DISPATCH_ACTION="${{ github.event.action }}"
+            # Notify only on schedule / manual runs. repository_dispatch is
+            # already driven by the Cursor agent webhook — re-notifying creates
+            # an agent → remediate → notify → agent feedback loop.
+            if [ "$EVENT" = "schedule" ] \
+              || [ "$EVENT" = "workflow_dispatch" ]; then
+              ARGS="$ARGS --notify"
+            fi
             # Tier-A auto-remediation: safe for scheduled checks and on-demand dispatch.
             if [ "$EVENT" = "schedule" ] \
               || { [ "$EVENT" = "repository_dispatch" ] && [ "$DISPATCH_ACTION" = "pipeline-remediate" ]; } \

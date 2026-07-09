@@ -111,10 +111,12 @@ docker compose -p prod restart worker
 |---------|--------|
 | `worker_heartbeat_missing` | Restart worker, wait for heartbeat, clear ARQ locks |
 | `arq_queue_jammed` | Clear ARQ locks + enqueue `classify_pending_task` (no restart) |
-| `no_recent_pipeline_run` / `backlog_active_but_no_recent_ingest` | Enqueue `ingest_cities_full_pipeline` |
+| `no_recent_pipeline_run` / `backlog_active_but_no_recent_ingest` | Enqueue `ingest_cities_full_pipeline` (always, even if queue is also jammed) |
 | `stuck_sources` | Reset transient statuses |
 
 Do **not** restart the worker for queue jam alone — that clears the heartbeat and can cascade into WorkerDown / remediates thrashing.
+
+`repository_dispatch` (`pipeline-remediate` / `pipeline-diagnose`) runs **without** `--notify` so a still-unhealthy post-remediate check cannot re-fire the Cursor webhook and spawn another agent storm. Scheduled / `workflow_dispatch` checks still notify.
 
 ### Tier B — Code fix → PR to `develop`
 
@@ -189,9 +191,9 @@ Environment variables (optional, in VPS `.env`):
 | `PIPELINE_HEALTH_READY_BACKLOG_WARN` | 1500 | Warn when backlog exceeds this |
 | `PIPELINE_HEALTH_WEBHOOK_URL` | — | POST JSON alert on failure |
 
-Scheduled checks and `repository_dispatch` type `pipeline-remediate` run
-`--remediate` automatically (Tier-A: re-enqueue pipeline, restart worker,
-reset stuck sources). Cloud agents without VPS SSH can trigger remediation via:
+Scheduled checks run `--remediate --notify`. `repository_dispatch` type
+`pipeline-remediate` runs `--remediate` only (no webhook notify). Cloud agents
+without VPS SSH can trigger remediation via:
 
 ```bash
 gh api repos/JoaoCarabetta/arquivo-da-violencia/dispatches -f event_type=pipeline-remediate
