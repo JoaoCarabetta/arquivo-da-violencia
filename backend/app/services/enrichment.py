@@ -1081,7 +1081,7 @@ async def create_unique_event_from_cluster(cluster: list[RawEvent]) -> UniqueEve
                     event_family, event_subtype, homicide_type, method_of_death, event_date, date_precision, time_of_day,
                     country, state, city, neighborhood, street, establishment, full_location_description,
                     victim_count, identified_victim_count, victims_summary,
-                    perpetrator_count, security_force_involved,
+                    perpetrator_count, security_force_involved, security_force_victim,
                     title, chronological_description, additional_context,
                     merged_data, source_count, content_class, confirmed, needs_enrichment,
                     created_at, updated_at
@@ -1089,7 +1089,7 @@ async def create_unique_event_from_cluster(cluster: list[RawEvent]) -> UniqueEve
                     :event_family, :event_subtype, :homicide_type, :method_of_death, :event_date, :date_precision, :time_of_day,
                     :country, :state, :city, :neighborhood, :street, :establishment, :full_location_description,
                     :victim_count, :identified_victim_count, :victims_summary,
-                    :perpetrator_count, :security_force_involved,
+                    :perpetrator_count, :security_force_involved, :security_force_victim,
                     :title, :chronological_description, :additional_context,
                     :merged_data, :source_count, :content_class, false, true,
                     CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
@@ -1116,6 +1116,7 @@ async def create_unique_event_from_cluster(cluster: list[RawEvent]) -> UniqueEve
                 "victims_summary": victims_summary,
                 "perpetrator_count": best.perpetrator_count,
                 "security_force_involved": best.security_force_involved,
+                "security_force_victim": best.security_force_victim,
                 "title": best.title,
                 "chronological_description": best.chronological_description,
                 "additional_context": best.extraction_data.get("additional_context") if best.extraction_data else None,
@@ -1219,6 +1220,7 @@ async def process_single_raw_event(raw_event_id: int) -> dict:
             identified_victim_count=row.identified_victim_count,
             perpetrator_count=row.perpetrator_count,
             security_force_involved=row.security_force_involved,
+            security_force_victim=getattr(row, "security_force_victim", None),
             created_at=row.created_at,
         )
     
@@ -1331,6 +1333,7 @@ async def process_pending_deduplication(limit: int = 200) -> dict:
             identified_victim_count=row.identified_victim_count,
             perpetrator_count=row.perpetrator_count,
             security_force_involved=row.security_force_involved,
+            security_force_victim=getattr(row, "security_force_victim", None),
             method_of_death=row.method_of_death,
             date_precision=row.date_precision,
             time_of_day=row.time_of_day,

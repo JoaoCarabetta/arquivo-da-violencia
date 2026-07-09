@@ -2,7 +2,7 @@ import { memo, useEffect, useRef, useState } from 'react';
 import { ChevronDown, X } from 'lucide-react';
 import { useI18n } from '@/contexts/I18nContext';
 import { translateMethod, translatePeriod } from '@/lib/i18n';
-import { formatSubtype, type HomicideSubtype } from '@/lib/taxonomy';
+import { formatTypeStatLabel } from '@/lib/taxonomy';
 import { cn } from '@/lib/utils';
 import {
   dateRangeForLastDays,
@@ -148,7 +148,7 @@ export const MapFilterBar = memo(function MapFilterBar(props: MapFilterBarProps)
   const activeChips: { key: string; label: string; onRemove: () => void }[] = [
     ...props.filters.types.map((v) => ({
       key: `t-${v}`,
-      label: formatSubtype(v as HomicideSubtype, lang),
+      label: formatTypeStatLabel(v, lang),
       onRemove: () => props.onToggleFilter('types', v),
     })),
     ...props.filters.methods.map((v) => ({
@@ -287,7 +287,7 @@ export const MapFilterBar = memo(function MapFilterBar(props: MapFilterBarProps)
           }}
         >
           {openMenu === 'types' &&
-            renderOptions('types', props.availableTypes, (v) => formatSubtype(v as HomicideSubtype, lang))}
+            renderOptions('types', props.availableTypes, (v) => formatTypeStatLabel(v, lang))}
           {openMenu === 'methods' &&
             renderOptions('methods', props.availableMethods, (v) => translateMethod(v, lang))}
           {openMenu === 'periods' &&

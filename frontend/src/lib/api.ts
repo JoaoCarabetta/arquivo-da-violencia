@@ -255,6 +255,8 @@ export interface MapPoint {
   d: string | null;
   v: number | null;
   s: boolean | null;
+  /** security_force_victim — any victim flagged is_security_force */
+  sv?: boolean | null;
   c: string | null;
   n: string | null;
   st: string | null;

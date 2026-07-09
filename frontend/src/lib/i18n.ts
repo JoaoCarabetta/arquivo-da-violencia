@@ -2,7 +2,7 @@
  * Bilingual (PT/EN) strings and value translators for the public portal.
  */
 
-import { formatSubtype, isHomicideSubtype, legacyLabelToSubtype, subtypeColor } from '@/lib/taxonomy';
+import { formatSubtype, formatTypeStatLabel, isHomicideSubtype, legacyLabelToSubtype, subtypeColor, typeStatColor } from '@/lib/taxonomy';
 
 export type Lang = 'pt' | 'en';
 
@@ -379,7 +379,8 @@ function titleCasePt(value: string): string {
 
 export function translateType(value: string | null | undefined, lang: Lang): string {
   if (!value) return lang === 'pt' ? 'Não classificado' : 'Unclassified';
-  if (isHomicideSubtype(value)) return formatSubtype(value, lang);
+  const labeled = formatTypeStatLabel(value, lang);
+  if (labeled !== value) return labeled;
   const mapped = legacyLabelToSubtype(value);
   if (mapped) return formatSubtype(mapped, lang);
   if (lang === 'en') return TYPE_EN[value] ?? value;
@@ -419,10 +420,11 @@ export function translateLocationPrecision(value: string | null | undefined, lan
   return map[key] ?? value;
 }
 
-/** Color for a homicide subtype slug or legacy label. */
+/** Color for a homicide subtype slug, security-force-victim key, or legacy label. */
 export function typeColor(value: string | null | undefined): string {
   if (!value) return 'var(--stone-500)';
-  if (isHomicideSubtype(value)) return subtypeColor(value);
+  const fromKey = typeStatColor(value);
+  if (fromKey !== 'var(--stone-500)' || isHomicideSubtype(value)) return fromKey;
   const mapped = legacyLabelToSubtype(value);
   if (mapped) return subtypeColor(mapped);
   const v = value.toLowerCase();

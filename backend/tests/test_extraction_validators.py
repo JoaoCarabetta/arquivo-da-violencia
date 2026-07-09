@@ -3,7 +3,10 @@
 import pytest
 from pydantic import ValidationError
 
-from app.services.extraction import derive_security_force_involved
+from app.services.extraction import (
+    derive_security_force_involved,
+    derive_security_force_victim,
+)
 from app.services.extraction_schemas import (
     DateTime,
     DateVerification,
@@ -131,6 +134,38 @@ def test_derive_security_force_returns_false_when_explicitly_civilian():
     event = _minimal_event()
     event.victims.identifiable_victims[0].is_security_force = False
     assert derive_security_force_involved(event) is False
+
+
+def test_derive_security_force_victim_from_identifiable_victim():
+    event = _minimal_event()
+    event.victims.identifiable_victims[0].is_security_force = True
+    assert derive_security_force_victim(event) is True
+
+
+def test_derive_security_force_victim_ignores_perpetrator_only():
+    event = _minimal_event()
+    event.perpetrators = Perpetrators(
+        identifiable_perpetrators=[
+            IdentifiablePerpetrator(name="PM", is_security_force=True)
+        ],
+        number_of_identifiable_perpetrators=1,
+        number_of_perpetrators=1,
+    )
+    assert derive_security_force_involved(event) is True
+    assert derive_security_force_victim(event) is None
+
+
+def test_derive_security_force_victim_from_unidentified_group():
+    event = _minimal_event(
+        identifiable_victims=[],
+        number_of_identifiable_victims=0,
+        unidentified_groups=[
+            UnidentifiedVictimGroup(count=2, description="policiais", is_security_force=True)
+        ],
+        number_of_unidentified_victims=2,
+        number_of_victims=2,
+    )
+    assert derive_security_force_victim(event) is True
 
 
 def test_identifiable_victim_security_agent_fields():

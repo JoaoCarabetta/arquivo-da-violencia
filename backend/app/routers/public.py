@@ -655,7 +655,7 @@ async def get_map_points(
 
     Keys: id, lat, lng, f=event_family, su=event_subtype, t=homicide_type (legacy),
     m=method_of_death, d=event_date (ISO), v=victim_count, s=security_force_involved,
-    c=city, n=neighborhood, st=state, p=time_of_day.
+    sv=security_force_victim, c=city, n=neighborhood, st=state, p=time_of_day.
 
     Defaults to the last 365 days. No sort — order is undefined (cheaper for map tiles).
     """
@@ -672,6 +672,7 @@ async def get_map_points(
             UniqueEvent.event_date,
             UniqueEvent.victim_count,
             UniqueEvent.security_force_involved,
+            UniqueEvent.security_force_victim,
             UniqueEvent.city,
             UniqueEvent.neighborhood,
             UniqueEvent.state,
@@ -721,6 +722,7 @@ async def get_map_points(
             "d": r.event_date.isoformat() if r.event_date else None,
             "v": r.victim_count,
             "s": r.security_force_involved,
+            "sv": r.security_force_victim,
             "c": r.city,
             "n": r.neighborhood,
             "st": r.state,

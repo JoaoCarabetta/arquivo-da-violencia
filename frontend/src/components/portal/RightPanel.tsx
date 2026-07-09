@@ -24,8 +24,9 @@ import {
 import {
   formatPointLabel,
   formatSubtype,
+  formatTypeStatLabel,
   pointSubtype,
-  type HomicideSubtype,
+  type TypeStatKey,
 } from '@/lib/taxonomy';
 import type { MapBounds } from '@/components/map/CrimeMap';
 import { EventDetailView } from '@/components/portal/EventDetailView';
@@ -514,7 +515,7 @@ function StatsMode(props: RightPanelProps) {
   const typeMax = Math.max(1, ...Object.values(typeStats.bySubtype));
   const typeRows = Object.entries(typeStats.bySubtype)
     .sort((a, b) => b[1] - a[1])
-    .map(([subtype, count]) => ({ subtype: subtype as HomicideSubtype, count }));
+    .map(([subtype, count]) => ({ subtype: subtype as TypeStatKey, count }));
 
   const methodMax = Math.max(1, ...Object.values(methodStats.byMethod));
   const methodRows = Object.entries(methodStats.byMethod)
@@ -646,7 +647,7 @@ function StatsMode(props: RightPanelProps) {
         {visibleTypeRows.map((r) => (
           <ClickableBarRow
             key={r.subtype}
-            label={formatSubtype(r.subtype, lang)}
+            label={formatTypeStatLabel(r.subtype, lang)}
             count={r.count}
             max={typeMax}
             barColor={FILTER_BAR_COLOR}
