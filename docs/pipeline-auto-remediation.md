@@ -116,6 +116,12 @@ docker compose -p prod restart worker
 
 Do **not** restart the worker for queue jam alone — that clears the heartbeat and can cascade into WorkerDown / remediates thrashing.
 
+**Notify loop guard:** `--remediate` skips the Cursor webhook (Telegram still fires).
+`repository_dispatch` remediate/diagnose runs omit `--notify` so agents do not
+re-dispatch themselves into a worker restart storm. Restart also respects a
+cooldown (`PIPELINE_HEALTH_RESTART_COOLDOWN_SECONDS`) and waits for Docker
+healthy + Redis heartbeat before returning.
+
 ### Tier B — Code fix → PR to `develop`
 
 When logs show application bugs (examples from Postgres migration):
@@ -187,7 +193,9 @@ Environment variables (optional, in VPS `.env`):
 | `PIPELINE_HEALTH_ACTIVITY_MINUTES` | 30 | Recent worker stage activity window |
 | `PIPELINE_HEALTH_STUCK_SOURCE_MINUTES` | 15 | Stuck transient status threshold |
 | `PIPELINE_HEALTH_READY_BACKLOG_WARN` | 1500 | Warn when backlog exceeds this |
-| `PIPELINE_HEALTH_WEBHOOK_URL` | — | POST JSON alert on failure |
+| `PIPELINE_HEALTH_RESTART_WAIT_SECONDS` | 90 | Wait after worker restart for healthy+heartbeat |
+| `PIPELINE_HEALTH_RESTART_COOLDOWN_SECONDS` | 120 | Skip restart if worker started more recently |
+| `PIPELINE_HEALTH_WEBHOOK_URL` | — | POST JSON alert on failure (skipped with `--remediate`) |
 
 Scheduled checks and `repository_dispatch` type `pipeline-remediate` run
 `--remediate` automatically (Tier-A: re-enqueue pipeline, restart worker,
