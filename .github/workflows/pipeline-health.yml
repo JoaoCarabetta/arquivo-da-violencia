@@ -32,6 +32,16 @@ on:
         required: false
         default: false
         type: boolean
+      silence_cursor_webhook:
+        description: 'Comment out PIPELINE_HEALTH_WEBHOOK_URL in VPS .env (break notify→agent loops)'
+        required: false
+        default: false
+        type: boolean
+      restore_cursor_webhook:
+        description: 'Uncomment PIPELINE_HEALTH_WEBHOOK_URL in VPS .env after a storm'
+        required: false
+        default: false
+        type: boolean
 
 concurrency:
   # Prevent parallel remediates from restart-thrashing the worker.
@@ -72,10 +82,34 @@ jobs:
           script: |
             set -uo pipefail
             cd /root/arquivo-da-violencia
+            if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.silence_cursor_webhook }}" = "true" ]; then
+              if [ -f .env ] && grep -q '^PIPELINE_HEALTH_WEBHOOK_URL=' .env; then
+                cp -a .env ".env.bak-webhook-$(date -u +%Y%m%dT%H%M%SZ)"
+                sed -i 's/^PIPELINE_HEALTH_WEBHOOK_URL=/#PIPELINE_HEALTH_WEBHOOK_URL=/' .env
+                echo "Silenced PIPELINE_HEALTH_WEBHOOK_URL in VPS .env"
+              else
+                echo "PIPELINE_HEALTH_WEBHOOK_URL already absent or commented"
+              fi
+            fi
+            if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.restore_cursor_webhook }}" = "true" ]; then
+              if [ -f .env ] && grep -q '^#PIPELINE_HEALTH_WEBHOOK_URL=' .env; then
+                sed -i 's/^#PIPELINE_HEALTH_WEBHOOK_URL=/PIPELINE_HEALTH_WEBHOOK_URL=/' .env
+                echo "Restored PIPELINE_HEALTH_WEBHOOK_URL in VPS .env"
+              else
+                echo "No commented PIPELINE_HEALTH_WEBHOOK_URL to restore"
+              fi
+            fi
             export PIPELINE_HEALTH_WEBHOOK_AUTH="${{ secrets.CURSOR_AUTOMATION_TOKEN }}"
-            ARGS="--notify --json"
+            ARGS="--json"
             EVENT="${{ github.event_name }}"
             DISPATCH_ACTION="${{ github.event.action }}"
+            # Notify (Telegram + Cursor webhook) only for schedule / manual paths.
+            # repository_dispatch remediate/diagnose must NOT --notify: agents that
+            # receive the webhook re-dispatch remediate and create a restart storm.
+            if [ "$EVENT" = "schedule" ] \
+              || [ "$EVENT" = "workflow_dispatch" ]; then
+              ARGS="$ARGS --notify"
+            fi
             # Tier-A auto-remediation: safe for scheduled checks and on-demand dispatch.
             if [ "$EVENT" = "schedule" ] \
               || { [ "$EVENT" = "repository_dispatch" ] && [ "$DISPATCH_ACTION" = "pipeline-remediate" ]; } \
@@ -89,27 +123,29 @@ jobs:
             bash scripts/check-pipeline-health.sh $ARGS
             HEALTH_EXIT=$?
             set -e
+            SHOULD_DIAGNOSE=false
+            if [ "$EVENT" = "workflow_dispatch" ] && [ "${{ inputs.diagnose }}" = "true" ]; then
+              SHOULD_DIAGNOSE=true
+            fi
+            if [ "$EVENT" = "repository_dispatch" ] && [ "$DISPATCH_ACTION" = "pipeline-diagnose" ]; then
+              SHOULD_DIAGNOSE=true
+            fi
+            if [ "$SHOULD_DIAGNOSE" = true ]; then
+              echo "=== Worker logs (last 2h, tail 150) ==="
+              docker logs arquivo-worker --since 2h 2>&1 | tail -150 || true
+              echo "=== API errors (last 2h) ==="
+              docker logs arquivo-api --since 2h 2>&1 | grep -i error | tail -30 || true
+              echo "=== pipeline_attempt failures (last 2h) ==="
+              docker compose -p prod exec -T postgres psql -U arquivo -d arquivo_prod -c "
+                SELECT stage, failure_reason, COUNT(*)
+                FROM pipeline_attempt
+                WHERE created_at > now() - interval '2 hours' AND outcome = 'failure'
+                GROUP BY 1,2 ORDER BY 3 DESC LIMIT 10;
+              " || true
+              echo "=== docker ps (arquivo) ==="
+              docker ps --filter name=arquivo --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}' || true
+            fi
             if [ "$HEALTH_EXIT" -ne 0 ]; then
-              SHOULD_DIAGNOSE=false
-              if [ "$EVENT" = "workflow_dispatch" ] && [ "${{ inputs.diagnose }}" = "true" ]; then
-                SHOULD_DIAGNOSE=true
-              fi
-              if [ "$EVENT" = "repository_dispatch" ] && [ "$DISPATCH_ACTION" = "pipeline-diagnose" ]; then
-                SHOULD_DIAGNOSE=true
-              fi
-              if [ "$SHOULD_DIAGNOSE" = true ]; then
-                echo "=== Worker logs (last 2h, tail 150) ==="
-                docker logs arquivo-worker --since 2h 2>&1 | tail -150 || true
-                echo "=== API errors (last 2h) ==="
-                docker logs arquivo-api --since 2h 2>&1 | grep -i error | tail -30 || true
-                echo "=== pipeline_attempt failures (last 2h) ==="
-                docker compose -p prod exec -T postgres psql -U arquivo -d arquivo_prod -c "
-                  SELECT stage, failure_reason, COUNT(*)
-                  FROM pipeline_attempt
-                  WHERE created_at > now() - interval '2 hours' AND outcome = 'failure'
-                  GROUP BY 1,2 ORDER BY 3 DESC LIMIT 10;
-                " || true
-              fi
               exit "$HEALTH_EXIT"
             fi
 

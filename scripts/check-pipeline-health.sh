@@ -315,30 +315,64 @@ PY
     return 0
 }
 
+tier_a_worker_recently_started() {
+    local started_epoch now age_s
+    started_epoch="$(docker inspect --format='{{.State.StartedAt}}' "$WORKER_CONTAINER" 2>/dev/null \
+        | python3 -c 'import sys,datetime; s=sys.stdin.read().strip();
+print(int(datetime.datetime.fromisoformat(s.replace("Z","+00:00")).timestamp()) if s else 0)' 2>/dev/null || echo 0)"
+    now="$(date -u +%s)"
+    age_s=$((now - started_epoch))
+    [ "$started_epoch" -gt 0 ] && [ "$age_s" -lt "${PIPELINE_HEALTH_RESTART_COOLDOWN_SECONDS:-120}" ]
+}
+
+tier_a_wait_for_worker() {
+    local max_wait="${PIPELINE_HEALTH_RESTART_WAIT_SECONDS:-90}"
+    local elapsed=0
+    local status heartbeat
+    echo_step "🔧 Tier-A: waiting up to ${max_wait}s for worker healthy + heartbeat..."
+    while [ "$elapsed" -lt "$max_wait" ]; do
+        status="$(docker inspect --format='{{.State.Health.Status}}' "$WORKER_CONTAINER" 2>/dev/null || echo missing)"
+        heartbeat="$(docker compose $COMPOSE_PROD exec -T redis redis-cli GET "$REDIS_HEALTH_KEY" 2>/dev/null | tr -d '\r' || true)"
+        if [ "$status" = "healthy" ] && [ -n "$heartbeat" ] && [ "$heartbeat" != "(nil)" ]; then
+            DETAILS+=("REMEDIATE: worker_ready_after_restart(${elapsed}s)")
+            filtered=()
+            for f in "${FAILURES[@]}"; do
+                [[ "$f" == worker_heartbeat_missing* ]] && continue
+                [[ "$f" == worker_container_unhealthy* ]] && continue
+                filtered+=("$f")
+            done
+            FAILURES=("${filtered[@]}")
+            return 0
+        fi
+        sleep 5
+        elapsed=$((elapsed + 5))
+    done
+    DETAILS+=("REMEDIATE: worker_not_ready_after_restart(${max_wait}s)")
+    return 1
+}
+
 tier_a_restart_worker() {
+    if tier_a_worker_recently_started; then
+        echo_step "🔧 Tier-A: skipping worker restart (started < cooldown ago)..."
+        DETAILS+=("REMEDIATE: worker_restart_skipped_cooldown")
+        tier_a_wait_for_worker || true
+        return 0
+    fi
     echo_step "🔧 Tier-A: restarting worker (heartbeat missing)..."
     if ! docker compose $COMPOSE_PROD restart worker >/dev/null 2>&1; then
         record_failure "remediate_restart_worker_failed"
         return 1
     fi
     DETAILS+=("REMEDIATE: worker_restarted")
-    # Wait for Redis heartbeat so follow-up checks / concurrent remediates
-    # do not treat a graceful restart as another WorkerDown.
-    local i hb
-    for i in 1 2 3 4 5 6 7 8 9 10; do
-        sleep 3
-        hb="$(docker compose $COMPOSE_PROD exec -T redis redis-cli GET "$REDIS_HEALTH_KEY" 2>/dev/null | tr -d '\r' || true)"
-        if [ -n "$hb" ] && [ "$hb" != "(nil)" ]; then
-            DETAILS+=("OK: worker_heartbeat_after_restart")
-            break
-        fi
-    done
     filtered=()
     for f in "${FAILURES[@]}"; do
         [[ "$f" == worker_heartbeat_missing* ]] && continue
         filtered+=("$f")
     done
     FAILURES=("${filtered[@]}")
+    # Wait for Docker healthy + Redis heartbeat so follow-up checks / concurrent
+    # remediates do not treat a graceful restart as another WorkerDown.
+    tier_a_wait_for_worker || true
     return 0
 }
 
@@ -534,7 +568,11 @@ Failures: $(IFS=, ; echo "${FAILURES[*]}")"
 Warnings: $(IFS=, ; echo "${WARNINGS[*]}")"
     fi
     send_telegram "$summary"
-    if ! send_webhook "$(python3 - <<PY
+    # Skip Cursor webhook when remediating: agents that receive the webhook often
+    # re-dispatch pipeline-remediate, which would notify again and thrash the worker.
+    if [ "$REMEDIATE" = true ]; then
+        DETAILS+=("INFO: webhook_skipped_during_remediate")
+    elif ! send_webhook "$(python3 - <<PY
 import json
 print(json.dumps({
     "status": "unhealthy",
