@@ -56,9 +56,18 @@ jobs:
             git checkout -f "$BRANCH"
             git reset --hard "origin/$BRANCH"
             export PIPELINE_HEALTH_WEBHOOK_AUTH="${{ secrets.CURSOR_AUTOMATION_TOKEN }}"
-            ARGS="--notify --json"
+            ARGS="--json"
             EVENT="${{ github.event_name }}"
             DISPATCH_ACTION="${{ github.event.action }}"
+            # Notify on schedule/remediate/manual checks — not on diagnose-only runs.
+            # Diagnose + --notify re-fires the Cursor webhook and can spawn agent storms.
+            if [ "$EVENT" = "schedule" ] \
+              || { [ "$EVENT" = "repository_dispatch" ] && [ "$DISPATCH_ACTION" = "pipeline-remediate" ]; } \
+              || [ "$EVENT" = "workflow_dispatch" ]; then
+              if ! { [ "$EVENT" = "workflow_dispatch" ] && [ "${{ inputs.diagnose }}" = "true" ] && [ "${{ inputs.remediate }}" != "true" ]; }; then
+                ARGS="$ARGS --notify"
+              fi
+            fi
             # Tier-A auto-remediation: safe for scheduled checks and on-demand dispatch.
             if [ "$EVENT" = "schedule" ] \
               || { [ "$EVENT" = "repository_dispatch" ] && [ "$DISPATCH_ACTION" = "pipeline-remediate" ]; } \

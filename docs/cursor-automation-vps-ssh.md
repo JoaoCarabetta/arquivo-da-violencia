@@ -81,6 +81,9 @@ the playbook below. Payload may include `"source": "prometheus-alertmanager"`.
 3. Tier A (no code) — map alert/failure to action:
    - stuck_sources / StuckSourcesCritical / StuckSourcesWarning:
      bash scripts/check-pipeline-health.sh --remediate
+   - backlog_active_but_no_recent_ingest / no_recent_pipeline_run:
+     bash scripts/check-pipeline-health.sh --remediate
+     (enqueues ingest_cities_hourly or ingest_cities_full_pipeline)
    - worker_heartbeat_missing / WorkerDown / HeartbeatMissesWarning:
      docker compose -p prod restart worker
    - arq_queue_jammed / QueueDepthCritical:
@@ -89,6 +92,7 @@ the playbook below. Payload may include `"source": "prometheus-alertmanager"`.
      df -h; docker system df; prune logs/images if safe
    - ApiScrapeDown / WorkerScrapeDown / ObservabilityScrapeDown:
      docker compose -p prod ps; check UFW and container health
+   Do not spam repository_dispatch while other agents are remediating.
 
 4. Tier B (code): branch fix/pipeline-<issue> from develop, minimal fix, PR to develop.
    Never push master directly. Follow AGENTS.md: develop → staging → master.

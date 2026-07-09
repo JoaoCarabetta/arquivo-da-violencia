@@ -85,7 +85,8 @@ full alert rule reference.
 | `curl localhost:8000/health` | API down |
 | `arquivo-worker` Docker health | Worker container unhealthy |
 | Redis key `arq:queue:health-check` | Worker process not heartbeating |
-| Recent `CITIES_PIPELINE` in worker logs (100 min) | Hourly cron did not run (when cron enabled) |
+| Recent ingest start logs within 100 min | Hourly ingest cron did not run (when cron enabled) |
+| Backlog activity without recent ingest start | `process_cities_backlog` (or classify) running, but `ingest_cities_hourly` missed |
 | Stuck `classifying` / `downloading` / `extracting` > 15 min | Worker crashed mid-batch |
 | Classification `errors > 0` in last 2 h logs | Usually Postgres dialect / boolean bug |
 | `Maintenance step failed` / `ProgrammingError` in logs | SQL not portable to Postgres |
@@ -98,10 +99,13 @@ full alert rule reference.
 Allowed without a PR:
 
 ```bash
-# Reset stranded transient statuses
+# Reset stranded transient statuses / re-enqueue missing ingest / restart worker
 bash scripts/check-pipeline-health.sh --remediate
 
-# Re-enqueue classification / full pipeline
+# Manual equivalents (script already does these when --remediate):
+# - backlog_active_but_no_recent_ingest → enqueue ingest_cities_hourly
+# - no_recent_pipeline_run → enqueue ingest_cities_full_pipeline
+# - worker_heartbeat_missing / arq_queue_jammed → restart worker + clear locks
 docker compose -p prod exec -T api python - <<'PY'
 import asyncio
 from arq import create_pool
@@ -109,8 +113,7 @@ from arq.connections import RedisSettings
 
 async def main():
     redis = await create_pool(RedisSettings(host="redis", port=6379))
-    await redis.enqueue_job("classify_pending_task", 200, 10)
-    await redis.enqueue_job("ingest_cities_full_pipeline", None, "1h")
+    await redis.enqueue_job("ingest_cities_hourly", None, "1h")
 
 asyncio.run(main())
 PY
