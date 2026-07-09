@@ -1,129 +1,177 @@
 ---
 name: extend-extraction-schema
 description: >-
-  Extends the Arquivo da Violência extraction JSON schema for homicide incidents:
-  decide if information already exists, add a new field built from existing
-  extraction, or add a new LLM-extracted field with correct JSON placement,
-  prompts, tests, and eval fixtures. Use when recording new facts about an
-  incident in ViolentDeathEvent / extraction_data. Not for portal UI or tasks
-  unrelated to recording homicide incidents in extraction.
+  Extends the Arquivo da Violência extraction schema: new Pydantic fields,
+  homicide dynamics (criminal group context, police operations), victim/perpetrator
+  attributes (political role, security agent), derived flat columns for CSV export
+  and portal UI, LLM prompts, tests, and eval fixtures. Use when adding extraction
+  fields, changing ViolentDeathEvent, or wiring new facts to export and frontend.
 ---
 
 # Extend Extraction Schema
 
 ## Scope
 
-This skill covers **recording new information about homicide incidents** in the extraction JSON (`ViolentDeathEvent` → `raw_event.extraction_data`).
+This skill covers **recording new information about homicide incidents** end-to-end:
 
-**In scope:** JSON shape in `extraction_schemas.py`, LLM prompt rules, population rules, unit tests, eval fixtures.
+| Layer | In scope |
+|-------|----------|
+| JSON shape | `ViolentDeathEvent` in `extraction_schemas.py` |
+| LLM + rules | Prompt in `extraction.py`, `derive_*()` population |
+| Persistence | `raw_event.extraction_data`, `unique_event.merged_data` |
+| Public surface | Flat columns, API, CSV export, frontend (when user wants portal/export) |
 
-**Wrong skill — tell the user and stop** if the request is not about recording homicide incidents in extraction (e.g. portal UI, map filters, dedup, classification pipeline, infrastructure, non-homicide content).
+**Wrong skill — tell the user and stop** if the request is unrelated (dedup logic, classification-only, infrastructure, non-homicide content).
 
-**Portal:** ask at the end whether the field should appear on the portal; do **not** change frontend files in this skill.
+---
+
+## Architecture — two layers, one derivation
+
+```
+LLM prompt (extraction.py)
+    → ViolentDeathEvent (extraction_schemas.py)
+    → derive_*() rules (optional, Step 3)
+    → derive_public_fields(event)  ← single function for flat surface
+    → raw_event.extraction_data (JSON, source of truth)
+    → unique_event.merged_data + flat columns (after dedup/enrichment)
+    → public API + CSV export + EventDetailView
+```
+
+**Rule:** CSV and frontend must read the **same flat columns** produced by `derive_public_fields()`. Never hand-maintain export columns separately from API fields.
+
+Full column list and file checklist → [reference.md](reference.md#public-surface--derive_public_fields)
 
 ---
 
 ## Workflow — run in order
 
-Copy this checklist and work through it **with the user** before writing code.
-
 ```
 Task progress:
-- [ ] 1. About recording homicide incidents in extraction? (if no → wrong skill)
+- [ ] 1. Recording homicide incidents in extraction? (if no → wrong skill)
 - [ ] 2. Already captured in extraction JSON?
-- [ ] 3. Can add a NEW field built from existing extraction? (preferred)
-- [ ] 4. Or needs new LLM extraction → new field + placement
-- [ ] 5. Prompt / population rule / eval / tests
-- [ ] 6. Ask: should this appear on the portal later? (no frontend work here)
+- [ ] 3. Gut checks — subtype vs victim/perp vs homicide_dynamic?
+- [ ] 4. Built field from existing extraction? (preferred)
+- [ ] 5. Or LLM-extracted field → placement + prompt
+- [ ] 6. derive_public_fields() + tests + eval
+- [ ] 7. Public surface (if user wants CSV / portal / filters)
 ```
 
 ### Step 1 — Right skill?
 
-Is the request about **recording new information about homicide incidents** in the extraction schema?
+Is the request about **recording new facts about homicide incidents**?
 
-→ **If no:** tell the user this is the **wrong skill** and stop. Common mismatches: portal or admin UI, map filters, export columns, dedup/enrichment, headline classification, database migrations unrelated to extraction JSON, or content outside violent-death homicide incidents.
+→ **If no:** wrong skill — stop.
 
-→ **If yes:** continue. The incident is usually a single case (`content_class = incident`); ask the user if unclear.
+→ **If yes:** continue (`content_class = incident` unless user says otherwise).
 
 ### Step 2 — Already captured?
 
-Search the current extraction schema and prompt. Does the information already have a **typed** home?
-
 | Outcome | Action |
 |---------|--------|
-| Field exists and semantics match | **Done.** Tell the user where it lives (JSON path). Tune prompt/eval only if extraction quality is poor. |
-| Only mentioned in `chronological_description` or prose | **Not captured.** Continue — structured storage is still needed. |
-| Overlaps an existing field but semantics differ | Clarify with user; avoid duplicating columns/fields with different meanings. |
+| Typed field exists and semantics match | **Done.** Document JSON path. Tune prompt/eval if quality is poor. |
+| Only in `chronological_description` | **Not captured.** Continue. |
+| Overlaps existing field with different meaning | Clarify with user before adding. |
 
-Key existing areas: `event_subtype`, `victims.*`, `perpetrators.*`, `homicide_dynamic.*`, `location_info.*`, `date_time.*`, root flags on `ViolentDeathEvent`.
+Key areas: `event_subtype`, `victims.*`, `perpetrators.*`, `homicide_dynamic.*`, `location_info.*`, `date_time.*`.
 
-### Step 3 — New field built from existing extraction (preferred)
+### Step 3 — Gut checks (placement)
 
-Can the value be determined **after** the LLM runs, from fields already extracted?
+Run with the user before writing code.
 
-→ Add a **new field** to the JSON shape, populated by a **rule** (e.g. `derive_*()` in `extraction.py`, or a Pydantic validator). **Do not** ask the LLM to extract this field directly.
+#### A. Person attribute vs incident dynamic vs taxonomy
 
-**Prefer this over Step 4** when the fact is logically computable from existing output.
+| Question | If yes → | If no → |
+|----------|----------|---------|
+| Describes **who** someone is (police, politician, occupation)? | `IdentifiableVictim` / `IdentifiablePerpetrator` | Continue |
+| Describes **how/why** at event level (faction dispute, police op)? | `homicide_dynamic` nested context | Continue |
+| Legal **classification** of the death type? | `event_subtype` (rare — prefer attributes) | Continue |
 
-Example pattern: `security_force_involved` — new denormalized flag derived from victim/perp `is_security_force` lists.
+**Do not** add subtypes for person attributes (e.g. `police_victim` → use victim fields).
 
-Steps:
-1. Add field to the correct model in `extraction_schemas.py`
-2. Implement population rule; call before persist
-3. Unit-test the rule
-4. Eval case asserting the field value (dotted path or indirect via full extraction)
+#### B. Criminal group: broad vs specific
 
-### Step 4 — New field needs LLM extraction
+| Field | Meaning |
+|-------|---------|
+| `criminal_group_context.connected` | Broad — homicide linked to armed/organized group activity |
+| `criminal_group_context.activity` | Specific mechanism (enum) |
+| `criminal_group_context.groups` | Verbatim group names from text |
 
-The text must be read and interpreted; it cannot be reliably built from existing fields alone.
+Activity `territorial-dispute` implies organized-crime context; do not require `connected=true` separately when activity is set.
 
-1. **Place** the field (see [JSON placement](#json-placement) below)
-2. Add to `extraction_schemas.py` with a clear `Field(description=...)` — the description guides the LLM
-3. Add prompt rules in `extraction.py` (when to set true/false/null; disambiguation)
-4. For victim/perp fields: complete [identifiable vs unidentified](#identifiable-vs-unidentified) checklist with the user
-5. Always ask: should this live in `homicide_dynamic`? (default **no** for person attributes)
+#### C. Parallel dimensions (can all be true)
 
-Nested fields appear in `extraction_data` automatically via `model_dump()`. SQL columns are **not** part of this skill unless the user explicitly asks later.
+One incident may simultaneously have:
 
-### Step 5 — Eval and tests
+- `criminal_group_context` (OCG/facção dynamics)
+- `police_operation_context` (official operation)
+- `off_duty_police_perpetrator` (perpetrator-side, not an official op)
 
-| Action | Command / file |
-|--------|----------------|
-| Unit tests | `pytest tests/test_extraction_*.py tests/test_taxonomy.py -v` (as relevant) |
-| Validate fixture | `python -m eval extraction validate --fixture tests/fixtures/eval/<fixture>.json` |
-| Run case(s) | `python -m eval extraction run --fixture ... --ids <case-id> --output eval/results/<name>.json` |
-| Report | `python -m eval extraction report --run eval/results/<name>.json` |
+These are **not** mutually exclusive.
 
-Export env before LLM eval runs:
+#### D. Extraction discipline (criminal group + politics)
+
+| Tier | Rule |
+|------|------|
+| Extract | Explicit statements ("integrante do PCC", "Operação Verão") |
+| `unspecified` | Connected to group activity but mechanism not classifiable |
+| Do not extract | Neighborhood dominance, prior arrests, "possível acerto de contas" without group link |
+
+Activity tie-break when multiple fit: **territorial-dispute > economic-dispute > retaliatory > unspecified**.
+
+Attacker/defender (`group_attacked`, etc.): **null when unclear** — do not infer from chronology alone.
+
+→ Canonical pending schema: [reference.md](reference.md#pending-schema-criminal-group--politics)
+
+### Step 4 — Built field (preferred)
+
+Can the value be computed **after** LLM extraction from existing fields?
+
+→ Add field + `derive_*()` in `extraction.py`. **Do not** ask LLM to extract it.
+
+Examples: `security_force_involved`, event-level flags derived from nested victim/perp lists.
+
+### Step 5 — LLM-extracted field
+
+1. Place field (see [JSON placement](#json-placement))
+2. Add to `extraction_schemas.py` with clear `Field(description=...)`
+3. Add prompt rules in `extraction.py`
+4. For victim/perp: walk [identifiable vs unidentified](#identifiable-vs-unidentified)
+5. Conditional nulls: detail fields null when parent flag is false/null
+
+### Step 6 — Derive, test, eval
+
+1. Implement or extend `derive_public_fields(event) -> dict` for any flat column
+2. Call from `extraction.py` (raw_event) and `enrichment.py` (unique_event)
+3. Unit-test derivation rules
+4. Add eval cases with dotted `scoring.required_fields`
 
 ```bash
 cd backend && export $(grep -v '^#' ../.env | xargs)
+pytest tests/test_extraction_*.py -v
+python -m eval extraction validate --fixture tests/fixtures/eval/extraction_hard.json
+python -m eval extraction run --fixture tests/fixtures/eval/extraction_hard.json --ids <case-id> --output eval/results/test.json
+python -m eval extraction report --run eval/results/test.json
 ```
 
-Add eval cases with `scoring.required_fields` using dotted paths (e.g. `victims.identifiable_victims.0.<field>`, `homicide_dynamic.<field>`).
+### Step 7 — Public surface (CSV + frontend)
 
-→ Path examples: [reference.md](reference.md#eval-scoring-paths)
+When the user wants data in **export and/or portal** (default for research fields):
 
-### Step 6 — Portal (ask only)
+| Piece | File |
+|-------|------|
+| DB columns | Alembic migration on `unique_event` (+ optional `raw_event`) |
+| Derivation | `derive_public_fields()` in `extraction.py` (or `extraction_derived.py`) |
+| Persist | `extraction.py`, `enrichment.py` |
+| API + CSV | `backend/app/routers/public.py` — `PUBLIC_EXPORT_FIELD_NAMES`, `_event_to_export_row`, `_format_public_event_detail` |
+| Export UI | `frontend/src/lib/exportColumns.ts` |
+| Labels | `frontend/src/lib/i18n.ts` `dictionaryRows` |
+| Types | `frontend/src/lib/api.ts` |
+| Detail UI | `frontend/src/components/portal/EventDetailView.tsx` |
+| Per-victim detail | Expose `merged_data` (or `victims` slice) on detail API when nested data needed |
 
-After schema and eval are settled, ask:
+**Per-victim fields** (e.g. `political_role`): store nested in JSON; derive **event-level summary columns** for CSV; show full detail from `merged_data` on event detail page.
 
-> "Should this new field appear on the public portal (detail, export, filters)?"
-
-Note the answer for a **follow-up workflow**. Do **not** edit frontend or portal API files in this skill.
-
----
-
-## Architecture (brief)
-
-```
-LLM prompt (extraction.py)
-    → ViolentDeathEvent (extraction_schemas.py)
-    → population rules (optional — Step 3)
-    → raw_event.extraction_data (JSON, always)
-```
-
-Full layer table → [reference.md](reference.md#data-layers)
+Skip Step 7 only when user explicitly wants JSON-only (pipeline storage, no portal yet).
 
 ---
 
@@ -131,58 +179,48 @@ Full layer table → [reference.md](reference.md#data-layers)
 
 ```
 ViolentDeathEvent
-├── event_family / event_subtype     ← incident classification (existing)
+├── event_family / event_subtype
 ├── content_class
-├── location_info                    ← where
-├── date_time                        ← when
+├── location_info / date_time
 ├── victims
-│   ├── identifiable_victims[]
-│   ├── unidentified_groups[]
-│   └── number_of_* / number_of_victims
+│   └── identifiable_victims[]
+│       ├── is_security_force, security_agent_type, security_agent_on_duty  (proposed)
+│       └── political_role  (proposed — per victim)
 ├── perpetrators (optional)
-│   ├── identifiable_perpetrators[]
-│   ├── unidentified_groups[]
-│   └── number_of_* / number_of_perpetrators
+│   └── identifiable_perpetrators[]
 ├── homicide_dynamic
-│   ├── title
-│   ├── method
-│   └── chronological_description    ← narrative only — not sole storage for typed facts
-└── additional_context               ← last resort prose
+│   ├── title, method, chronological_description
+│   ├── criminal_group_context      (proposed — event-level HOW)
+│   ├── police_operation_context    (proposed)
+│   └── off_duty_police_perpetrator (+ context enum)  (proposed)
+└── additional_context
 ```
 
 | Question | Place field |
 |----------|-------------|
-| Who (identity, role, employer, on-duty)? | `IdentifiableVictim` / `IdentifiablePerpetrator` or group models — **not** `homicide_dynamic` |
-| Event-level how (means, commission context, one value per incident)? | `homicide_dynamic` |
-| Where / when? | `location_info` / `date_time` |
-| Whole-event flag not covered above? | `ViolentDeathEvent` root |
-
-→ `homicide_dynamic` detail: [reference.md](reference.md#homicide_dynamic--ask-on-every-placement-review)
+| Who (politician, police type, on-duty)? | `IdentifiableVictim` / `IdentifiablePerpetrator` |
+| Perpetrator off duty (not official op)? | `homicide_dynamic.off_duty_police_*` or perpetrator when identifiable |
+| OCG activity, police operation context? | `homicide_dynamic.*_context` |
+| Filterable event summary for CSV? | `derive_public_fields()` → SQL columns |
 
 ### Placement checklist
 
-Copy with the user when adding any field:
-
 ```
-- [ ] Already exists? (Step 2)
-- [ ] Built from existing extraction? (Step 3) vs LLM extraction? (Step 4)
-- [ ] IdentifiableVictim
-- [ ] UnidentifiedVictimGroup
-- [ ] IdentifiablePerpetrator
-- [ ] UnidentifiedPerpetratorGroup
-- [ ] homicide_dynamic — event-level HOW (not who)?
-- [ ] location_info / date_time
-- [ ] ViolentDeathEvent root
-- [ ] additional_context only (reject if a typed home exists above)
-- [ ] Prompt and/or population rule
-- [ ] Eval path(s) for each slot marked yes
+- [ ] Step 2: already exists?
+- [ ] Step 3 gut checks passed
+- [ ] IdentifiableVictim / UnidentifiedVictimGroup
+- [ ] IdentifiablePerpetrator / UnidentifiedPerpetratorGroup
+- [ ] homicide_dynamic (event-level HOW)
+- [ ] derive_public_fields() + column list (if portal/export)
+- [ ] Prompt + conditional null rules
+- [ ] Eval dotted path(s)
 ```
 
 ---
 
 ## Identifiable vs unidentified
 
-When the field is on **victims or perpetrators**, walk through all four slots with the user:
+When the field is on **victims or perpetrators**, review all four slots:
 
 | Model | When |
 |-------|------|
@@ -191,46 +229,37 @@ When the field is on **victims or perpetrators**, walk through all four slots wi
 | `IdentifiablePerpetrator` | Each individually described author |
 | `UnidentifiedPerpetratorGroup` | Unnamed author group |
 
-| Field kind | Identifiable* | Unidentified*Group |
-|------------|---------------|---------------------|
-| Name, age, gender, occupation | Yes | No — use `description` |
-| Booleans (`is_security_force`, `is_civilian`) | Yes | Yes |
-| Enums / detailed status | Yes, per person | Usually **no** — unless text describes whole group |
+**Political role:** per identifiable victim only — no group-level political block.
 
-Mirror across victim and perpetrator sides when the attribute applies to both.
+Population rules and eval must scan identifiable lists **and** unidentified groups where applicable.
 
-Population rules and eval must scan **identifiable lists and unidentified groups** on both sides.
-
-→ Worked examples: [examples.md](examples.md)
+→ Examples: [examples.md](examples.md)
 
 ---
 
-## Implementation checklist (Steps 3–5)
+## Implementation checklist
 
-### Path A — Built field (Step 3)
+### Path A — Built field (Step 4)
 
-- [ ] `extraction_schemas.py` — new field on correct model
-- [ ] `extraction.py` — `derive_*()` or post-extraction population; **no** LLM prompt for this field
-- [ ] Unit test for the rule
-- [ ] Eval fixture — assert field value
+- [ ] `extraction_schemas.py`
+- [ ] `derive_*()` in `extraction.py`
+- [ ] Unit test
+- [ ] Eval case
 
-### Path B — LLM-extracted field (Step 4)
+### Path B — LLM field (Step 5)
 
-- [ ] `extraction_schemas.py` — `Field(description=...)`
-- [ ] `extraction.py` — prompt section (identifiable vs group wording for victim/perp fields)
-- [ ] Eval fixture — `scoring.required_fields` with dotted path(s)
-- [ ] Optional: smoke test on a real article
+- [ ] `extraction_schemas.py` + `Field(description=...)`
+- [ ] Prompt in `extraction.py`
+- [ ] Eval fixture with dotted paths
 
-### Common files
+### Path C — Public surface (Step 7)
 
-| File | Path A | Path B |
-|------|--------|--------|
-| `backend/app/services/extraction_schemas.py` | ✓ | ✓ |
-| `backend/app/services/extraction.py` | population rule | prompt + rule if also derived |
-| `backend/tests/fixtures/eval/*.json` | ✓ | ✓ |
-| `backend/tests/test_extraction_*.py` | ✓ rule tests | as needed |
-
-**Do not change:** `frontend/**`, DB models/alembic (unless user explicitly requests SQL promotion outside this skill).
+- [ ] Alembic migration
+- [ ] `derive_public_fields()` — single source for flat values
+- [ ] `extraction.py` + `enrichment.py` persist
+- [ ] `public.py` export + detail API
+- [ ] `exportColumns.ts`, `i18n.ts`, `api.ts`, `EventDetailView.tsx`
+- [ ] Tests: `test_export_columns.py`, derivation unit tests
 
 ---
 
@@ -238,16 +267,19 @@ Population rules and eval must scan **identifiable lists and unidentified groups
 
 | Mistake | Instead |
 |---------|---------|
-| New subtype for a person attribute | Victim/perp field (Step 4) or built field (Step 3) |
-| LLM extracts a field computable from existing data | Step 3 — new field + population rule |
-| Store typed facts only in `chronological_description` | Typed field in correct JSON slot |
-| Edit portal/frontend in this skill | Ask in Step 6; separate workflow |
-| Task not about recording homicide incidents | Tell user — wrong skill (Step 1) |
+| Subtype for person attribute | Victim/perp field |
+| LLM extracts computable field | Built field + derive |
+| CSV column without `derive_public_fields()` | One derivation function |
+| Different values in API vs CSV | Same flat columns |
+| Infer OCG from neighborhood | Explicit text only; use `unspecified` when vague |
+| Force attacker/defender when unclear | null |
+| Store typed facts only in prose | Typed JSON field |
 
 ---
 
 ## Additional resources
 
-- File checklist, eval paths, model map → [reference.md](reference.md)
+- Pending schema spec, column list, eval paths → [reference.md](reference.md)
 - Worked examples → [examples.md](examples.md)
-- Eval CLI details → `backend/eval/README.md`
+- Full pipeline eval gate → `.cursor/skills/eval-improvement-loop/SKILL.md`
+- Eval CLI → `backend/eval/README.md`

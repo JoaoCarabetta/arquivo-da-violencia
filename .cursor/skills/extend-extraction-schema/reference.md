@@ -1,156 +1,244 @@
 # Extend Extraction Schema — Reference
 
-Main workflow → [SKILL.md](SKILL.md). This file is lookup detail for JSON placement, eval paths, and file touchpoints.
+Main workflow → [SKILL.md](SKILL.md). Lookup for schema spec, derivation columns, eval paths, and file touchpoints.
 
 ## Decision summary
 
 | Step | Question | Outcome |
 |------|----------|---------|
-| 1 | Recording homicide incidents in extraction? | If no → **wrong skill**, stop |
-| 2 | Already in JSON schema? | If yes → done (document path) |
-| 3 | New field **built** from existing extraction? | **Preferred** — new field + population rule, no LLM prompt for it |
-| 4 | Needs **LLM extraction**? | New field + prompt + placement |
-| 5 | Tests + eval fixtures | Required |
-| 6 | Portal exposure? | Ask only — separate workflow |
+| 1 | Recording homicide incidents? | If no → wrong skill |
+| 2 | Already in JSON? | If yes → done |
+| 3 | Gut checks (placement) | Subtype vs victim vs dynamics |
+| 4 | Built from existing extraction? | Preferred — derive, no LLM |
+| 5 | Needs LLM extraction? | Schema + prompt |
+| 6 | derive_public_fields + eval | Required |
+| 7 | CSV / portal / filters? | Alembic + API + frontend |
 
-**Built field vs LLM field:** both add a new campo to the JSON shape. A built field is filled by a rule after extraction; an LLM field is read from the article text.
+---
 
-## Identifiable vs unidentified (victim / perpetrator)
+## Pending schema: criminal group + politics
 
-When adding or changing **any** victim or perpetrator field, prompt the user through **all four model slots**:
+Approved design (implement on feature branch — not yet in production code).
 
-| Model | When to use |
-|-------|-------------|
-| `IdentifiableVictim` | Each individually described victim |
-| `UnidentifiedVictimGroup` | Count + collective description only |
-| `IdentifiablePerpetrator` | Each individually described author |
-| `UnidentifiedPerpetratorGroup` | Unnamed author group |
+### `CriminalGroupActivity` enum
 
-**Mirror** across victim and perpetrator sides when the attribute applies to both. **Group models** usually carry booleans (`is_security_force`, `is_civilian`) and `description`/`context` — not full per-person enums unless the text describes the whole group.
+```python
+CriminalGroupActivity = Literal[
+    "internal-discipline",
+    "internal-dispute",
+    "population-discipline",
+    "informant-elimination",
+    "debt-enforcement",
+    "territorial-dispute",
+    "economic-dispute",
+    "retaliatory",
+    "police-ambush",
+    "protest",        # includes anti-state / policy violence
+    "collateral",
+    "unspecified",
+]
+```
 
-**Eval:** at least one identifiable case; add an unidentified-group case if group fields changed.
+### `CriminalGroupContext` (under `HomicideDynamic`)
 
-**Population rules:** scan `identifiable_*` lists **and** `unidentified_groups` on both victims and perpetrators.
+```python
+class CriminalGroupContext(BaseModel):
+    connected: bool | None = None
+    groups: list[str] | None = None              # verbatim from text
+    activity: CriminalGroupActivity | None = None
+    activity_description: str | None = None      # edge cases; must be text-grounded
 
-### `homicide_dynamic` — ask on every placement review
+    group_attacked: str | None = None            # territorial-dispute; some retaliatory
+    rival_actor: str | None = None               # economic-dispute
+    target_force: str | None = None              # police-ambush
+    policy_trigger: str | None = None            # protest
+```
 
-| Field | Role |
+**Conditional nulls:** if `connected` is false/null → all other fields in block null. If `activity` set, apply activity-specific null rules (e.g. `group_attacked` only for territorial-dispute).
+
+**Priority when multiple activities fit:** territorial-dispute > economic-dispute > retaliatory > unspecified.
+
+### `PoliceOperationContext` (under `HomicideDynamic`)
+
+```python
+class PoliceOperationContext(BaseModel):
+    connected: bool | None = None
+    responsible_force: str | None = None         # PM, PC, PF, PRF, … verbatim
+    targeted_armed_groups: bool | None = None
+    operation_name: str | None = None
+```
+
+Distinct from `event_subtype=intervencao_policial` (legal classification vs factual circumstance).
+
+### Off-duty police perpetrator (under `HomicideDynamic`)
+
+```python
+off_duty_police_perpetrator: bool | None = None
+off_duty_police_context: Literal[
+    "genuine_reaction", "moonlighting", "criminal_organization"
+] | None = None
+```
+
+**Perpetrator-side only** — not official operation, not police-as-victim. Link to `perpetrators[].is_security_force` when perpetrator identifiable.
+
+### `PoliticalRole` (on `IdentifiableVictim` only)
+
+```python
+PoliticalStatus = Literal["elected", "candidate", "former_elected"]
+
+class PoliticalRole(BaseModel):
+    is_politician_or_candidate: bool
+    status: PoliticalStatus | None = None
+    office: str | None = None          # "vereador" even for ex-vereador (not "ex-vereador")
+    party: str | None = None           # verbatim sigla/name; null if not stated
+```
+
+- Object present only when text explicitly identifies victim as officeholder or candidate.
+- **Per victim** — multi-victim events may have mixed politics.
+- Do not guess party from city or ideology.
+
+### Victim security-agent fields (proposed)
+
+On `IdentifiableVictim` / `IdentifiablePerpetrator` when `is_security_force=true`:
+
+| Field | Type |
 |-------|------|
-| `title` | Formatted technical headline — not for arbitrary new attributes |
-| `method` | `MethodOfDeath` enum — means of killing |
-| `chronological_description` | Required narrative — may repeat facts; **not** sole storage for typed data |
-| *new fields* | Event-level **how** (commission mode, context) — one value per incident |
+| `security_agent_type` | `Literal["PM","PC","PF","PRF","penal","outro"] \| null` |
+| `security_agent_on_duty` | `bool \| null` — true=em serviço, false=folga, null=not stated |
 
-**Not for:** victim/perp identity, occupation, on-duty (use victim/perp models).
+---
 
-**Ask:** "Should this live in `homicide_dynamic`?" — default **no** for person attributes; **yes** for incident-level dynamics.
+## Public surface — `derive_public_fields()`
 
-### Victim security-agent fields (example — proposed standard)
+Implement once in `backend/app/services/extraction.py` (or `extraction_derived.py`):
 
-On `IdentifiableVictim` and `IdentifiablePerpetrator` (when party is security force):
+```python
+def derive_public_fields(event: ViolentDeathEvent) -> dict[str, object | None]:
+    """Flat columns for unique_event, API, and CSV — single source of truth."""
+    ...
+```
 
-| Field | Type | When to set |
-|-------|------|-------------|
-| `is_security_force` | `bool \| null` | **Exists.** True if PM/PC/PF/PRF/penal/guarda |
-| `security_agent_type` | `Literal["PM","PC","PF","PRF","penal","outro"] \| null` | Only when `is_security_force=true` |
-| `security_agent_on_duty` | `bool \| null` | Only when `is_security_force=true`; `true`=em serviço, `false`=folga, `null`=texto não diz |
+Call from raw_event persist and unique_event enrichment/update.
 
-Mirror `is_security_force` on group models; type/on_duty only when individuals are identifiable.
+### Proposed flat columns
 
-## Wrong skill (Step 1)
+| Column | Source |
+|--------|--------|
+| `criminal_group_connected` | `homicide_dynamic.criminal_group_context.connected` |
+| `criminal_group_activity` | `.activity` |
+| `criminal_group_activity_description` | `.activity_description` |
+| `criminal_groups` | `"; ".join(groups)` or null |
+| `criminal_group_attacked` | `.group_attacked` |
+| `police_operation_connected` | `police_operation_context.connected` |
+| `police_operation_force` | `.responsible_force` |
+| `police_operation_targeted_armed_groups` | `.targeted_armed_groups` |
+| `off_duty_police_perpetrator` | `homicide_dynamic.off_duty_police_perpetrator` |
+| `politician_or_candidate_victim` | any victim `political_role.is_politician_or_candidate` |
+| `victim_political_status` | joined statuses from politician victims |
+| `victim_political_office` | joined offices |
+| `victim_political_party` | joined parties |
 
-Tell the user and stop if the request is **not** about recording homicide incidents in the extraction JSON — e.g. portal UI, dedup, enrichment, classification-only work, or non-homicide scope.
+Existing: `security_force_involved` from `derive_security_force_involved()` — keep; may fold into `derive_public_fields()` wrapper.
 
-Person attributes belong on victim/perp models, not as a substitute for unrelated tasks.
+### File checklist — public surface (Step 7)
 
-## Portal / frontend — deferred
+| File | Changes |
+|------|---------|
+| `backend/app/services/extraction_schemas.py` | Nested models |
+| `backend/app/services/extraction.py` | Prompt + `derive_public_fields()` |
+| `backend/app/services/enrichment.py` | Persist flat fields on unique_event |
+| `backend/app/models/unique_event.py` | New columns |
+| `backend/app/models/raw_event.py` | Optional mirror columns |
+| `backend/alembic/versions/*.py` | Migration |
+| `backend/app/routers/public.py` | Export allowlist + row builder + detail API |
+| `backend/tests/test_export_columns.py` | New columns |
+| `backend/tests/test_extraction_derived.py` | Derivation unit tests (create if needed) |
+| `frontend/src/lib/exportColumns.ts` | Export groups |
+| `frontend/src/lib/i18n.ts` | Dictionary labels PT/EN |
+| `frontend/src/lib/api.ts` | TypeScript types |
+| `frontend/src/lib/eventDetail.ts` | Label aliases |
+| `frontend/src/components/portal/EventDetailView.tsx` | Display sections |
+| `backend/tests/fixtures/eval/extraction_hard.json` | Labeled cases |
 
-Do not edit frontend in the extraction-schema skill. After Step 6, portal work may include (separate workflow):
+**Detail API:** add `merged_data` (or structured `victims` / `homicide_dynamic` slice) to `_format_public_event_detail` when UI needs per-victim `political_role`.
 
-| Concern | Typical files |
-|---------|---------------|
-| Event detail | `EventDetailView.tsx`, `eventDetail.ts`, `public.py` |
-| Export | `exportColumns.ts` |
-| Map + filter + stats | `types.ts`, `RightPanel.tsx`, `public.py` `/map-points`, denormalized SQL columns |
-
-See git history or a future portal skill for tier patterns. SQL denormalization is only needed when the portal must filter or aggregate in SQL.
+---
 
 ## Data layers
 
-| Layer | Location | When to change |
-|-------|----------|----------------|
-| JSON shape | `extraction_schemas.py` | Any new field (built or LLM) |
-| LLM instructions | `extraction.py` system prompt | LLM-extracted fields only (Step 4) |
-| Population rules | `extraction.py` | Built fields (Step 3) |
-| Full extraction JSON | `raw_event.extraction_data` | Automatic via `model_dump()` |
-| Queryable SQL columns | `raw_event`, `unique_event` | **Out of scope** unless user requests separately |
-| Eval spec | `tests/fixtures/eval/*.json` | Regression cases |
+| Layer | Location | When |
+|-------|----------|------|
+| JSON shape | `extraction_schemas.py` | Any new field |
+| LLM prompt | `extraction.py` | LLM-extracted fields |
+| Derivation | `derive_public_fields()` | Flat columns |
+| Full JSON | `raw_event.extraction_data`, `unique_event.merged_data` | Automatic via `model_dump()` |
+| Flat SQL | `unique_event.*` columns | Portal export/filters |
+| Eval | `tests/fixtures/eval/*.json` | Regression |
 
-## Nested models in `extraction_schemas.py`
+---
 
-| Model | Use for |
-|-------|---------|
-| `IdentifiableVictim` | name, age, gender, occupation, `is_security_force`, proposed `security_agent_*`, relationship |
-| `UnidentifiedVictimGroup` | count, description, `is_security_force`, `is_civilian`, context |
-| `IdentifiablePerpetrator` | same pattern as identifiable victim |
-| `UnidentifiedPerpetratorGroup` | same pattern as unidentified victim group |
-| `Location` | neighborhood, street, city, state, establishment |
-| `DateTime` / `DateVerification` | date extraction with verification |
-| `HomicideDynamic` | `title`, `method`, `chronological_description`; event-level **how** |
-| `ViolentDeathEvent` | root: `event_family`, `event_subtype`, victims, perpetrators, content_class |
+## Identifiable vs unidentified
 
-## File checklist — built field (Step 3)
+| Model | When |
+|-------|------|
+| `IdentifiableVictim` | Individual victim |
+| `UnidentifiedVictimGroup` | Group only |
+| `IdentifiablePerpetrator` | Individual author |
+| `UnidentifiedPerpetratorGroup` | Unnamed group |
 
-| File | Changes |
-|------|---------|
-| `backend/app/services/extraction_schemas.py` | New field on correct nested model |
-| `backend/app/services/extraction.py` | `derive_*()` or post-extraction population — **no** LLM prompt for this field |
-| `backend/tests/test_extraction_*.py` | Unit tests for rule |
-| `backend/tests/fixtures/eval/*.json` | Case asserting field value |
+| Field kind | Identifiable* | Unidentified*Group |
+|------------|---------------|---------------------|
+| `political_role` | Yes | No |
+| `security_agent_type`, `security_agent_on_duty` | Yes | No (unless whole group described) |
+| `is_security_force` | Yes | Yes |
 
-## File checklist — LLM field (Step 4)
+---
 
-| File | Changes |
-|------|---------|
-| `backend/app/services/extraction_schemas.py` | New `Field` with LLM-facing description |
-| `backend/app/services/extraction.py` | Prompt rules (identifiable vs group for victim/perp) |
-| `backend/tests/fixtures/eval/*.json` | `scoring.required_fields` with dotted paths |
+## homicide_dynamic placement
+
+| Field | Role |
+|-------|------|
+| `title`, `method`, `chronological_description` | Existing |
+| `criminal_group_context` | OCG/facção/milícia event dynamics |
+| `police_operation_context` | Official operation facts |
+| `off_duty_police_perpetrator` | Perpetrator off duty (not op) |
+
+**Not for:** victim politician status, victim police on-duty (use victim models).
+
+---
 
 ## Eval scoring paths
 
-Dotted paths used by `eval/stages/extraction/score.py`:
-
 ```
-event_family
-event_subtype
-content_class
-date_time.date
-location_info.city
-location_info.state
-victims.number_of_victims
-victims.identifiable_victims.0.is_security_force
-victims.identifiable_victims.0.<new_field>
-victims.unidentified_groups.0.is_security_force
-homicide_dynamic.method
-homicide_dynamic.<new_field>
+homicide_dynamic.criminal_group_context.connected
+homicide_dynamic.criminal_group_context.activity
+homicide_dynamic.criminal_group_context.groups
+homicide_dynamic.criminal_group_context.group_attacked
+homicide_dynamic.police_operation_context.connected
+homicide_dynamic.off_duty_police_perpetrator
+victims.identifiable_victims.0.political_role.is_politician_or_candidate
+victims.identifiable_victims.0.political_role.status
+victims.identifiable_victims.0.political_role.office
+victims.identifiable_victims.0.political_role.party
+victims.identifiable_victims.0.security_agent_on_duty
 ```
 
-Update `eval/schemas_extraction.py` `DEFAULT_REQUIRED_FIELDS` only if the field should be scored on **all** cases by default.
-
-## Eval fixtures
-
-| Fixture | When |
-|---------|------|
-| `extraction_hard.json` | Full extraction with custom `required_fields` |
-| `extraction_seed.json` | Bootstrap from DB (hand-review labels) |
+Update `eval/schemas_extraction.py` `DEFAULT_REQUIRED_FIELDS` only for fields required on **all** cases.
 
 ## Validation commands
 
 ```bash
 cd backend && export $(grep -v '^#' ../.env | xargs)
 
-pytest tests/test_extraction_*.py tests/test_eval_extraction.py -v
+pytest tests/test_extraction_*.py tests/test_export_columns.py -v
 python -m eval extraction validate --fixture tests/fixtures/eval/extraction_hard.json
 python -m eval extraction run --fixture tests/fixtures/eval/extraction_hard.json --ids <case-id> --output eval/results/test.json
 python -m eval extraction report --run eval/results/test.json
+```
+
+Docker (repo convention):
+
+```bash
+docker compose -f docker-compose.dev.yml exec api \
+  pytest tests/test_extraction_*.py -v
 ```

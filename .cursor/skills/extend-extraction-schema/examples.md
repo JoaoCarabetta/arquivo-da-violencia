@@ -1,30 +1,18 @@
 # Worked Examples
 
-Illustrative scenarios — see [SKILL.md](SKILL.md) for the main workflow (Steps 1–6).
+Illustrative scenarios — see [SKILL.md](SKILL.md) for the main workflow.
 
-## Example 1: LLM-extracted victim field (Step 4)
+---
 
-**Scenario:** capture that an individually described victim is a civil police officer killed off duty.
+## Example 1: Victim security agent off duty (Step 5)
 
-**Step 1:** recording homicide incident information — in scope.
-
-**Step 2:** `is_security_force` exists; `security_agent_type` and `security_agent_on_duty` do not.
-
-**Step 3:** cannot build type/on-duty reliably from `is_security_force` alone — needs LLM (Step 4).
-
-### Placement
+**Scenario:** "Policial civil morto em Copacabana; estava de folga."
 
 | Slot | Decision |
 |------|----------|
-| `IdentifiableVictim` | Yes — `security_agent_type`, `security_agent_on_duty` |
-| `UnidentifiedVictimGroup` | N/A (victim individually described) |
-| `IdentifiablePerpetrator` | N/A (author unknown) |
-| `UnidentifiedPerpetratorGroup` | Optional if text only says "autores fugiram" |
-| `homicide_dynamic` | **No** — job/on-duty is not event dynamics |
-
-Use victim fields — not a new `event_subtype` for "police victim."
-
-### Eval snippet
+| `IdentifiableVictim` | `is_security_force=true`, `security_agent_type="PC"`, `security_agent_on_duty=false` |
+| `homicide_dynamic` | No — job/on-duty is not event dynamics |
+| `event_subtype` | Not `police_victim` subtype — use victim fields |
 
 ```json
 "scoring": {
@@ -36,59 +24,163 @@ Use victim fields — not a new `event_subtype` for "police victim."
 }
 ```
 
-**Step 6:** ask if portal should show "policial vitimado" — do not implement here.
+---
+
+## Example 2: Politician victim (Step 5 + 7)
+
+**Scenario:** "Vereador João Silva (PT) foi executado na noite de ontem."
+
+**JSON (per victim):**
+
+```python
+political_role=PoliticalRole(
+    is_politician_or_candidate=True,
+    status="elected",
+    office="vereador",
+    party="PT",
+)
+```
+
+**Ex-officeholder:** "Ex-vereador Maria Costa (PL)" → `status="former_elected"`, `office="vereador"` (not `"ex-vereador"`).
+
+**derive_public_fields:**
+
+```python
+politician_or_candidate_victim=True
+victim_political_status="elected"
+victim_political_office="vereador"
+victim_political_party="PT"
+```
+
+**Step 7:** add columns to export + `EventDetailView` (summary from flat fields; per-victim detail from `merged_data`).
+
+Multi-victim: only the politician victim gets `political_role`; event flag true if any victim has it.
 
 ---
 
-## Example 1b: Unidentified victim group (Step 4)
+## Example 3: Criminal group territorial dispute (Step 5 + 7)
 
-**Scenario:** "Dois policiais foram mortos em emboscada" — group only, no names.
+**Scenario:** "Homem morto em confronto entre Comando Vermelho e milícia pelo controle do Morro X."
 
-Use `unidentified_groups` with `is_security_force: true`. Do not put `security_agent_type` / `security_agent_on_duty` on the group unless the text describes the whole group that way.
+```python
+criminal_group_context=CriminalGroupContext(
+    connected=True,
+    groups=["Comando Vermelho", "milícia"],
+    activity="territorial-dispute",
+    group_attacked="milícia",  # only if text explicitly says who was attacked
+    activity_description=None,
+)
+```
 
----
+**Do not extract** if article only says "área dominada pelo tráfico" without linking this death.
 
-## Example 2: Built field from existing extraction (Step 3)
+**Vague but connected:** "Suspeita de ligação com facção" without activity type → `connected=True`, `activity="unspecified"`.
 
-**Scenario:** expose `any_security_force_party: bool` on `ViolentDeathEvent` root — true if **any** victim or perpetrator (identifiable or group) has `is_security_force=true`.
+**derive_public_fields:**
 
-**Step 2:** `is_security_force` already extracted per party.
+```python
+criminal_group_connected=True
+criminal_group_activity="territorial-dispute"
+criminal_groups="Comando Vermelho; milícia"
+criminal_group_attacked="milícia"  # or null if unclear
+```
 
-**Step 3:** preferred — new JSON field + population rule; **no** LLM prompt for `any_security_force_party`.
-
-Similar existing pattern: `derive_security_force_involved()` at persist time.
-
----
-
-## Example 3: Already captured (Step 2 — done)
-
-**User ask:** "Record that the victim was killed by firearm."
-
-**Answer:** `homicide_dynamic.method` = `"Arma de fogo"`. No new field. Improve prompt/eval only if extraction misses it.
-
----
-
-## Example 4: Wrong skill (Step 1)
-
-**User ask:** "Add a filter on the map for off-duty police victims."
-
-→ **Wrong skill.** That is portal UI, not extraction JSON. Tell the user and stop (or note for a frontend workflow after a field exists).
+Activity priority example: text mentions both territory and revenge → choose `territorial-dispute`.
 
 ---
 
-## Example 5: `intervencao_policial` vs police victim
+## Example 4: Police operation + OCG (parallel dimensions)
 
-| Article | `event_subtype` (existing field) | Victim fields (this skill) |
-|---------|----------------------------------|----------------------------|
-| "Suspeito neutralizado em operação da PM" | `intervencao_policial` | victim usually not police |
-| "Policial civil morto em Copacabana" | `simples` (or other) | `is_security_force`, `security_agent_type`, … |
+**Scenario:** "Dois suspeitos do CV morreram durante Operação Verão da PM."
 
-Direction matters: police as author vs police as victim.
+```python
+police_operation_context=PoliceOperationContext(
+    connected=True,
+    responsible_force="PM",
+    targeted_armed_groups=True,
+    operation_name="Operação Verão",
+)
+criminal_group_context=CriminalGroupContext(
+    connected=True,
+    groups=["Comando Vermelho"],
+    activity=None,  # death during op, not faction dispute
+)
+```
+
+`event_subtype` may be `intervencao_policial` — separate from operation context fields.
 
 ---
 
-## Anti-pattern: person attribute as subtype ✗
+## Example 5: Off-duty police perpetrator (Step 5)
 
-> "Add subtype `police_victim` for homicides where the victim is a police officer"
+**Scenario:** "Policial militar, fora de serviço, atirou e matou vizinho após briga."
 
-Use victim fields from Example 1 instead.
+```python
+# perpetrator side
+identifiable_perpetrators=[IdentifiablePerpetrator(
+    is_security_force=True,
+    security_agent_type="PM",
+    security_agent_on_duty=False,
+    ...
+)]
+homicide_dynamic.off_duty_police_perpetrator=True
+homicide_dynamic.off_duty_police_context="genuine_reaction"  # if text supports
+```
+
+Distinct from `police_operation_context.connected` (no official operation).
+
+Moonlighting as bouncer → `off_duty_police_context="moonlighting"`.
+Acting for facção → `"criminal_organization"`.
+
+---
+
+## Example 6: Built field (Step 4)
+
+**Scenario:** `politician_or_candidate_victim` on unique_event.
+
+**Step 4 (preferred):** derive from `victims.identifiable_victims[].political_role` — no separate LLM field.
+
+```python
+def _any_politician_victim(event: ViolentDeathEvent) -> bool | None:
+    flags = [
+        v.political_role.is_politician_or_candidate
+        for v in event.victims.identifiable_victims
+        if v.political_role is not None
+    ]
+    if not flags:
+        return None
+    return any(flags)
+```
+
+---
+
+## Example 7: Activity types quick reference
+
+| Activity | Text cue | Extra field |
+|----------|----------|-------------|
+| `informant-elimination` | delator, X9, informante | — |
+| `debt-enforcement` | narco-débito, dívida de drogas | — |
+| `retaliatory` | represália, vingança | optional `group_attacked` |
+| `collateral` | fogo cruzado, bala perdida in faction fight | explicit wording only |
+| `protest` | bloqueio, reação a política, violência anti-estado | `policy_trigger` |
+| `unspecified` | connected but mechanism unclear | `activity_description` optional |
+
+---
+
+## Example 8: Already captured (Step 2 — done)
+
+**Ask:** "Record firearm as method."
+
+**Answer:** `homicide_dynamic.method = "Arma de fogo"`. No new field.
+
+---
+
+## Anti-patterns ✗
+
+| Bad | Good |
+|-----|------|
+| Subtype `police_victim` | Victim `is_security_force` + agent fields |
+| Infer PCC from neighborhood | `connected=null` or omit |
+| CSV column hand-coded in frontend only | `derive_public_fields()` + API |
+| `group_attacked` from shootout chronology alone | null unless explicit |
+| `office="ex-vereador"` | `status="former_elected"`, `office="vereador"` |
