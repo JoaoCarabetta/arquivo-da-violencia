@@ -119,6 +119,12 @@ PY
 docker compose -p prod restart worker
 ```
 
+`--remediate` must clear every failure it acts on (including
+`no_recent_pipeline_run` after enqueue) before `--notify` runs. Otherwise the
+Cursor webhook re-fires and agents re-dispatch remediates in a loop, thrashing
+the worker. The GitHub Action uses a single `pipeline-health-prod` concurrency
+group and `script_stop: false` so diagnose logs still print after exit 1.
+
 ### Tier B — Code fix → PR to `develop`
 
 When logs show application bugs (examples from Postgres migration):

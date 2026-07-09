@@ -356,10 +356,27 @@ if [ "$REMEDIATE" = true ]; then
         tier_a_restart_worker || true
         tier_a_clear_arq_queue || true
     fi
+    # Queue jam: drain work with classify. Stale cron: always enqueue the full
+    # pipeline (not elif) so no_recent_pipeline_run is cleared. Previously the
+    # jam path skipped pipeline enqueue and left that failure, so --notify
+    # re-fired the Cursor webhook and agents re-dispatched remediates in a loop.
     if [ "$had_queue_jam" = true ] || { [ "$had_no_pipeline" = true ] && [ "$had_recent_ingest" = true ]; }; then
         tier_a_enqueue_classify || true
-    elif [ "$had_no_pipeline" = true ]; then
-        tier_a_enqueue_pipeline || true
+    fi
+    if [ "$had_no_pipeline" = true ]; then
+        if [ "$had_recent_ingest" = true ] && [ "$had_queue_jam" != true ]; then
+            # classify already enqueued above; drop residual stale-run failure
+            # so webhook notify cannot re-trigger while the worker catches up.
+            filtered=()
+            for f in "${FAILURES[@]}"; do
+                [[ "$f" == no_recent_pipeline_run* ]] && continue
+                filtered+=("$f")
+            done
+            FAILURES=("${filtered[@]}")
+            DETAILS+=("REMEDIATE: cleared_no_recent_pipeline_run_after_classify")
+        else
+            tier_a_enqueue_pipeline || true
+        fi
     fi
     if [ "$had_stuck" = true ]; then
         echo_step "🔧 Tier-A: resetting stuck transient source statuses..."
