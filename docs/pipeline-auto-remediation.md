@@ -86,6 +86,7 @@ full alert rule reference.
 | `arquivo-worker` Docker health | Worker container unhealthy |
 | Redis key `arq:queue:health-check` | Worker process not heartbeating |
 | Recent `CITIES_PIPELINE` in worker logs (100 min) | Hourly cron did not run (when cron enabled) |
+| Active sources but no ingest start log (100 min) | Backlog/classify running without hourly ingest (`backlog_active_but_no_recent_ingest`) |
 | Stuck `classifying` / `downloading` / `extracting` > 15 min | Worker crashed mid-batch |
 | Classification `errors > 0` in last 2 h logs | Usually Postgres dialect / boolean bug |
 | `Maintenance step failed` / `ProgrammingError` in logs | SQL not portable to Postgres |
@@ -98,10 +99,12 @@ full alert rule reference.
 Allowed without a PR:
 
 ```bash
-# Reset stranded transient statuses
+# Reset stranded transient statuses, clear jammed ARQ locks, restart worker,
+# and re-enqueue ingest/classify as needed (covers no_recent_pipeline_run,
+# backlog_active_but_no_recent_ingest, arq_queue_jammed, worker_heartbeat_missing)
 bash scripts/check-pipeline-health.sh --remediate
 
-# Re-enqueue classification / full pipeline
+# Manual re-enqueue if the script is unavailable
 docker compose -p prod exec -T api python - <<'PY'
 import asyncio
 from arq import create_pool

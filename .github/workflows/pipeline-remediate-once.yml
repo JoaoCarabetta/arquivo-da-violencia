@@ -1,0 +1,52 @@
+# One-shot: run Tier-A remediation with this branch's health script on the VPS.
+# Used when cloud-agent SSH is unavailable and workflow_dispatch is forbidden.
+# Remove this workflow before merging to develop.
+name: Pipeline Remediate Once
+
+on:
+  push:
+    branches:
+      - cursor/pipeline-auto-remediation-5a92
+    paths:
+      - "scripts/check-pipeline-health.sh"
+      - ".github/workflows/pipeline-remediate-once.yml"
+
+jobs:
+  remediate-prod:
+    name: Remediate prod with branch health script
+    runs-on: ubuntu-latest
+    steps:
+      - name: SSH and remediate
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          script_stop: true
+          command_timeout: 15m
+          script: |
+            set -euo pipefail
+            cd /root/arquivo-da-violencia
+            BRANCH="cursor/pipeline-auto-remediation-5a92"
+            git fetch origin "$BRANCH"
+            git checkout -f "$BRANCH"
+            git reset --hard "origin/$BRANCH"
+            export PIPELINE_HEALTH_WEBHOOK_AUTH="${{ secrets.CURSOR_AUTOMATION_TOKEN }}"
+            set +e
+            bash scripts/check-pipeline-health.sh --remediate --notify --json
+            HEALTH_EXIT=$?
+            set -e
+            echo "=== Worker logs (last 2h, tail 80) ==="
+            docker logs arquivo-worker --since 2h 2>&1 | tail -80 || true
+            echo "=== pipeline_attempt failures (last 2h) ==="
+            docker compose -p prod exec -T postgres psql -U arquivo -d arquivo_prod -c "
+              SELECT stage, failure_reason, COUNT(*)
+              FROM pipeline_attempt
+              WHERE created_at > now() - interval '2 hours' AND outcome = 'failure'
+              GROUP BY 1,2 ORDER BY 3 DESC LIMIT 10;
+            " || true
+            # Restore master checkout so deploys are not left on a feature branch.
+            git fetch origin master
+            git checkout -f master
+            git reset --hard origin/master
+            exit "$HEALTH_EXIT"
