@@ -1,5 +1,5 @@
 # One-shot: enqueue ingest only (no worker restart).
-# Remove before merging to develop.
+# Remove before merging to develop (along with scripts/enqueue_ingest_once.py).
 name: Pipeline Enqueue Ingest Once
 
 on:
@@ -8,6 +8,7 @@ on:
       - cursor/pipeline-auto-remediation-5a92
     paths:
       - ".github/workflows/pipeline-enqueue-ingest-once.yml"
+      - "scripts/enqueue_ingest_once.py"
 
 jobs:
   enqueue-ingest:
@@ -34,28 +35,16 @@ jobs:
             docker compose -p prod exec -T redis redis-cli ZCARD arquivo:production || true
             docker ps --filter name=arquivo-worker --format 'table {{.Names}}\t{{.Status}}'
             echo "=== enqueue ingest_cities_full_pipeline only ==="
-            printf '%s\n' \
-              'import asyncio' \
-              'from app.tasks.worker import create_arq_pool' \
-              '' \
-              'async def main():' \
-              '    redis = await create_arq_pool()' \
-              '    job = await redis.enqueue_job("ingest_cities_full_pipeline", None, "1h")' \
-              '    print(f"enqueued job_id={job.job_id}")' \
-              '    await redis.aclose()' \
-              '' \
-              'asyncio.run(main())' \
-              > /tmp/enqueue_ingest.py
-            docker compose -p prod cp /tmp/enqueue_ingest.py api:/tmp/enqueue_ingest.py
-            docker compose -p prod exec -T api python /tmp/enqueue_ingest.py
-            sleep 45
+            docker compose -p prod cp scripts/enqueue_ingest_once.py api:/tmp/enqueue_ingest_once.py
+            docker compose -p prod exec -T -w /app api python /tmp/enqueue_ingest_once.py
+            sleep 60
             echo "=== post heartbeat / queue ==="
             docker compose -p prod exec -T redis redis-cli GET arquivo:production:health-check || true
             docker compose -p prod exec -T redis redis-cli ZCARD arquivo:production || true
             echo "=== health json (no remediate, no notify) ==="
             bash scripts/check-pipeline-health.sh --json || true
             echo "=== recent worker lines ==="
-            docker logs arquivo-worker --since 3m 2>&1 | tail -50 || true
+            docker logs arquivo-worker --since 3m 2>&1 | tail -60 || true
             git fetch origin master
             git checkout -f master
             git reset --hard origin/master
