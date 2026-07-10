@@ -141,9 +141,18 @@ WHERE status IN ('classifying', 'downloading', 'extracting')
   if echo "$worker_logs_age" | grep -qE 'cron:ingest_cities_hourly|cron:ingest_cities_full_pipeline|\[INGEST_HOURLY\]|\[CITIES_PIPELINE\] Starting|\[INGEST_CITIES\] Starting'; then
       recent_start=true
   fi
+  # Full city sweeps can outlive MAX_PIPELINE_AGE_MINUTES. Mid-run logs use
+  # per-city markers (ingest_city / process_city / RSS fetch) that the start-only
+  # grep misses, which falsely fires backlog_active_but_no_recent_ingest while
+  # ingest is actively walking cities.
+  if echo "$worker_logs_activity" | grep -qE \
+      '\[INGEST_CITIES\]|\[CITIES_PIPELINE\]|\[INGEST_HOURLY\]|ingest_city:|process_city:|Fetching RSS feed:'; then
+      recent_start=true
+      DETAILS+=("OK: in_progress_city_ingest")
+  fi
   # Long backlog runs (up to 2h) can outlive the start-log window; track processing separately.
   if echo "$worker_logs_activity" | grep -qE \
-      '\[CITIES_BACKLOG\]|\[CITIES_PIPELINE\]|\[INGEST_HOURLY\]|cron:ingest_cities_hourly|cron:process_cities_backlog|cron:ingest_cities_full_pipeline|classify_source:|Classification complete:|\[Batch Dedup\]|\[Ingest\]|\[Download\]|\[Extract\]'; then
+      '\[CITIES_BACKLOG\]|\[CITIES_PIPELINE\]|\[INGEST_HOURLY\]|cron:ingest_cities_hourly|cron:process_cities_backlog|cron:ingest_cities_full_pipeline|classify_source:|Classification complete:|\[Batch Dedup\]|\[Ingest\]|\[Download\]|\[Extract\]|ingest_city:|process_city:|Fetching RSS feed:'; then
       recent_activity=true
   fi
   if [ "$active_sources" != "error" ] && [ "${active_sources:-0}" -gt 0 ]; then
@@ -376,13 +385,15 @@ if [ "$REMEDIATE" = true ]; then
     elif [ "$had_queue_jam" = true ]; then
         tier_a_clear_arq_queue || true
     fi
-    # Prefer classify when ingest recently started (or queue was jammed with
-    # ready backlog). Otherwise kick a full cities pipeline when cron/ingest
-    # has gone quiet — including backlog_active_but_no_recent_ingest.
+    # Missing ingest must always re-enqueue the full pipeline — even when a
+    # queue jam also triggers classify. The previous `elif` short-circuit left
+    # `no_recent_pipeline_run` in FAILURES; with `--notify` that re-fired the
+    # Cursor webhook and agents re-dispatched remediates in a restart loop.
+    if [ "$had_no_pipeline" = true ] || [ "$had_stale_ingest" = true ]; then
+        tier_a_enqueue_pipeline || true
+    fi
     if [ "$had_queue_jam" = true ] || { [ "$had_no_pipeline" = true ] && [ "$had_recent_ingest" = true ]; }; then
         tier_a_enqueue_classify || true
-    elif [ "$had_no_pipeline" = true ] || [ "$had_stale_ingest" = true ]; then
-        tier_a_enqueue_pipeline || true
     fi
     if [ "$had_stuck" = true ]; then
         echo_step "🔧 Tier-A: resetting stuck transient source statuses..."
