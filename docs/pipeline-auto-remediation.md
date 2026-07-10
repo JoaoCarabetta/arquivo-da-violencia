@@ -111,10 +111,14 @@ docker compose -p prod restart worker
 |---------|--------|
 | `worker_heartbeat_missing` | Restart worker, wait for heartbeat, clear ARQ locks |
 | `arq_queue_jammed` | Clear ARQ locks + enqueue `classify_pending_task` (no restart) |
-| `no_recent_pipeline_run` / `backlog_active_but_no_recent_ingest` | Enqueue `ingest_cities_full_pipeline` |
+| `no_recent_pipeline_run` / `backlog_active_but_no_recent_ingest` | Always enqueue `ingest_cities_full_pipeline` (even if queue jam also fires) |
 | `stuck_sources` | Reset transient statuses |
 
 Do **not** restart the worker for queue jam alone — that clears the heartbeat and can cascade into WorkerDown / remediates thrashing.
+
+Missing ingest and queue jam can co-occur: enqueue the full pipeline **and** classify (additive). Do not short-circuit ingest behind an `elif` on jam — that leaves `no_recent_pipeline_run` in `FAILURES` and `--notify` re-fires the Cursor webhook.
+
+`repository_dispatch` remediates/diagnoses skip `--notify` so agent-driven runs cannot create an agent → remediate → notify → agent loop. Schedule / `workflow_dispatch` still notify.
 
 ### Tier B — Code fix → PR to `develop`
 
