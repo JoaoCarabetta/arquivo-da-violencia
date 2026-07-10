@@ -376,13 +376,15 @@ if [ "$REMEDIATE" = true ]; then
     elif [ "$had_queue_jam" = true ]; then
         tier_a_clear_arq_queue || true
     fi
-    # Prefer classify when ingest recently started (or queue was jammed with
-    # ready backlog). Otherwise kick a full cities pipeline when cron/ingest
-    # has gone quiet — including backlog_active_but_no_recent_ingest.
+    # Missing ingest must always re-enqueue the full pipeline — even when a
+    # queue jam also triggers classify. The previous `elif` short-circuit left
+    # `no_recent_pipeline_run` in FAILURES; with `--notify` that re-fired the
+    # Cursor webhook and agents re-dispatched remediates in a restart loop.
+    if [ "$had_no_pipeline" = true ] || [ "$had_stale_ingest" = true ]; then
+        tier_a_enqueue_pipeline || true
+    fi
     if [ "$had_queue_jam" = true ] || { [ "$had_no_pipeline" = true ] && [ "$had_recent_ingest" = true ]; }; then
         tier_a_enqueue_classify || true
-    elif [ "$had_no_pipeline" = true ] || [ "$had_stale_ingest" = true ]; then
-        tier_a_enqueue_pipeline || true
     fi
     if [ "$had_stuck" = true ]; then
         echo_step "🔧 Tier-A: resetting stuck transient source statuses..."
