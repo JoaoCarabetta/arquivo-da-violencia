@@ -3,15 +3,20 @@
 import pytest
 from pydantic import ValidationError
 
-from app.services.extraction import derive_security_force_involved
+from app.services.extraction_derived import (
+    derive_security_force_involved,
+    derive_security_force_victim,
+)
 from app.services.extraction_schemas import (
     DateTime,
     DateVerification,
     HomicideDynamic,
     IdentifiablePerpetrator,
+    IdentifiablePerson,
     IdentifiableVictim,
     Location,
     Perpetrators,
+    UnidentifiedPerpetratorGroup,
     UnidentifiedVictimGroup,
     Victims,
     ViolentDeathEvent,
@@ -91,6 +96,49 @@ def test_victims_allows_tolerance_of_one():
     assert victims.number_of_victims == 3
 
 
+def test_perpetrators_rejects_mismatched_identifiable_count():
+    with pytest.raises(ValidationError, match="identifiable_perpetrators list length"):
+        Perpetrators(
+            identifiable_perpetrators=[IdentifiablePerpetrator(name="A")],
+            number_of_identifiable_perpetrators=2,
+            number_of_perpetrators=2,
+        )
+
+
+def test_perpetrators_rejects_inconsistent_total():
+    with pytest.raises(ValidationError, match="number_of_perpetrators"):
+        Perpetrators(
+            identifiable_perpetrators=[IdentifiablePerpetrator(name="A")],
+            number_of_identifiable_perpetrators=1,
+            unidentified_groups=[
+                UnidentifiedPerpetratorGroup(count=5, description="suspeitos")
+            ],
+            number_of_unidentified_perpetrators=5,
+            number_of_perpetrators=10,
+        )
+
+
+def test_identifiable_person_shared_fields_on_victim_and_perpetrator():
+    victim = IdentifiableVictim(
+        name="Ana",
+        is_security_force=True,
+        security_agent_type="PM",
+        security_agent_on_duty=True,
+        relationship_to_perpetrator="desconhecido",
+    )
+    perpetrator = IdentifiablePerpetrator(
+        name="Bruno",
+        is_security_force=True,
+        security_agent_type="PC",
+        security_agent_on_duty=False,
+        relationship_to_victim="desconhecido",
+    )
+    assert victim.security_agent_type == "PM"
+    assert perpetrator.security_agent_type == "PC"
+    assert isinstance(victim, IdentifiablePerson)
+    assert isinstance(perpetrator, IdentifiablePerson)
+
+
 def test_derive_security_force_from_identifiable_victim():
     event = _minimal_event()
     event.victims.identifiable_victims[0].is_security_force = True
@@ -131,3 +179,56 @@ def test_derive_security_force_returns_false_when_explicitly_civilian():
     event = _minimal_event()
     event.victims.identifiable_victims[0].is_security_force = False
     assert derive_security_force_involved(event) is False
+
+
+def test_derive_security_force_victim_from_identifiable_victim():
+    event = _minimal_event()
+    event.victims.identifiable_victims[0].is_security_force = True
+    assert derive_security_force_victim(event) is True
+
+
+def test_derive_security_force_victim_ignores_perpetrator_only():
+    event = _minimal_event()
+    event.perpetrators = Perpetrators(
+        identifiable_perpetrators=[
+            IdentifiablePerpetrator(name="PM", is_security_force=True)
+        ],
+        number_of_identifiable_perpetrators=1,
+        number_of_perpetrators=1,
+    )
+    assert derive_security_force_involved(event) is True
+    assert derive_security_force_victim(event) is None
+
+
+def test_derive_security_force_victim_from_unidentified_group():
+    event = _minimal_event(
+        identifiable_victims=[],
+        number_of_identifiable_victims=0,
+        unidentified_groups=[
+            UnidentifiedVictimGroup(count=2, description="policiais", is_security_force=True)
+        ],
+        number_of_unidentified_victims=2,
+        number_of_victims=2,
+    )
+    assert derive_security_force_victim(event) is True
+
+
+def test_identifiable_victim_security_agent_fields():
+    victim = IdentifiableVictim(
+        name="Agente",
+        is_security_force=True,
+        security_agent_type="PC",
+        security_agent_on_duty=False,
+    )
+    assert victim.security_agent_type == "PC"
+    assert victim.security_agent_on_duty is False
+
+
+def test_identifiable_victim_security_agent_type_requires_force_flag_semantics():
+    victim = IdentifiableVictim(
+        is_security_force=False,
+        security_agent_type=None,
+        security_agent_on_duty=None,
+    )
+    assert victim.security_agent_type is None
+    assert victim.security_agent_on_duty is None

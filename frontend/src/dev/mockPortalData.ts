@@ -68,6 +68,7 @@ function buildPoints(): MapPoint[] {
       d: isoDaysAgo(Math.floor(r3 * 280) + 1, i % 24),
       v: 1 + (i % 3),
       s: subtype === 'intervencao_policial' || i % 11 === 0,
+      sv: i % 13 === 0,
       c: city.city,
       n: NEIGHBORHOODS[i % NEIGHBORHOODS.length],
       st: city.st,

@@ -45,6 +45,21 @@ PUBLIC_EXPORT_FIELD_NAMES = [
     "victim_count",
     "perpetrator_count",
     "security_force_involved",
+    "security_force_victim",
+    "criminal_group_connected",
+    "criminal_group_activity",
+    "criminal_group_activity_description",
+    "criminal_groups",
+    "criminal_group_attacked",
+    "police_operation_connected",
+    "police_operation_force",
+    "police_operation_targeted_armed_groups",
+    "off_duty_police_perpetrator",
+    "off_duty_police_context",
+    "politician_or_candidate_victim",
+    "victim_political_status",
+    "victim_political_office",
+    "victim_political_party",
     "title",
     "chronological_description",
     "source_count",
@@ -108,6 +123,27 @@ def _expand_period_filters(periods: list[str]) -> list[str]:
     return list(expanded)
 
 
+def _public_context_fields(event: UniqueEvent) -> dict[str, object | None]:
+    """Flat criminal-group / police / political fields stored on unique_event."""
+    return {
+        "security_force_victim": event.security_force_victim,
+        "criminal_group_connected": event.criminal_group_connected,
+        "criminal_group_activity": event.criminal_group_activity,
+        "criminal_group_activity_description": event.criminal_group_activity_description,
+        "criminal_groups": event.criminal_groups,
+        "criminal_group_attacked": event.criminal_group_attacked,
+        "police_operation_connected": event.police_operation_connected,
+        "police_operation_force": event.police_operation_force,
+        "police_operation_targeted_armed_groups": event.police_operation_targeted_armed_groups,
+        "off_duty_police_perpetrator": event.off_duty_police_perpetrator,
+        "off_duty_police_context": event.off_duty_police_context,
+        "politician_or_candidate_victim": event.politician_or_candidate_victim,
+        "victim_political_status": event.victim_political_status,
+        "victim_political_office": event.victim_political_office,
+        "victim_political_party": event.victim_political_party,
+    }
+
+
 def _event_to_export_row(event: UniqueEvent, fieldnames: list[str]) -> dict[str, object | None]:
     """Build a single export row restricted to the requested public columns."""
     full_row = {
@@ -129,6 +165,7 @@ def _event_to_export_row(event: UniqueEvent, fieldnames: list[str]) -> dict[str,
         "victim_count": event.victim_count,
         "perpetrator_count": event.perpetrator_count,
         "security_force_involved": event.security_force_involved,
+        **_public_context_fields(event),
         "title": event.title,
         "chronological_description": event.chronological_description,
         "source_count": event.source_count,
@@ -655,7 +692,7 @@ async def get_map_points(
 
     Keys: id, lat, lng, f=event_family, su=event_subtype, t=homicide_type (legacy),
     m=method_of_death, d=event_date (ISO), v=victim_count, s=security_force_involved,
-    c=city, n=neighborhood, st=state, p=time_of_day.
+    sv=security_force_victim, c=city, n=neighborhood, st=state, p=time_of_day.
 
     Defaults to the last 365 days. No sort — order is undefined (cheaper for map tiles).
     """
@@ -672,6 +709,7 @@ async def get_map_points(
             UniqueEvent.event_date,
             UniqueEvent.victim_count,
             UniqueEvent.security_force_involved,
+            UniqueEvent.security_force_victim,
             UniqueEvent.city,
             UniqueEvent.neighborhood,
             UniqueEvent.state,
@@ -721,6 +759,7 @@ async def get_map_points(
             "d": r.event_date.isoformat() if r.event_date else None,
             "v": r.victim_count,
             "s": r.security_force_involved,
+            "sv": r.security_force_victim,
             "c": r.city,
             "n": r.neighborhood,
             "st": r.state,
@@ -950,12 +989,14 @@ def _format_public_event_detail(event: UniqueEvent, sources: list[dict]) -> dict
         "victims_summary": event.victims_summary,
         "perpetrator_count": event.perpetrator_count,
         "security_force_involved": event.security_force_involved,
+        **_public_context_fields(event),
         "title": event.title,
         "chronological_description": event.chronological_description,
         "latitude": float(event.latitude) if event.latitude else None,
         "longitude": float(event.longitude) if event.longitude else None,
         "location_precision": event.location_precision,
         "formatted_address": event.formatted_address,
+        "merged_data": event.merged_data,
         "source_count": event.source_count,
         "created_at": event.created_at.isoformat(),
         "updated_at": event.updated_at.isoformat() if event.updated_at else None,

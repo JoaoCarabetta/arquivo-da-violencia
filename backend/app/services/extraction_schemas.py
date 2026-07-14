@@ -16,6 +16,27 @@ from app.taxonomy import (
 # Re-export for callers that imported from here previously.
 HomicideType = str  # deprecated: use event_family + event_subtype
 
+SecurityAgentType = Literal["PM", "PC", "PF", "PRF", "penal", "outro"]
+
+PoliticalStatus = Literal["elected", "candidate", "former_elected"]
+
+CriminalGroupActivity = Literal[
+    "internal-discipline",
+    "internal-dispute",
+    "population-discipline",
+    "informant-elimination",
+    "debt-enforcement",
+    "territorial-dispute",
+    "economic-dispute",
+    "retaliatory",
+    "police-ambush",
+    "protest",
+    "collateral",
+    "unspecified",
+]
+
+OffDutyPoliceContext = Literal["genuine_reaction", "moonlighting", "criminal_organization"]
+
 
 # ---- Classes for Structured Extraction ----
 
@@ -49,37 +70,112 @@ class Location(BaseModel):
     )
 
 
-class IdentifiablePerpetrator(BaseModel):
-    """Dados estruturados do autor/suspeito de morte violenta identificável."""
+class PoliticalRole(BaseModel):
+    """Cargo político da vítima, quando explicitamente identificada como política ou candidata."""
 
-    name: Optional[str] = Field(None, description="Nome completo do autor, se identificado.")
-    age: Optional[int] = Field(None, description="Idade do autor.")
+    is_politician_or_candidate: bool = Field(
+        ...,
+        description="True somente se o texto identifica a vítima como detentora de cargo eletivo ou candidata.",
+    )
+    status: Optional[PoliticalStatus] = Field(
+        None,
+        description=(
+            "elected=mandato atual; candidate=candidato; former_elected=ex-mandatário (ex-vereador). "
+            "Null se não explicitado."
+        ),
+    )
+    office: Optional[str] = Field(
+        None,
+        description='Cargo conforme texto (ex.: "vereador", "prefeito"). Para ex-mandatário use o cargo sem "ex-".',
+    )
+    party: Optional[str] = Field(
+        None,
+        description='Partido conforme texto (sigla ou nome). Null se não mencionado — não inferir.',
+    )
+
+
+class IdentifiablePerson(BaseModel):
+    """Campos compartilhados de pessoa identificável (vítima ou autor)."""
+
+    name: Optional[str] = Field(
+        None,
+        description=(
+            "Nome completo da pessoa. Se apenas primeiro nome ou apelido, registrar o que foi informado."
+        ),
+    )
+    age: Optional[int] = Field(None, description="Idade da pessoa em anos.")
     gender: Optional[Literal["masculino", "feminino", "outro", "não informado"]] = Field(
-        None, description="Gênero do autor."
+        None, description="Gênero da pessoa inferido do texto."
     )
     occupation: Optional[str] = Field(
-        None, description="Profissão ou ocupação do autor, se mencionada."
-    )
-    relationship_to_victim: Optional[str] = Field(
-        None,
-        description="Relação do autor com a vítima, se mencionada. Exemplo: 'cônjuge', 'desconhecido', 'colega', 'familiar'",
+        None, description="Profissão ou ocupação da pessoa, se mencionada."
     )
     is_security_force: Optional[bool] = Field(
         None,
-        description="Indica se o autor é integrante das forças de segurança pública (Ex: policial militar, policial civil, etc.). True se for, False se não for, None se não mencionado.",
+        description=(
+            "Indica se a pessoa é integrante das forças de segurança pública "
+            "(Ex: policial militar, policial civil, guarda municipal, etc.). "
+            "True se for, False se não for, None se não mencionado."
+        ),
+    )
+    security_agent_type: Optional[SecurityAgentType] = Field(
+        None,
+        description=(
+            "Corpo policial da pessoa, somente se is_security_force=true. "
+            "PM=Polícia Militar; PC=Polícia Civil; PF=Polícia Federal; PRF=Polícia Rodoviária Federal; "
+            "penal=policial penal; outro=outro órgão. Null se is_security_force não for true."
+        ),
+    )
+    security_agent_on_duty: Optional[bool] = Field(
+        None,
+        description=(
+            "Somente se is_security_force=true: true=em serviço; false=folga/fora de expediente; "
+            "null=texto não informa."
+        ),
     )
     description: Optional[str] = Field(
-        None, description="Descrição física ou características do autor mencionadas"
+        None, description="Descrição física ou características mencionadas."
     )
 
 
-class UnidentifiedPerpetratorGroup(BaseModel):
-    """Grupo de autores/suspeitos não identificados individualmente."""
+class IdentifiablePerpetrator(IdentifiablePerson):
+    """Dados estruturados do autor/suspeito de morte violenta identificável."""
 
-    count: int = Field(..., description="Número de autores neste grupo")
+    relationship_to_victim: Optional[str] = Field(
+        None,
+        description=(
+            "Relação do autor com a vítima, se mencionada. "
+            "Exemplo: 'cônjuge', 'desconhecido', 'colega', 'familiar'"
+        ),
+    )
+
+
+class IdentifiableVictim(IdentifiablePerson):
+    """Dados estruturados da vítima de morte violenta."""
+
+    relationship_to_perpetrator: Optional[str] = Field(
+        None,
+        description=(
+            "Relação com o autor do crime, se mencionada. "
+            "Exemplo: 'cônjuge', 'desconhecido', 'colega', 'familiar'"
+        ),
+    )
+    political_role: Optional[PoliticalRole] = Field(
+        None,
+        description="Preencher somente quando o texto identifica a vítima como política ou candidata.",
+    )
+
+
+class UnidentifiedPersonGroup(BaseModel):
+    """Grupo de pessoas não identificadas individualmente (vítimas ou autores)."""
+
+    count: int = Field(..., description="Número de pessoas neste grupo")
     description: str = Field(
         ...,
-        description='Descrição do grupo conforme texto. Ex: "criminosos", "suspeitos", "policiais", "traficantes", "homens armados"',
+        description=(
+            'Descrição do grupo conforme texto. Ex: "moradores", "suspeitos", "policiais", '
+            '"pessoas", "civis", "criminosos", "homens armados"'
+        ),
     )
     is_security_force: Optional[bool] = Field(
         None, description="Este grupo é de forças de segurança?"
@@ -87,8 +183,58 @@ class UnidentifiedPerpetratorGroup(BaseModel):
     is_civilian: Optional[bool] = Field(None, description="Este grupo é de civis?")
     context: Optional[str] = Field(
         None,
-        description="Contexto adicional sobre este grupo (ex: 'fugiram do local', 'presos durante operação X')",
+        description="Contexto adicional sobre este grupo (ex: 'mortos durante operação X', 'fugiram do local')",
     )
+
+
+class UnidentifiedPerpetratorGroup(UnidentifiedPersonGroup):
+    """Grupo de autores/suspeitos não identificados individualmente."""
+
+
+class UnidentifiedVictimGroup(UnidentifiedPersonGroup):
+    """Grupo de vítimas não identificadas individualmente."""
+
+
+def _validate_party_counts(
+    *,
+    role: str,
+    identifiable_list: list,
+    number_of_identifiable: int,
+    unidentified_groups: Optional[list],
+    number_of_unidentified: Optional[int],
+    number_of_total: int,
+    total_tolerance: int = 1,
+) -> None:
+    """Shared list/count consistency checks for Victims and Perpetrators wrappers.
+
+    ``role`` is the plural noun used in field names: ``victims`` or ``perpetrators``.
+    """
+    identifiable_name = f"number_of_identifiable_{role}"
+    unidentified_name = f"number_of_unidentified_{role}"
+    total_name = f"number_of_{role}"
+    identifiable_list_name = f"identifiable_{role}"
+
+    if number_of_identifiable != len(identifiable_list):
+        raise ValueError(
+            f"{identifiable_name} ({number_of_identifiable}) must match "
+            f"{identifiable_list_name} list length ({len(identifiable_list)})"
+        )
+
+    group_total = 0
+    if unidentified_groups:
+        group_total = sum(group.count for group in unidentified_groups)
+        if number_of_unidentified is not None and number_of_unidentified != group_total:
+            raise ValueError(
+                f"{unidentified_name} ({number_of_unidentified}) "
+                f"must match sum of unidentified group counts ({group_total})"
+            )
+
+    expected_total = number_of_identifiable + group_total
+    if abs(number_of_total - expected_total) > total_tolerance:
+        raise ValueError(
+            f"{total_name} ({number_of_total}) inconsistent with "
+            f"identifiable ({number_of_identifiable}) + unidentified ({group_total})"
+        )
 
 
 class Perpetrators(BaseModel):
@@ -96,7 +242,10 @@ class Perpetrators(BaseModel):
 
     identifiable_perpetrators: list[IdentifiablePerpetrator] = Field(
         ...,
-        description="Lista de autores/suspeitos de morte violenta. Crie uma entrada para cada autor mencionado somente quando houver informações suficientes para identificar o autor.",
+        description=(
+            "Lista de autores/suspeitos de morte violenta. Crie uma entrada para cada autor "
+            "mencionado somente quando houver informações suficientes para identificar o autor."
+        ),
     )
     number_of_identifiable_perpetrators: int = Field(
         ..., description="Número de autores/suspeitos identificados"
@@ -112,50 +261,17 @@ class Perpetrators(BaseModel):
         description="Número total de autores/suspeitos de morte violenta mencionados na notícia",
     )
 
-
-class IdentifiableVictim(BaseModel):
-    """Dados estruturados da vítima de morte violenta."""
-
-    name: Optional[str] = Field(
-        None,
-        description="Nome completo da vítima. Se apenas primeiro nome ou apelido, registrar o que foi informado.",
-    )
-    age: Optional[int] = Field(None, description="Idade da vítima em anos")
-    gender: Optional[Literal["masculino", "feminino", "outro", "não informado"]] = Field(
-        None, description="Gênero da vítima inferido do texto"
-    )
-    occupation: Optional[str] = Field(
-        None, description="Profissão ou ocupação da vítima, se mencionada"
-    )
-    relationship_to_perpetrator: Optional[str] = Field(
-        None,
-        description="Relação com o autor do crime, se mencionada. Exemplo: 'cônjuge', 'desconhecido', 'colega', 'familiar'",
-    )
-    is_security_force: Optional[bool] = Field(
-        None,
-        description="Indica se a vítima é integrante das forças de segurança pública (Ex: policial militar, policial civil, guarda municipal, etc.). True se for, False se não for, None se não mencionado.",
-    )
-    description: Optional[str] = Field(
-        None, description="Descrição física ou características mencionadas"
-    )
-
-
-class UnidentifiedVictimGroup(BaseModel):
-    """Grupo de vítimas não identificadas individualmente."""
-
-    count: int = Field(..., description="Número de vítimas neste grupo")
-    description: str = Field(
-        ...,
-        description='Descrição do grupo conforme texto. Ex: "moradores", "suspeitos", "policiais", "pessoas", "civis", "criminosos"',
-    )
-    is_security_force: Optional[bool] = Field(
-        None, description="Este grupo é de forças de segurança?"
-    )
-    is_civilian: Optional[bool] = Field(None, description="Este grupo é de civis?")
-    context: Optional[str] = Field(
-        None,
-        description="Contexto adicional sobre este grupo (ex: 'mortos durante operação X')",
-    )
+    @model_validator(mode="after")
+    def validate_perpetrator_counts(self):
+        _validate_party_counts(
+            role="perpetrators",
+            identifiable_list=self.identifiable_perpetrators,
+            number_of_identifiable=self.number_of_identifiable_perpetrators,
+            unidentified_groups=self.unidentified_groups,
+            number_of_unidentified=self.number_of_unidentified_perpetrators,
+            number_of_total=self.number_of_perpetrators,
+        )
+        return self
 
 
 class Victims(BaseModel):
@@ -163,7 +279,10 @@ class Victims(BaseModel):
 
     identifiable_victims: list[IdentifiableVictim] = Field(
         ...,
-        description="Lista de vítimas de morte violenta. Crie uma entrada para cada vítima mencionada somente quando houver informações suficientes para identificar a vítima.",
+        description=(
+            "Lista de vítimas de morte violenta. Crie uma entrada para cada vítima mencionada "
+            "somente quando houver informações suficientes para identificar a vítima."
+        ),
     )
     number_of_identifiable_victims: int = Field(
         ..., description="Número de vítimas identificadas"
@@ -183,31 +302,14 @@ class Victims(BaseModel):
 
     @model_validator(mode="after")
     def validate_victim_counts(self):
-        """Ensure victim totals are internally consistent."""
-        identifiable = self.number_of_identifiable_victims
-        if identifiable != len(self.identifiable_victims):
-            raise ValueError(
-                f"number_of_identifiable_victims ({identifiable}) must match "
-                f"identifiable_victims list length ({len(self.identifiable_victims)})"
-            )
-
-        group_total = 0
-        if self.unidentified_groups:
-            group_total = sum(group.count for group in self.unidentified_groups)
-            if self.number_of_unidentified_victims is not None:
-                if self.number_of_unidentified_victims != group_total:
-                    raise ValueError(
-                        f"number_of_unidentified_victims ({self.number_of_unidentified_victims}) "
-                        f"must match sum of unidentified group counts ({group_total})"
-                    )
-
-        expected_total = identifiable + group_total
-        if abs(self.number_of_victims - expected_total) > 1:
-            raise ValueError(
-                f"number_of_victims ({self.number_of_victims}) inconsistent with "
-                f"identifiable ({identifiable}) + unidentified ({group_total})"
-            )
-
+        _validate_party_counts(
+            role="victims",
+            identifiable_list=self.identifiable_victims,
+            number_of_identifiable=self.number_of_identifiable_victims,
+            unidentified_groups=self.unidentified_groups,
+            number_of_unidentified=self.number_of_unidentified_victims,
+            number_of_total=self.number_of_victims,
+        )
         return self
 
 
@@ -357,6 +459,71 @@ class DateTime(BaseModel):
         return self
 
 
+class CriminalGroupContext(BaseModel):
+    """Contexto de atividade de grupos criminosos armados/organizados."""
+
+    connected: Optional[bool] = Field(
+        None,
+        description=(
+            "True se o homicídio está explicitamente ligado a atividade de grupo criminoso armado/organizado. "
+            "False se explicitamente desligado. Null se não mencionado. "
+            "NÃO inferir de 'área dominada pelo tráfico' sem ligação a este caso."
+        ),
+    )
+    groups: Optional[list[str]] = Field(
+        None,
+        description='Nomes de facções/grupos conforme texto (ex.: "PCC", "Comando Vermelho"). Verbatim.',
+    )
+    activity: Optional[CriminalGroupActivity] = Field(
+        None,
+        description=(
+            "Mecanismo específico da atividade criminal. Use unspecified se conectado mas mecanismo incerto. "
+            "Prioridade se múltiplos: territorial-dispute > economic-dispute > retaliatory > unspecified."
+        ),
+    )
+    activity_description: Optional[str] = Field(
+        None,
+        description="Detalhe adicional do mecanismo quando o enum não basta; deve ser grounded no texto.",
+    )
+    group_attacked: Optional[str] = Field(
+        None,
+        description="Grupo atacado em territorial-dispute ou retaliatory, somente se explícito. Null se incerto.",
+    )
+    rival_actor: Optional[str] = Field(
+        None,
+        description="Rival em economic-dispute (grupo, negócio ou indivíduo), somente se explícito.",
+    )
+    target_force: Optional[str] = Field(
+        None,
+        description="Força policial alvo em police-ambush (PM, PC, etc.), somente se explícito.",
+    )
+    policy_trigger: Optional[str] = Field(
+        None,
+        description="Gatilho de protest (política/medida estatal), somente se explícito.",
+    )
+
+
+class PoliceOperationContext(BaseModel):
+    """Contexto de operação policial oficial."""
+
+    connected: Optional[bool] = Field(
+        None,
+        description="True se morte ocorreu durante operação policial oficial explicitamente descrita.",
+    )
+    responsible_force: Optional[str] = Field(
+        None,
+        description='Força responsável conforme texto (ex.: "PM", "Polícia Civil"). Null se não mencionado.',
+    )
+    targeted_armed_groups: Optional[bool] = Field(
+        None,
+        description="True se a operação visava combater grupos criminosos armados, conforme texto.",
+    )
+    operation_name: Optional[str] = Field(
+        None,
+        description='Nome da operação se mencionado (ex.: "Operação Verão").',
+    )
+
+
 class HomicideDynamic(BaseModel):
     """Dinâmica da morte violenta estruturada."""
 
@@ -417,6 +584,29 @@ class HomicideDynamic(BaseModel):
         - Incluir informações não verificadas no texto
         - Inventar datas completas
         """,
+    )
+
+    criminal_group_context: Optional[CriminalGroupContext] = Field(
+        None,
+        description="Contexto de grupos criminosos/facções/milícias ligado a este homicídio.",
+    )
+    police_operation_context: Optional[PoliceOperationContext] = Field(
+        None,
+        description="Contexto de operação policial oficial ligada a este homicídio.",
+    )
+    off_duty_police_perpetrator: Optional[bool] = Field(
+        None,
+        description=(
+            "True se um policial foi autor/perpetrador fora de serviço (não operação oficial). "
+            "Null se não aplicável ou não mencionado."
+        ),
+    )
+    off_duty_police_context: Optional[OffDutyPoliceContext] = Field(
+        None,
+        description=(
+            "Somente se off_duty_police_perpetrator=true: genuine_reaction, moonlighting, "
+            "ou criminal_organization conforme texto."
+        ),
     )
 
 

@@ -13,8 +13,12 @@ import {
   dictionaryLabel,
   formatCoordinates,
   formatCount,
+  formatCriminalGroupActivity,
+  formatOffDutyPoliceContext,
+  formatPoliticalStatus,
   formatRecordDate,
   formatSubtypeSlug,
+  formatYesNo,
   hasDetailValue,
   resolveSourceUrl,
   sourceHeadline,
@@ -138,6 +142,22 @@ export function EventDetailView({ id, onClose }: EventDetailViewProps) {
     hasDetailValue(event.homicide_type) ||
     hasDetailValue(event.created_at) ||
     hasDetailValue(event.updated_at);
+
+  const hasContextSection =
+    hasDetailValue(event.criminal_group_connected) ||
+    hasDetailValue(event.criminal_groups) ||
+    hasDetailValue(event.criminal_group_activity) ||
+    hasDetailValue(event.criminal_group_activity_description) ||
+    hasDetailValue(event.criminal_group_attacked) ||
+    hasDetailValue(event.police_operation_connected) ||
+    hasDetailValue(event.police_operation_force) ||
+    hasDetailValue(event.police_operation_targeted_armed_groups) ||
+    hasDetailValue(event.off_duty_police_perpetrator) ||
+    hasDetailValue(event.off_duty_police_context) ||
+    hasDetailValue(event.politician_or_candidate_victim) ||
+    hasDetailValue(event.victim_political_status) ||
+    hasDetailValue(event.victim_political_office) ||
+    hasDetailValue(event.victim_political_party);
 
   return (
     <div className="av-fade px-5 pb-7 pt-[18px]">
@@ -341,6 +361,67 @@ export function EventDetailView({ id, onClose }: EventDetailViewProps) {
               {t.sourcesCountMismatch}
             </div>
           )}
+        </>
+      )}
+
+      {hasContextSection && (
+        <>
+          <SectionLabel>{t.detailContext}</SectionLabel>
+          <DetailCard>
+            <DetailFieldRow
+              label={dictionaryLabel('criminal_group_connected', lang)}
+              value={formatYesNo(event.criminal_group_connected, lang)}
+            />
+            <DetailFieldRow label={dictionaryLabel('criminal_groups', lang)} value={event.criminal_groups} />
+            <DetailFieldRow
+              label={dictionaryLabel('criminal_group_activity', lang)}
+              value={formatCriminalGroupActivity(event.criminal_group_activity, lang)}
+            />
+            <DetailFieldRow
+              label={dictionaryLabel('criminal_group_activity_description', lang)}
+              value={event.criminal_group_activity_description}
+            />
+            <DetailFieldRow
+              label={dictionaryLabel('criminal_group_attacked', lang)}
+              value={event.criminal_group_attacked}
+            />
+            <DetailFieldRow
+              label={dictionaryLabel('police_operation_connected', lang)}
+              value={formatYesNo(event.police_operation_connected, lang)}
+            />
+            <DetailFieldRow
+              label={dictionaryLabel('police_operation_force', lang)}
+              value={event.police_operation_force}
+            />
+            <DetailFieldRow
+              label={dictionaryLabel('police_operation_targeted_armed_groups', lang)}
+              value={formatYesNo(event.police_operation_targeted_armed_groups, lang)}
+            />
+            <DetailFieldRow
+              label={dictionaryLabel('off_duty_police_perpetrator', lang)}
+              value={formatYesNo(event.off_duty_police_perpetrator, lang)}
+            />
+            <DetailFieldRow
+              label={dictionaryLabel('off_duty_police_context', lang)}
+              value={formatOffDutyPoliceContext(event.off_duty_police_context, lang)}
+            />
+            <DetailFieldRow
+              label={dictionaryLabel('politician_or_candidate_victim', lang)}
+              value={formatYesNo(event.politician_or_candidate_victim, lang)}
+            />
+            <DetailFieldRow
+              label={dictionaryLabel('victim_political_status', lang)}
+              value={formatPoliticalStatus(event.victim_political_status, lang)}
+            />
+            <DetailFieldRow
+              label={dictionaryLabel('victim_political_office', lang)}
+              value={event.victim_political_office}
+            />
+            <DetailFieldRow
+              label={dictionaryLabel('victim_political_party', lang)}
+              value={event.victim_political_party}
+            />
+          </DetailCard>
         </>
       )}
 

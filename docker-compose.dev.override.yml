@@ -2,3 +2,8 @@ services:
   api:
     ports: !override
       - "8010:8000"
+
+  frontend:
+    environment:
+      - VITE_API_URL=http://localhost:8010
+      - VITE_API_PROXY=http://api:8000

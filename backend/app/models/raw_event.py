@@ -37,7 +37,9 @@ class RawEventBase(SQLModel):
     # Perpetrator counts
     perpetrator_count: int | None = Field(default=None)
     security_force_involved: bool | None = Field(default=None, index=True)
-    
+    # True when any victim (identifiable or unidentified group) is security force
+    security_force_victim: bool | None = Field(default=None, index=True)
+
     # Summary fields
     title: str | None = Field(default=None, max_length=512)
     chronological_description: str | None = Field(default=None)

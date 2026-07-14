@@ -91,7 +91,7 @@ const PT: MethodologyContent = {
       bullets: [
         'Local: bairro, rua, estabelecimento, cidade, estado, país',
         'Tempo: data, precisão, hora, período do dia (madrugada, manhã, tarde, noite)',
-        'Pessoas: vítimas, autores, envolvimento de força de segurança',
+        'Pessoas: vítimas, autores, envolvimento de força de segurança; se a vítima for policial, isso alimenta a contagem Policial vitimado em "Por tipo"',
         'Dinâmica: subtipo de morte violenta, método de morte, descrição cronológica',
       ],
     },
@@ -103,6 +103,7 @@ const PT: MethodologyContent = {
       ],
       bullets: [
         'Subtipos no arquivo público: simples, qualificado, feminicídio, latrocínio, infanticídio, intervenção policial, morte dolosa no trânsito',
+        'Além dos subtipos, as estatísticas "Por tipo" incluem Policial vitimado: eventos em que a vítima é integrante das forças de segurança (PM, PC, PF, etc.). Isso não é um subtipo — o evento continua classificado pela dinâmica do crime (simples, latrocínio, etc.)',
         'Fora do arquivo público: tentativa, acidente fatal, não classificado',
         'Métodos: Arma de fogo, Arma branca, Estrangulamento, Asfixia, Espancamento, Atropelamento, Envenenamento, Objeto contundente, Incêndio, Queda, Outro',
       ],
@@ -250,7 +251,7 @@ const EN: MethodologyContent = {
     bullets: [
       'Location: neighborhood, street, establishment, city, state, country',
       'Time: date, precision, time, period of day (dawn, morning, afternoon, night)',
-      'People: victims, perpetrators, security-force involvement',
+      'People: victims, perpetrators, security-force involvement; if the victim is an officer, that feeds the Slain police officer count in "By type"',
       'Dynamics: violent death subtype, method of death, chronological description',
     ],
   },
@@ -262,6 +263,7 @@ const EN: MethodologyContent = {
     ],
     bullets: [
       'Public archive subtypes: simple, aggravated, femicide, robbery-homicide, infanticide, police intervention, intentional vehicular death',
+      'Besides subtypes, "By type" stats include Slain police officer: events where the victim is a member of the security forces (military police, civil police, federal police, etc.). This is not a subtype — the event keeps the crime dynamics classification (simple, robbery-homicide, etc.)',
       'Outside public archive: attempt, fatal accident, unclassified',
       'Methods: Firearm, Bladed weapon, Strangulation, Asphyxiation, Beating, Vehicle, Poisoning, Blunt object, Fire, Fall, Other',
     ],

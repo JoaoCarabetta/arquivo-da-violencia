@@ -2,7 +2,7 @@
  * Bilingual (PT/EN) strings and value translators for the public portal.
  */
 
-import { formatSubtype, isHomicideSubtype, legacyLabelToSubtype, subtypeColor } from '@/lib/taxonomy';
+import { formatSubtype, formatTypeStatLabel, isHomicideSubtype, legacyLabelToSubtype, subtypeColor, typeStatColor } from '@/lib/taxonomy';
 
 export type Lang = 'pt' | 'en';
 
@@ -89,6 +89,7 @@ export interface Strings {
   sourceNoLink: string;
   sourcesCountMismatch: string;
   detailVictims: string;
+  detailContext: string;
   detailLocation: string;
   detailRecord: string;
   detailPerpetrators: string;
@@ -194,6 +195,7 @@ const PT: Strings = {
   sourceNoLink: 'Sem link disponível',
   sourcesCountMismatch: 'Algumas fontes registradas não puderam ser vinculadas a uma matéria.',
   detailVictims: 'Vítimas e método',
+  detailContext: 'Contexto',
   detailLocation: 'Localização',
   detailRecord: 'Registro',
   detailPerpetrators: 'Perpetradores',
@@ -302,6 +304,7 @@ const EN: Strings = {
   sourceNoLink: 'No link available',
   sourcesCountMismatch: 'Some recorded sources could not be linked to an article.',
   detailVictims: 'Victims and method',
+  detailContext: 'Context',
   detailLocation: 'Location',
   detailRecord: 'Record',
   detailPerpetrators: 'Perpetrators',
@@ -379,7 +382,8 @@ function titleCasePt(value: string): string {
 
 export function translateType(value: string | null | undefined, lang: Lang): string {
   if (!value) return lang === 'pt' ? 'Não classificado' : 'Unclassified';
-  if (isHomicideSubtype(value)) return formatSubtype(value, lang);
+  const labeled = formatTypeStatLabel(value, lang);
+  if (labeled !== value) return labeled;
   const mapped = legacyLabelToSubtype(value);
   if (mapped) return formatSubtype(mapped, lang);
   if (lang === 'en') return TYPE_EN[value] ?? value;
@@ -419,10 +423,11 @@ export function translateLocationPrecision(value: string | null | undefined, lan
   return map[key] ?? value;
 }
 
-/** Color for a homicide subtype slug or legacy label. */
+/** Color for a homicide subtype slug, security-force-victim key, or legacy label. */
 export function typeColor(value: string | null | undefined): string {
   if (!value) return 'var(--stone-500)';
-  if (isHomicideSubtype(value)) return subtypeColor(value);
+  const fromKey = typeStatColor(value);
+  if (fromKey !== 'var(--stone-500)' || isHomicideSubtype(value)) return fromKey;
   const mapped = legacyLabelToSubtype(value);
   if (mapped) return subtypeColor(mapped);
   const v = value.toLowerCase();
@@ -491,6 +496,25 @@ export function dictionaryRows(lang: Lang): DictionaryRow[] {
     ['victim_count', 'Número de vítimas fatais'],
     ['perpetrator_count', 'Número de perpetradores'],
     ['security_force_involved', 'Envolvimento de forças de segurança'],
+    ['security_force_victim', 'Vítima de força de segurança (policial vitimado)'],
+    ['criminal_group_connected', 'Ligado a grupo criminoso'],
+    ['criminal_groups', 'Grupo(s) criminoso(s)'],
+    ['criminal_group_activity', 'Atividade do grupo'],
+    ['criminal_group_activity_description', 'Descrição da atividade'],
+    ['criminal_group_attacked', 'Grupo atacado'],
+    ['police_operation_connected', 'Operação policial oficial'],
+    ['police_operation_force', 'Força policial responsável'],
+    ['police_operation_targeted_armed_groups', 'Operação contra grupos armados'],
+    ['off_duty_police_perpetrator', 'Policial autor fora de serviço'],
+    ['off_duty_police_context', 'Contexto do policial fora de serviço'],
+    ['politician_or_candidate_victim', 'Vítima política ou candidata'],
+    ['victim_political_status', 'Status político da vítima'],
+    ['victim_political_office', 'Cargo político'],
+    ['victim_political_party', 'Partido'],
+    ['criminal_group / activity', 'Grupo criminoso e tipo de atividade'],
+    ['police_operation', 'Operação policial oficial'],
+    ['off_duty_police', 'Policial autor fora de serviço'],
+    ['political_victim', 'Vítima política ou candidata'],
     ['title', 'Título resumido do evento'],
     ['chronological_description', 'Descrição cronológica detalhada'],
     ['source_count', 'Número de fontes jornalísticas'],
@@ -512,6 +536,25 @@ export function dictionaryRows(lang: Lang): DictionaryRow[] {
     ['victim_count', 'Number of fatal victims'],
     ['perpetrator_count', 'Number of perpetrators'],
     ['security_force_involved', 'Security-force involvement'],
+    ['security_force_victim', 'Security-force victim (slain police officer)'],
+    ['criminal_group_connected', 'Connected to criminal group'],
+    ['criminal_groups', 'Criminal group(s)'],
+    ['criminal_group_activity', 'Group activity type'],
+    ['criminal_group_activity_description', 'Activity description'],
+    ['criminal_group_attacked', 'Group attacked'],
+    ['police_operation_connected', 'Official police operation'],
+    ['police_operation_force', 'Responsible police force'],
+    ['police_operation_targeted_armed_groups', 'Operation targeted armed groups'],
+    ['off_duty_police_perpetrator', 'Off-duty police perpetrator'],
+    ['off_duty_police_context', 'Off-duty police context'],
+    ['politician_or_candidate_victim', 'Politician or candidate victim'],
+    ['victim_political_status', 'Victim political status'],
+    ['victim_political_office', 'Political office'],
+    ['victim_political_party', 'Political party'],
+    ['criminal_group / activity', 'Criminal group and activity type'],
+    ['police_operation', 'Official police operation'],
+    ['off_duty_police', 'Off-duty police perpetrator'],
+    ['political_victim', 'Politician or candidate victim'],
     ['title', 'Short event title'],
     ['chronological_description', 'Detailed chronological description'],
     ['source_count', 'Number of news sources'],

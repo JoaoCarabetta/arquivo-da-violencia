@@ -61,7 +61,10 @@ def apply_public_incident_filter(statement):
 
 
 def homicide_type_filter(type_value: str) -> ColumnElement:
-    """Match subtype slug, family:subtype pair, or legacy homicide_type label."""
+    """Match subtype slug, family:subtype pair, legacy label, or security_force_victim."""
+    lower = type_value.lower()
+    if type_value == "security_force_victim" or "policial vitimado" in lower or "homicídio de policial" in lower or "homicidio de policial" in lower:
+        return UniqueEvent.security_force_victim.is_(True)
     if type_value in _HOMICIDIO_SUBTYPES:
         return UniqueEvent.event_subtype == type_value
     if ":" in type_value:

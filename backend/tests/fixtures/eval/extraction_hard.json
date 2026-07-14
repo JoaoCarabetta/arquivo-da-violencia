@@ -4,7 +4,7 @@
     "version": 1,
     "source_db": null,
     "seed": null,
-    "labeled_count": 21,
+    "labeled_count": 24,
     "pending_count": 0,
     "generator_model": "gemini-2.5-pro"
   },
@@ -1138,6 +1138,164 @@
           "homicide_dynamic.method",
           "content_class"
         ]
+      }
+    },
+    {
+      "id": "ext-hard-criminal-group-001",
+      "tags": [
+        "criminal_group",
+        "territorial_dispute"
+      ],
+      "label_status": "labeled",
+      "input": {
+        "content": "Um homem foi morto a tiros na noite de sábado durante confronto entre integrantes do Comando Vermelho e milicianos pelo controle do Morro da Providência, no Rio de Janeiro. Testemunhas disseram que homens armados do CV atacaram o grupo rival. A vítima, ainda não identificada, morreu no local.",
+        "metadata": {
+          "headline": "Homem morre em confronto entre CV e milícia no Rio",
+          "published_at": "2026-03-15T10:00:00Z",
+          "publisher": "eval-fixture",
+          "url": "https://example.local/cv-milicia"
+        }
+      },
+      "expected": {
+        "location_info": {
+          "city": "Rio de Janeiro",
+          "state": "RJ"
+        },
+        "victims": {
+          "number_of_victims": 1
+        },
+        "homicide_dynamic": {
+          "criminal_group_context": {
+            "connected": true,
+            "activity": "territorial-dispute"
+          }
+        },
+        "event_family": "homicidio",
+        "event_subtype": "simples"
+      },
+      "scoring": {
+        "required_fields": [
+          "location_info.city",
+          "location_info.state",
+          "victims.number_of_victims",
+          "homicide_dynamic.criminal_group_context.connected",
+          "homicide_dynamic.criminal_group_context.activity",
+          "event_family",
+          "event_subtype"
+        ]
+      },
+      "metadata": {
+        "notes": "Criminal group territorial dispute — explicit facção language required."
+      }
+    },
+    {
+      "id": "ext-hard-politician-001",
+      "tags": [
+        "political_victim"
+      ],
+      "label_status": "labeled",
+      "input": {
+        "content": "O vereador João Silva (PT) foi executado a tiros na noite de ontem em Campinas (SP). Segundo a Polícia Civil, ele saía de um evento de campanha quando foi abordado por dois homens em uma moto.",
+        "metadata": {
+          "headline": "Vereador João Silva (PT) é assassinado em Campinas",
+          "published_at": "2026-05-10T08:00:00Z",
+          "publisher": "eval-fixture",
+          "url": "https://example.local/vereador-campinas"
+        }
+      },
+      "expected": {
+        "date_time": {
+          "date": "2026-05-09"
+        },
+        "location_info": {
+          "city": "Campinas",
+          "state": "SP"
+        },
+        "victims": {
+          "number_of_victims": 1,
+          "identifiable_victims": [
+            {
+              "name": "João Silva",
+              "political_role": {
+                "is_politician_or_candidate": true,
+                "status": "elected",
+                "office": "vereador",
+                "party": "PT"
+              }
+            }
+          ]
+        },
+        "event_family": "homicidio",
+        "event_subtype": "qualificado"
+      },
+      "scoring": {
+        "required_fields": [
+          "date_time.date",
+          "location_info.city",
+          "location_info.state",
+          "victims.identifiable_victims.0.political_role.is_politician_or_candidate",
+          "victims.identifiable_victims.0.political_role.status",
+          "victims.identifiable_victims.0.political_role.office",
+          "victims.identifiable_victims.0.political_role.party",
+          "event_family",
+          "event_subtype"
+        ]
+      },
+      "metadata": {
+        "notes": "Per-victim political role — elected vereador with party."
+      }
+    },
+    {
+      "id": "ext-security-agent-off-duty",
+      "tags": [
+        "security_agent",
+        "victim",
+        "off_duty"
+      ],
+      "label_status": "labeled",
+      "input": {
+        "content": "Um policial civil foi assassinado a tiros na noite desta sexta-feira, em Copacabana, na Zona Sul do Rio de Janeiro. Segundo a Polícia Civil, a vítima saía de um restaurante com a família quando foi abordada por criminosos armados. Testemunhas disseram que ele estava de folga e vestia roupas civis. O agente, lotado na Delegacia de Copacabana, foi atingido por disparos e morreu antes da chegada do socorro. Os autores fugiram em um carro. O caso será investigado pela Delegacia de Homicídios da Capital (DH).",
+        "metadata": {
+          "headline": "Policial civil é morto a tiros em Copacabana",
+          "published_at": "2025-03-14T09:00:00Z",
+          "publisher": "O Globo",
+          "url": "https://oglobo.globo.com/rio/policial-civil-morto-copacabana"
+        }
+      },
+      "expected": {
+        "event_family": "homicidio",
+        "event_subtype": "simples",
+        "content_class": "incident",
+        "location_info": {
+          "city": "Rio de Janeiro",
+          "state": "RJ",
+          "neighborhood": "Copacabana"
+        },
+        "victims": {
+          "identifiable_victims": [
+            {
+              "is_security_force": true,
+              "security_agent_type": "PC",
+              "security_agent_on_duty": false
+            }
+          ],
+          "number_of_victims": 1
+        }
+      },
+      "scoring": {
+        "required_fields": [
+          "event_subtype",
+          "content_class",
+          "location_info.city",
+          "location_info.state",
+          "victims.identifiable_victims.0.is_security_force",
+          "victims.identifiable_victims.0.security_agent_type",
+          "victims.identifiable_victims.0.security_agent_on_duty"
+        ]
+      },
+      "metadata": {
+        "source_id": null,
+        "notes": "Off-duty civil police victim — security_agent_* on identifiable victim, not a subtype."
       }
     }
   ]
