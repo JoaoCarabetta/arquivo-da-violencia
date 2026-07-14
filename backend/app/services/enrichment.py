@@ -26,6 +26,7 @@ from unidecode import unidecode
 from app.config import get_settings
 from app.database import async_session_maker
 from app.models import RawEvent, UniqueEvent
+from app.services.extraction_derived import derive_public_fields_from_data
 from app.services.telegram import notify_new_death
 from app.taxonomy import format_legacy_homicide_type, parse_legacy_homicide_type
 
@@ -1054,6 +1055,18 @@ def _content_class_from_raw_event(raw_event: RawEvent) -> str:
     return raw_event.content_class or "incident"
 
 
+def _identified_perpetrator_count_from_raw_event(raw_event: RawEvent) -> int | None:
+    """Read identifiable perpetrator count from extraction JSON when present."""
+    data = raw_event.extraction_data
+    if not isinstance(data, dict):
+        return None
+    perpetrators = data.get("perpetrators")
+    if not isinstance(perpetrators, dict):
+        return None
+    count = perpetrators.get("number_of_identifiable_perpetrators")
+    return count if isinstance(count, int) else None
+
+
 async def create_unique_event_from_cluster(cluster: list[RawEvent]) -> UniqueEvent:
     """
     Create UniqueEvent from a cluster of RawEvents.
@@ -1072,6 +1085,7 @@ async def create_unique_event_from_cluster(cluster: list[RawEvent]) -> UniqueEve
     content_class = _content_class_from_raw_event(best)
     event_family, event_subtype = _taxonomy_from_raw_event(best)
     homicide_label = format_legacy_homicide_type(event_family, event_subtype)
+    public_fields = derive_public_fields_from_data(best.extraction_data)
     
     async with async_session_maker() as session:
         # Create UniqueEvent
@@ -1081,7 +1095,12 @@ async def create_unique_event_from_cluster(cluster: list[RawEvent]) -> UniqueEve
                     event_family, event_subtype, homicide_type, method_of_death, event_date, date_precision, time_of_day,
                     country, state, city, neighborhood, street, establishment, full_location_description,
                     victim_count, identified_victim_count, victims_summary,
-                    perpetrator_count, security_force_involved,
+                    perpetrator_count, identified_perpetrator_count, security_force_involved, security_force_victim,
+                    criminal_group_connected, criminal_group_activity, criminal_group_activity_description,
+                    criminal_groups, criminal_group_attacked,
+                    police_operation_connected, police_operation_force, police_operation_targeted_armed_groups,
+                    off_duty_police_perpetrator, off_duty_police_context,
+                    politician_or_candidate_victim, victim_political_status, victim_political_office, victim_political_party,
                     title, chronological_description, additional_context,
                     merged_data, source_count, content_class, confirmed, needs_enrichment,
                     created_at, updated_at
@@ -1089,7 +1108,12 @@ async def create_unique_event_from_cluster(cluster: list[RawEvent]) -> UniqueEve
                     :event_family, :event_subtype, :homicide_type, :method_of_death, :event_date, :date_precision, :time_of_day,
                     :country, :state, :city, :neighborhood, :street, :establishment, :full_location_description,
                     :victim_count, :identified_victim_count, :victims_summary,
-                    :perpetrator_count, :security_force_involved,
+                    :perpetrator_count, :identified_perpetrator_count, :security_force_involved, :security_force_victim,
+                    :criminal_group_connected, :criminal_group_activity, :criminal_group_activity_description,
+                    :criminal_groups, :criminal_group_attacked,
+                    :police_operation_connected, :police_operation_force, :police_operation_targeted_armed_groups,
+                    :off_duty_police_perpetrator, :off_duty_police_context,
+                    :politician_or_candidate_victim, :victim_political_status, :victim_political_office, :victim_political_party,
                     :title, :chronological_description, :additional_context,
                     :merged_data, :source_count, :content_class, false, true,
                     CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
@@ -1115,7 +1139,31 @@ async def create_unique_event_from_cluster(cluster: list[RawEvent]) -> UniqueEve
                 "identified_victim_count": best.identified_victim_count,
                 "victims_summary": victims_summary,
                 "perpetrator_count": best.perpetrator_count,
-                "security_force_involved": best.security_force_involved,
+                "identified_perpetrator_count": _identified_perpetrator_count_from_raw_event(best),
+                "security_force_involved": (
+                    public_fields["security_force_involved"]
+                    if public_fields["security_force_involved"] is not None
+                    else best.security_force_involved
+                ),
+                "security_force_victim": (
+                    public_fields["security_force_victim"]
+                    if public_fields["security_force_victim"] is not None
+                    else getattr(best, "security_force_victim", None)
+                ),
+                "criminal_group_connected": public_fields["criminal_group_connected"],
+                "criminal_group_activity": public_fields["criminal_group_activity"],
+                "criminal_group_activity_description": public_fields["criminal_group_activity_description"],
+                "criminal_groups": public_fields["criminal_groups"],
+                "criminal_group_attacked": public_fields["criminal_group_attacked"],
+                "police_operation_connected": public_fields["police_operation_connected"],
+                "police_operation_force": public_fields["police_operation_force"],
+                "police_operation_targeted_armed_groups": public_fields["police_operation_targeted_armed_groups"],
+                "off_duty_police_perpetrator": public_fields["off_duty_police_perpetrator"],
+                "off_duty_police_context": public_fields["off_duty_police_context"],
+                "politician_or_candidate_victim": public_fields["politician_or_candidate_victim"],
+                "victim_political_status": public_fields["victim_political_status"],
+                "victim_political_office": public_fields["victim_political_office"],
+                "victim_political_party": public_fields["victim_political_party"],
                 "title": best.title,
                 "chronological_description": best.chronological_description,
                 "additional_context": best.extraction_data.get("additional_context") if best.extraction_data else None,
@@ -1219,6 +1267,7 @@ async def process_single_raw_event(raw_event_id: int) -> dict:
             identified_victim_count=row.identified_victim_count,
             perpetrator_count=row.perpetrator_count,
             security_force_involved=row.security_force_involved,
+            security_force_victim=getattr(row, "security_force_victim", None),
             created_at=row.created_at,
         )
     
@@ -1331,6 +1380,7 @@ async def process_pending_deduplication(limit: int = 200) -> dict:
             identified_victim_count=row.identified_victim_count,
             perpetrator_count=row.perpetrator_count,
             security_force_involved=row.security_force_involved,
+            security_force_victim=getattr(row, "security_force_victim", None),
             method_of_death=row.method_of_death,
             date_precision=row.date_precision,
             time_of_day=row.time_of_day,
@@ -1678,6 +1728,27 @@ async def enrich_unique_event(unique_event_id: int) -> bool:
         settings = get_settings()
         result = synthesize_unique_event(current_state, sources_info)
         result = apply_raw_field_consensus(result, source_rows)
+
+        # Prefer richest linked extraction for flat context columns (skip stale merged_data).
+        candidate_payloads: list[dict] = []
+        for payload in all_extraction_data:
+            if isinstance(payload, dict) and payload:
+                candidate_payloads.append(payload)
+        if not candidate_payloads:
+            merged_payload = coerce_json_field(getattr(unique_row, "merged_data", None))
+            if isinstance(merged_payload, dict) and merged_payload:
+                candidate_payloads.append(merged_payload)
+
+        public_fields = derive_public_fields_from_data(None)
+        best_score = -1
+        winning_payload: dict | None = None
+        for payload in candidate_payloads:
+            fields = derive_public_fields_from_data(payload)
+            score = sum(1 for value in fields.values() if value is not None)
+            if score > best_score:
+                best_score = score
+                public_fields = fields
+                winning_payload = payload
         
         # Update UniqueEvent with enriched data (retry transient SQLite locks).
         import asyncio
@@ -1694,6 +1765,23 @@ async def enrich_unique_event(unique_event_id: int) -> bool:
             "victim_count": result.victim_count,
             "chronological_description": result.chronological_description,
             "enrichment_model": settings.enrichment_model,
+            "merged_data": json.dumps(winning_payload) if winning_payload is not None else None,
+            "security_force_involved": public_fields["security_force_involved"],
+            "security_force_victim": public_fields["security_force_victim"],
+            "criminal_group_connected": public_fields["criminal_group_connected"],
+            "criminal_group_activity": public_fields["criminal_group_activity"],
+            "criminal_group_activity_description": public_fields["criminal_group_activity_description"],
+            "criminal_groups": public_fields["criminal_groups"],
+            "criminal_group_attacked": public_fields["criminal_group_attacked"],
+            "police_operation_connected": public_fields["police_operation_connected"],
+            "police_operation_force": public_fields["police_operation_force"],
+            "police_operation_targeted_armed_groups": public_fields["police_operation_targeted_armed_groups"],
+            "off_duty_police_perpetrator": public_fields["off_duty_police_perpetrator"],
+            "off_duty_police_context": public_fields["off_duty_police_context"],
+            "politician_or_candidate_victim": public_fields["politician_or_candidate_victim"],
+            "victim_political_status": public_fields["victim_political_status"],
+            "victim_political_office": public_fields["victim_political_office"],
+            "victim_political_party": public_fields["victim_political_party"],
         }
         update_sql = text("""
                     UPDATE unique_event 
@@ -1705,6 +1793,23 @@ async def enrich_unique_event(unique_event_id: int) -> bool:
                         victims_summary = COALESCE(:victims_summary, victims_summary),
                         victim_count = COALESCE(:victim_count, victim_count),
                         chronological_description = COALESCE(:chronological_description, chronological_description),
+                        merged_data = COALESCE(:merged_data, merged_data),
+                        security_force_involved = :security_force_involved,
+                        security_force_victim = :security_force_victim,
+                        criminal_group_connected = :criminal_group_connected,
+                        criminal_group_activity = :criminal_group_activity,
+                        criminal_group_activity_description = :criminal_group_activity_description,
+                        criminal_groups = :criminal_groups,
+                        criminal_group_attacked = :criminal_group_attacked,
+                        police_operation_connected = :police_operation_connected,
+                        police_operation_force = :police_operation_force,
+                        police_operation_targeted_armed_groups = :police_operation_targeted_armed_groups,
+                        off_duty_police_perpetrator = :off_duty_police_perpetrator,
+                        off_duty_police_context = :off_duty_police_context,
+                        politician_or_candidate_victim = :politician_or_candidate_victim,
+                        victim_political_status = :victim_political_status,
+                        victim_political_office = :victim_political_office,
+                        victim_political_party = :victim_political_party,
                         needs_enrichment = false,
                         last_enriched_at = CURRENT_TIMESTAMP,
                         enrichment_model = :enrichment_model,

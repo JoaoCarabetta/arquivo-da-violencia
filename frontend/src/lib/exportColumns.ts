@@ -42,6 +42,46 @@ export const EXPORT_COLUMN_GROUPS: ExportColumnGroup[] = [
     dictionaryField: 'security_force_involved',
     fields: ['security_force_involved'],
   },
+  {
+    id: 'security_force_victim',
+    dictionaryField: 'security_force_victim',
+    fields: ['security_force_victim'],
+  },
+  {
+    id: 'criminal_group',
+    dictionaryField: 'criminal_group / activity',
+    fields: [
+      'criminal_group_connected',
+      'criminal_groups',
+      'criminal_group_activity',
+      'criminal_group_activity_description',
+      'criminal_group_attacked',
+    ],
+  },
+  {
+    id: 'police_operation',
+    dictionaryField: 'police_operation',
+    fields: [
+      'police_operation_connected',
+      'police_operation_force',
+      'police_operation_targeted_armed_groups',
+    ],
+  },
+  {
+    id: 'off_duty_police',
+    dictionaryField: 'off_duty_police',
+    fields: ['off_duty_police_perpetrator', 'off_duty_police_context'],
+  },
+  {
+    id: 'political_victim',
+    dictionaryField: 'political_victim',
+    fields: [
+      'politician_or_candidate_victim',
+      'victim_political_status',
+      'victim_political_office',
+      'victim_political_party',
+    ],
+  },
   { id: 'title', dictionaryField: 'title', fields: ['title'] },
   {
     id: 'chronological_description',

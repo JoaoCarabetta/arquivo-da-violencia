@@ -1,5 +1,9 @@
 import type { MapPoint } from '@/lib/api';
-import { pointSubtype } from '@/lib/taxonomy';
+import {
+  pointHasSecurityForceVictim,
+  pointSubtype,
+  SECURITY_FORCE_VICTIM_KEY,
+} from '@/lib/taxonomy';
 import type { MapBounds } from '@/components/map/CrimeMap';
 import {
   aggregatePointsToH3Cells,
@@ -170,11 +174,19 @@ export function pointsInViewExcept(
   return pointsInBounds(applyFiltersExcept(allPoints, f, except), bounds);
 }
 
+function matchesTypeFilter(point: MapPoint, types: string[]): boolean {
+  if (types.length === 0) return true;
+  return types.some((t) => {
+    if (t === SECURITY_FORCE_VICTIM_KEY) return pointHasSecurityForceVictim(point);
+    return pointSubtype(point) === t;
+  });
+}
+
 /** Apply the multi-select filters to a list of points. */
 export function applyFilters(points: MapPoint[], f: PortalFilters): MapPoint[] {
   return points.filter(
     (p) =>
-      (f.types.length === 0 || f.types.includes(pointSubtype(p))) &&
+      matchesTypeFilter(p, f.types) &&
       (f.methods.length === 0 || (p.m != null && f.methods.includes(p.m))) &&
       (f.states.length === 0 || (p.st != null && f.states.includes(p.st))) &&
       (f.cities.length === 0 || (p.c != null && f.cities.includes(p.c))) &&
@@ -230,6 +242,10 @@ export function computeStats(points: MapPoint[]): ViewportStats {
     s.victims += p.v ?? 0;
     const subtype = pointSubtype(p);
     s.bySubtype[subtype] = (s.bySubtype[subtype] ?? 0) + 1;
+    if (pointHasSecurityForceVictim(p)) {
+      s.bySubtype[SECURITY_FORCE_VICTIM_KEY] =
+        (s.bySubtype[SECURITY_FORCE_VICTIM_KEY] ?? 0) + 1;
+    }
     if (p.m) s.byMethod[p.m] = (s.byMethod[p.m] ?? 0) + 1;
     if (p.st) s.byState[p.st] = (s.byState[p.st] ?? 0) + 1;
     if (p.c) s.byCity[p.c] = (s.byCity[p.c] ?? 0) + 1;

@@ -15,6 +15,13 @@ export type HomicideSubtype =
   | 'intervencao_policial'
   | 'morte_transito_doloso';
 
+/**
+ * Synthetic "Por tipo" / filter key for events where a victim is security force
+ * (`MapPoint.sv` / `security_force_victim`). Not an event_subtype.
+ */
+export const SECURITY_FORCE_VICTIM_KEY = 'security_force_victim' as const;
+export type TypeStatKey = HomicideSubtype | typeof SECURITY_FORCE_VICTIM_KEY;
+
 /** Display order for homicide subtype filters and stats. */
 export const HOMICIDE_SUBTYPE_ORDER: HomicideSubtype[] = [
   'simples',
@@ -87,8 +94,20 @@ export function formatSubtype(subtype: HomicideSubtype, lang: Lang): string {
   return lang === 'en' ? SUBTYPE_LABELS_EN[subtype] : SUBTYPE_LABELS_PT[subtype];
 }
 
+export function formatTypeStatLabel(key: string, lang: Lang): string {
+  if (key === SECURITY_FORCE_VICTIM_KEY) {
+    return lang === 'en' ? 'Slain police officer' : 'Policial vitimado';
+  }
+  if (isHomicideSubtype(key)) return formatSubtype(key, lang);
+  return key;
+}
+
 export function formatPointLabel(point: MapPoint, lang: Lang): string {
   return formatSubtype(pointSubtype(point), lang);
+}
+
+export function pointHasSecurityForceVictim(point: MapPoint): boolean {
+  return point.sv === true;
 }
 
 export function subtypeColor(subtype: HomicideSubtype): string {
@@ -105,6 +124,12 @@ export function subtypeColor(subtype: HomicideSubtype): string {
     default:
       return '#C8473F';
   }
+}
+
+export function typeStatColor(key: string): string {
+  if (key === SECURITY_FORCE_VICTIM_KEY) return '#2B4A72';
+  if (isHomicideSubtype(key)) return subtypeColor(key);
+  return 'var(--stone-500)';
 }
 
 /** Filter/export API value for a homicide subtype slug. */

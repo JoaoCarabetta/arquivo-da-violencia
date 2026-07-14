@@ -49,6 +49,50 @@ async def test_export_filters_columns(app, async_session, client: AsyncClient):
 
 
 @pytest.mark.asyncio
+async def test_export_includes_context_columns(app, async_session, client: AsyncClient):
+    event = UniqueEvent(
+        title="Facção dispute",
+        event_date=datetime(2026, 3, 15),
+        state="RJ",
+        city="Rio de Janeiro",
+        latitude=Decimal("-22.9068"),
+        longitude=Decimal("-43.1729"),
+        event_family="homicidio",
+        event_subtype="simples",
+        content_class="incident",
+        victim_count=1,
+        criminal_group_connected=True,
+        criminal_group_activity="territorial-dispute",
+        criminal_groups="Comando Vermelho; milícia",
+        politician_or_candidate_victim=True,
+        victim_political_office="vereador",
+        source_count=1,
+    )
+    async_session.add(event)
+    await async_session.commit()
+
+    response = await client.get(
+        "/api/public/events/export",
+        params={
+            "days": 3650,
+            "columns": [
+                "id",
+                "criminal_group_connected",
+                "criminal_group_activity",
+                "criminal_groups",
+                "politician_or_candidate_victim",
+                "victim_political_office",
+            ]
+        },
+    )
+    assert response.status_code == 200
+    lines = response.text.strip().splitlines()
+    assert "criminal_group_activity" in lines[0]
+    assert "territorial-dispute" in lines[1]
+    assert "vereador" in lines[1]
+
+
+@pytest.mark.asyncio
 async def test_export_rejects_invalid_columns(client: AsyncClient):
     response = await client.get(
         "/api/public/events/export",

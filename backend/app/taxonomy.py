@@ -151,6 +151,8 @@ def parse_legacy_homicide_type(flat: str | None) -> tuple[EventFamily, EventSubt
         return ("tentativa", "latrocinio")
     if "tentativa" in lower:
         return ("tentativa", "simples")
+    if "policial vitimado" in lower or "homicídio de policial" in lower or "homicidio de policial" in lower:
+        return ("homicidio", "simples")
     if "culposo" in lower or "acidente" in lower and "trânsito" in lower:
         return ("acidente_fatal", "transito_culposo" if "trânsito" in lower or "transito" in lower else "culposo")
     return ("nao_classificado", "outro")
