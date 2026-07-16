@@ -1,0 +1,75 @@
+groups:
+  - name: automoney_critical
+    rules:
+      - alert: AutomoneyApiScrapeDown
+        expr: up{job="automoney-prod-api"} == 0
+        for: 5m
+        labels:
+          severity: critical
+          agent: "true"
+          category: scrape
+          project: automoney
+        annotations:
+          summary: "Automoney API metrics scrape down"
+          description: "Prometheus cannot scrape automoney :8011 on {{ $labels.instance }}."
+
+      - alert: AutomoneyKillSwitch
+        expr: automoney_kill_switch == 1
+        for: 2m
+        labels:
+          severity: critical
+          agent: "true"
+          category: kill_switch
+          project: automoney
+        annotations:
+          summary: "Automoney kill switch active"
+          description: "Daily spend kill switch is on. /go returns 503 until cleared."
+
+      - alert: AutomoneyTickStale
+        expr: automoney_heartbeat_age_seconds{job="last_tick"} > 7200
+        for: 10m
+        labels:
+          severity: critical
+          agent: "true"
+          category: heartbeat
+          project: automoney
+        annotations:
+          summary: "Automoney tick.py heartbeat stale (> 2h)"
+          description: "last_tick age is {{ $value | printf \"%.0f\" }}s. Cron or container may be down."
+
+  - name: automoney_warning
+    rules:
+      - alert: AutomoneyHotmartSyncStale
+        expr: automoney_heartbeat_age_seconds{job="last_hotmart_sync"} > 7200
+        for: 10m
+        labels:
+          severity: warning
+          category: heartbeat
+          project: automoney
+        annotations:
+          summary: "Automoney Hotmart sync stale (> 2h)"
+          description: "last_hotmart_sync age is {{ $value | printf \"%.0f\" }}s."
+
+      - alert: AutomoneySpendPushStale
+        expr: automoney_heartbeat_age_seconds{job="last_spend_push"} > 93600
+        for: 30m
+        labels:
+          severity: warning
+          category: heartbeat
+          project: automoney
+        annotations:
+          summary: "Automoney Ads spend push stale (> 26h)"
+          description: "last_spend_push age is {{ $value | printf \"%.0f\" }}s. Google Ads Script may not be posting."
+
+      - alert: AutomoneySpendNearCap
+        expr: |
+          automoney_daily_spend_cap_usd > 0
+          and (automoney_daily_spend_usd / automoney_daily_spend_cap_usd) > 0.9
+        for: 15m
+        labels:
+          severity: warning
+          category: spend
+          project: automoney
+        annotations:
+          summary: "Automoney daily spend > 90% of cap"
+          description: "Spend {{ $value | printf \"%.2f\" }} of cap ratio for 15+ minutes."

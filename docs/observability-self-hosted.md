@@ -7,8 +7,9 @@ visualized in Grafana.
 |----------|------------|
 | Pipeline dashboard | https://observability.carabetta.xyz/d/arquivo-pipeline |
 | Host resources dashboard | https://observability.carabetta.xyz/d/arquivo-hosts |
+| Automoney funnel dashboard | https://observability.carabetta.xyz/d/automoney-funnel |
 | Observability VPS | `62.238.12.182` (`/opt/arquivo-observability`) |
-| Production scrape targets | `77.42.72.111:8000` (API), `:9091` (worker), `:9100` (node_exporter) |
+| Production scrape targets | `77.42.72.111:8000` (API), `:9091` (worker), `:9100` (node_exporter), `:8011` (automoney) |
 | Observability scrape targets | `node_exporter:9100` (obs VPS host metrics, Docker network) |
 
 ## Architecture
