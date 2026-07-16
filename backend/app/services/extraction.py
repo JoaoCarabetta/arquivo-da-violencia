@@ -300,6 +300,49 @@ def extract_event_from_content(
     return apply_extraction_heuristics(event, content, metadata)
 
 
+def raw_event_fields_from_event(event: ViolentDeathEvent) -> dict:
+    """Map a ViolentDeathEvent to denormalized RawEvent column values.
+
+    Shared by forward insert (`extract_source`) and in-place re-extract
+    (`batch_jobs.reextract_sources`) so both paths stay aligned.
+    """
+    event_date = None
+    if event.date_time.date:
+        try:
+            event_date = datetime.strptime(event.date_time.date, "%Y-%m-%d")
+        except ValueError:
+            logger.warning(f"Could not parse date: {event.date_time.date}")
+
+    return {
+        "event_date": event_date,
+        "date_precision": event.date_time.date_precision,
+        "time_of_day": event.date_time.time_of_day,
+        "city": event.location_info.city,
+        "state": event.location_info.state,
+        "neighborhood": event.location_info.neighborhood,
+        "victim_count": event.victims.number_of_victims,
+        "identified_victim_count": event.victims.number_of_identifiable_victims,
+        "perpetrator_count": (
+            event.perpetrators.number_of_perpetrators if event.perpetrators else None
+        ),
+        "security_force_involved": derive_security_force_involved(event),
+        "security_force_victim": derive_security_force_victim(event),
+        "event_family": event.event_family,
+        "event_subtype": event.event_subtype,
+        "homicide_type": format_legacy_homicide_type(
+            event.event_family, event.event_subtype
+        ),
+        "method_of_death": event.homicide_dynamic.method,
+        "title": event.homicide_dynamic.title,
+        "chronological_description": event.homicide_dynamic.chronological_description,
+        "content_class": str(event.content_class),
+        "extraction_data": event.model_dump(),
+        "extraction_model": get_settings().extraction_model,
+        "extraction_success": True,
+        "extraction_error": None,
+    }
+
+
 def _build_extraction_prompt(content: str, metadata: dict | None = None) -> str:
     """
     Build the extraction prompt with metadata context.
@@ -507,47 +550,13 @@ async def extract_source(source_id: int) -> RawEvent | None:
         )
         return None
 
-    security_force_involved = derive_security_force_involved(event)
-    security_force_victim = derive_security_force_victim(event)
-
-    event_data = event.model_dump()
-
-    # Parse date string to datetime if present
-    event_date = None
-    if event.date_time.date:
-        try:
-            from datetime import datetime as dt
-            event_date = dt.strptime(event.date_time.date, "%Y-%m-%d")
-        except ValueError:
-            logger.warning(f"Could not parse date: {event.date_time.date}")
+    fields = raw_event_fields_from_event(event)
 
     # Step 3: persist the RawEvent in a fresh short-lived session.
     async with async_session_maker() as session:
         raw_event = RawEvent(
             source_google_news_id=source_id,
-            # Denormalized queryable fields
-            event_date=event_date,
-            date_precision=event.date_time.date_precision,
-            time_of_day=event.date_time.time_of_day,
-            city=event.location_info.city,
-            state=event.location_info.state,
-            neighborhood=event.location_info.neighborhood,
-            victim_count=event.victims.number_of_victims,
-            identified_victim_count=event.victims.number_of_identifiable_victims,
-            perpetrator_count=event.perpetrators.number_of_perpetrators if event.perpetrators else None,
-            security_force_involved=security_force_involved,
-            security_force_victim=security_force_victim,
-            event_family=event.event_family,
-            event_subtype=event.event_subtype,
-            homicide_type=format_legacy_homicide_type(event.event_family, event.event_subtype),
-            method_of_death=event.homicide_dynamic.method,
-            title=event.homicide_dynamic.title,
-            chronological_description=event.homicide_dynamic.chronological_description,
-            content_class=str(event.content_class),
-            # Full structured data as JSON
-            extraction_data=event_data,
-            extraction_model=get_settings().extraction_model,
-            extraction_success=True,
+            **fields,
         )
 
         session.add(raw_event)

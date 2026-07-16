@@ -7,10 +7,46 @@ near-duplicate merge + requeue misclassified discarded sources.
 
 Related code:
 - `backend/app/services/backfill.py` — candidate selection + requeue
+- `backend/app/services/batch_jobs.py` — unified batch re-run helpers
+- `backend/scripts/pipeline_batch.py` — CLI for reclassify / reextract / reenrich / drain
 - `backend/scripts/backfill_prod_cleanup.py` — combined merge + reclassify
 - `backend/scripts/backfill_reclassify_discarded.py` — reclassify only
 - `backend/scripts/merge_duplicate_events.py` — merge only (existing)
 - `scripts/run_prod_backfill.sh` — VPS wrapper
+
+---
+
+## Pipeline batch CLI
+
+Unified toolkit for post-deploy re-runs (inside the API container). Always prefer
+`--dry-run` on staging first.
+
+```bash
+# In-place re-extract (does NOT create duplicate raw_event rows)
+docker compose -p staging exec -T api \
+  python scripts/pipeline_batch.py reextract --since 2026-01-01 --dry-run
+
+docker compose -p staging exec -T api \
+  python scripts/pipeline_batch.py reextract --since 2026-01-01 --limit 20 --execute --enqueue
+
+# Flag uniques for enrichment / clear sticky geocode
+python scripts/pipeline_batch.py reenrich --since 2026-01-01 --execute --enqueue
+python scripts/pipeline_batch.py regeocode --ids 12,34 --execute --enqueue
+
+# Requeue discarded classification FNs (same as backfill_reclassify_discarded)
+python scripts/pipeline_batch.py reclassify --signal heuristic_true --dry-run
+
+# Drain backlog on the namespaced ARQ queue (arquivo:{env})
+python scripts/pipeline_batch.py drain --stages classify,download,extract,enrich
+
+# RSS window recollect
+python scripts/pipeline_batch.py recollect --when 1d
+```
+
+`reextract` overwrites the existing `raw_event` and sets linked
+`unique_event.needs_enrichment = true`. If the new LLM output would discard
+(`content_class != incident`), history is left unchanged and the id is listed
+under `would_discard`.
 
 ---
 
@@ -20,9 +56,7 @@ Related code:
 |-------|----------------------|-------------------------|
 | Duplicate `unique_event` rows | Auto-merge on link + batch dedup | One-shot exact + near-dup merge |
 | Wrong headline classification | `classification_heuristics` on new articles | Requeue discarded false negatives |
-| Wrong extraction on old rows | `extraction_heuristics` on new extractions | Requeued sources re-extract via pipeline |
-
-Existing extracted events are **not** bulk re-extracted unless their source is requeued and processed again.
+| Wrong extraction on old rows | `extraction_heuristics` on new extractions | `pipeline_batch.py reextract` (in-place) |
 
 ---
 
@@ -83,23 +117,11 @@ docker compose -p staging exec -T api \
 bash scripts/run_prod_backfill.sh staging --execute --since 2026-01-01
 ```
 
-Enqueue pipeline (script prints this block; run it):
+Enqueue pipeline drain (namespaced queue):
 
 ```bash
-docker compose -p staging exec -T api python - <<'PY'
-import asyncio
-from arq import create_pool
-from arq.connections import RedisSettings
-
-async def main():
-    redis = await create_pool(RedisSettings(host="redis", port=6379))
-    await redis.enqueue_job("classify_pending_task", 300, 10)
-    await redis.enqueue_job("download_classified_task", 200)
-    await redis.enqueue_job("extract_ready_task", 100)
-    await redis.enqueue_job("batch_enrich_task", 50)
-
-asyncio.run(main())
-PY
+docker compose -p staging exec -T api \
+  python scripts/pipeline_batch.py drain --stages classify,download,extract,enrich
 ```
 
 Monitor:
