@@ -179,6 +179,7 @@ def _build_export_query(
     *,
     cutoff: datetime | None,
     end: datetime,
+    country: str | None,
     state: str | None,
     states: list[str] | None,
     cities: list[str] | None,
@@ -196,6 +197,9 @@ def _build_export_query(
     if cutoff is not None:
         query = query.where(UniqueEvent.event_date >= cutoff)
     query = query.where(UniqueEvent.event_date <= end)
+
+    if country:
+        query = query.where(UniqueEvent.country == country.upper())
 
     state_filters = list(states or [])
     if state:
@@ -880,6 +884,7 @@ async def export_events(
     query = _build_export_query(
         cutoff=cutoff,
         end=end,
+        country=country,
         state=state,
         states=states,
         cities=cities,
