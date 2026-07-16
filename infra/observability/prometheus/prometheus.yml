@@ -46,3 +46,13 @@ scrape_configs:
         labels:
           environment: observability
           host: obs
+
+  - job_name: automoney-prod-api
+    metrics_path: /metrics
+    scheme: http
+    static_configs:
+      - targets: ["77.42.72.111:8011"]
+        labels:
+          environment: production
+          service: api
+          project: automoney
