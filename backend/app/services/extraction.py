@@ -840,7 +840,7 @@ async def extract_source(source_id: int) -> RawEvent | None:
     async with async_session_maker() as session:
         result = await session.execute(
             text("""
-                SELECT id, headline, content, published_at, publisher_name, resolved_url 
+                SELECT id, headline, content, published_at, publisher_name, resolved_url, country 
                 FROM source_google_news 
                 WHERE id = :id
             """),
@@ -852,7 +852,7 @@ async def extract_source(source_id: int) -> RawEvent | None:
             logger.warning(f"Source {source_id} not found")
             return None
 
-        source_id_db, headline, content, published_at, publisher_name, resolved_url = row
+        source_id_db, headline, content, published_at, publisher_name, resolved_url, country = row
 
     if not content:
         logger.warning(f"Source {source_id} has no content")
@@ -997,6 +997,7 @@ async def extract_source(source_id: int) -> RawEvent | None:
     async with async_session_maker() as session:
         raw_event = RawEvent(
             source_google_news_id=source_id,
+            country=country or "BR",  # Use source country, default to BR
             **fields,
         )
 
