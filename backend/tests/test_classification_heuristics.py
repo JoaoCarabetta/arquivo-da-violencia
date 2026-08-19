@@ -8,6 +8,20 @@ from app.services.classification_heuristics import (
 )
 
 
+def test_violent_death_field_description_includes_chile():
+    """Pydantic field description must include Brazil AND Chile, not just Brazil."""
+    field_info = ViolentDeathClassification.model_fields["is_violent_death"]
+    description = field_info.description or ""
+    
+    # Must mention both countries
+    assert "Brazil" in description or "Brasil" in description
+    assert "Chile" in description
+    
+    # Must not say "only in Brazil" or "in Brazil (homicides"
+    assert "in Brazil\n" not in description
+    assert "in Brazil (" not in description
+
+
 def _result(is_violent_death: bool) -> ViolentDeathClassification:
     return ViolentDeathClassification(
         is_violent_death=is_violent_death,

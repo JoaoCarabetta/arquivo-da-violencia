@@ -21,20 +21,21 @@ class ViolentDeathClassification(BaseModel):
     is_violent_death: bool = Field(
         ...,
         description="""
-        TRUE only if the headline is about one or more NEW violent deaths in Brazil
+        TRUE only if the headline is about one or more NEW violent deaths in Brazil or Chile
         (homicides, murders, killings, police operations with deaths).
 
         Examples of TRUE:
-        - "Homem é morto a tiros em operação policial"
-        - "Corpo é encontrado com marcas de violência"
-        - "Tiroteio deixa dois mortos na Zona Norte"
-        - "Mulher é assassinada pelo ex-marido"
+        - "Homem é morto a tiros em operação policial" (Brazil)
+        - "Corpo é encontrado com marcas de violência" (Brazil)
+        - "Tiroteio deixa dois mortos na Zona Norte" (Brazil)
+        - "Mulher é assassinada pelo ex-marido" (Brazil)
+        - "Hombre asesinado en operativo policial en Santiago" (Chile)
 
         Examples of FALSE:
         - "Polícia prende suspeito de roubo"
         - "Homem sobrevive após ser baleado"
         - "Vítima de facadas chora no julgamento do agressor" (victim alive)
-        - "Atirador em massa no Texas recebe pena de morte" (foreign event)
+        - "Atirador em massa no Texas recebe pena de morte" (foreign: outside BR/CL)
         - "Operação apreende drogas e armas"
         """
     )

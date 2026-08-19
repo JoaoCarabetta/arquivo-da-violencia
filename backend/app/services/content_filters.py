@@ -96,7 +96,9 @@ _FOREIGN_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
     (
         "foreign_mass_shooting",
         re.compile(
-            r"\b(atirador|tiroteio|mass\s+shooting|tiroteo).{0,40}\b(eua|estados\s+unidos|texas|california|paris|londres|m[eé]xico|argentina|per[uú]|colombia|bolivia)\b",
+            r"\b(atirador|tiroteio|mass\s+shooting|tiroteo).{0,40}"
+            r"\b(eua|estados\s+unidos|texas|california|paris|londres|"
+            r"m[eé]xico|argentina|per[uú]|colombia|bolivia)\b",
             re.IGNORECASE,
         ),
     ),
