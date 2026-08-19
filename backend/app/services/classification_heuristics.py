@@ -146,10 +146,20 @@ _IMPLIED_FATAL_MARKERS = (
     "homicídio doloso",
     "homicidio",  # ES
     "asesinato",  # ES
+    "asesinado",  # ES past participle
+    "asesinada",  # ES past participle
     "duplo homicidio",
     "duplo homicídio",
     "chacina",
     "balacera",  # ES
+    " morto ",  # PT/ES past participle (with spaces to force violent death)
+    " morta ",
+    " mortos ",
+    " mortas ",
+    " muerto ",  # ES past participle
+    " muerta ",
+    " muertos ",
+    " muertas ",
 )
 
 _TROCA_TIROS = re.compile(r"troca tiros", re.IGNORECASE)
