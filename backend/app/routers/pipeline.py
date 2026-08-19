@@ -43,13 +43,13 @@ async def get_arq_pool():
 @router.post("/full")
 async def run_full_pipeline_endpoint(
     when: str = Query("1h", description="Time filter (e.g., '1h', '1d', '3d')"),
-    cities: str | None = Query(None, description="Comma-separated city names (optional, uses all 52 cities if not provided)"),
+    cities: str | None = Query(None, description="Comma-separated city names (optional, uses all countries if not provided)"),
 ):
     """
     🚀 Run the COMPLETE pipeline from ingestion to enrichment.
     
     **Pipeline stages:**
-    1. **Ingest** - Fetch news from Google News for all Brazilian cities
+    1. **Ingest** - Fetch news from Google News for all configured cities (BR + CL)
     2. **Classify** - Filter headlines using AI (violent death detection)
     3. **Download** - Fetch full article content
     4. **Extract** - Extract structured event data using LLM
@@ -72,7 +72,7 @@ async def run_full_pipeline_endpoint(
         "status": "queued",
         "job_id": job.job_id,
         "task": "ingest_cities_full_pipeline",
-        "message": f"Full pipeline started (when={when}, cities={'custom list' if city_list else 'all 52'})",
+        "message": f"Full pipeline started (when={when}, cities={'custom list' if city_list else 'all countries'})",
         "stages": [
             "1. Ingest (Google News RSS)",
             "2. Classify (AI headline filter)",
@@ -134,10 +134,10 @@ async def run_city_ingestion(
     when: str = Query("1h", description="Time filter (default 1h for hourly)"),
 ):
     """
-    Ingest news for ALL configured Brazilian cities with adaptive sharding.
+    Ingest news for ALL configured cities across all countries (BR + CL).
     
-    - Fetches news for 52+ major cities
-    - Automatically shards high-volume cities (São Paulo, Rio, etc.)
+    - Fetches news for 52+ Brazilian cities and Chilean cities
+    - Automatically shards high-volume cities (São Paulo, Rio, Santiago, etc.)
     - Rate limited to respect Google's limits
     
     This is the main production ingestion endpoint for hourly runs.
@@ -150,7 +150,7 @@ async def run_city_ingestion(
         "status": "queued",
         "job_id": job.job_id,
         "task": "ingest_cities_task",
-        "message": "City ingestion task queued (52+ cities)",
+        "message": "City ingestion task queued (all countries)",
     }
 
 

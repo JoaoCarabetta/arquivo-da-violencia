@@ -528,7 +528,7 @@ async def ingest_cities_task(
     
     Args:
         ctx: ARQ context (contains redis connection)
-        cities: Optional list of cities. If None, uses CITIES from config.
+        cities: Optional list of cities. If None, ingests all countries (BR + CL).
         when: Time filter (default "1h" for hourly)
         enqueue_classify: When True, enqueue ``classify_pending_task`` after ingest.
     
@@ -541,9 +541,14 @@ async def ingest_cities_task(
     # Notify job started
     await notify_job_started("ingest_cities", {"when": when})
     
-    from app.services.ingestion import ingest_all_cities
+    from app.services.ingestion import ingest_all_cities, ingest_all_countries
     
-    result = await ingest_all_cities(cities=cities, when=when, resolve_urls=True)
+    # When cities is None (hourly/cron path), ingest all countries.
+    # When an explicit city list is provided, use Brazil as default.
+    if cities is None:
+        result = await ingest_all_countries(when=when, resolve_urls=True)
+    else:
+        result = await ingest_all_cities(cities=cities, when=when, resolve_urls=True, country="BR")
     
     total_sources = result['total_sources_created']
     logger.info(f"[INGEST_CITIES] Complete: {total_sources} new sources")
