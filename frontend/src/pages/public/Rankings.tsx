@@ -48,7 +48,7 @@ function DeltaBadge({ delta, label }: { delta: number; label: string }) {
 }
 
 function RankingTable({ title, rows, labelField, onRowClick, emptyMessage }: RankingTableProps) {
-  const { t } = useI18n();
+  const { t, lang } = useI18n();
   const [expanded, setExpanded] = useState(true);
   
   if (rows.length === 0) {
