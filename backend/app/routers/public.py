@@ -19,6 +19,7 @@ from app.services.public_filters import (
     homicide_type_filter,
     homicide_types_filter,
 )
+from app.geography import COUNTRY_NAMES
 
 router = APIRouter(prefix="/public", tags=["public"])
 
@@ -461,6 +462,118 @@ async def get_security_force_stats(session: AsyncSession = Depends(get_session))
         "involved": involved or 0,
         "not_involved": not_involved or 0,
         "unknown": unknown or 0
+    }
+
+
+@router.get("/stats/rankings")
+async def get_rankings(
+    session: AsyncSession = Depends(get_session),
+    days: int = Query(365, ge=1, le=3650, description="Only events in the last N days"),
+    country: str | None = Query(None, description="Filter by country: BR, CL, or omit for both"),
+):
+    """
+    Get rankings of cities, states/regions, countries, homicide types, and methods of death
+    by victim count and event count for a given time period.
+    
+    Includes delta vs previous equal period.
+    """
+    now = datetime.utcnow()
+    current_start = now - timedelta(days=days)
+    prev_start = now - timedelta(days=days * 2)
+    prev_end = current_start
+    
+    # Build base query with date filters
+    def build_query(start: datetime, end: datetime):
+        query = apply_public_incident_filter(
+            select(UniqueEvent).where(
+                UniqueEvent.event_date.isnot(None),
+                UniqueEvent.event_date >= start,
+                UniqueEvent.event_date <= end,
+            )
+        )
+        if country:
+            country_name = COUNTRY_NAMES.get(country.upper())
+            if country_name:
+                query = query.where(UniqueEvent.country == country_name)
+        return query
+    
+    current_query = build_query(current_start, now)
+    prev_query = build_query(prev_start, prev_end)
+    
+    # Fetch all events for current and previous periods
+    current_result = await session.execute(current_query)
+    current_events = current_result.scalars().all()
+    
+    prev_result = await session.execute(prev_query)
+    prev_events = prev_result.scalars().all()
+    
+    # Helper to aggregate rankings
+    def aggregate_by_field(events, field_name):
+        """Aggregate events by a field, counting victims and events."""
+        aggregated = {}
+        for event in events:
+            key = getattr(event, field_name)
+            if not key:
+                continue
+            if key not in aggregated:
+                aggregated[key] = {"events": 0, "victims": 0}
+            aggregated[key]["events"] += 1
+            aggregated[key]["victims"] += event.victim_count or 0
+        return aggregated
+    
+    # Aggregate current period
+    cities_current = aggregate_by_field(current_events, "city")
+    states_current = aggregate_by_field(current_events, "state")
+    countries_current = aggregate_by_field(current_events, "country")
+    types_current = aggregate_by_field(current_events, "homicide_type")
+    methods_current = aggregate_by_field(current_events, "method_of_death")
+    
+    # Aggregate previous period
+    cities_prev = aggregate_by_field(prev_events, "city")
+    states_prev = aggregate_by_field(prev_events, "state")
+    countries_prev = aggregate_by_field(prev_events, "country")
+    types_prev = aggregate_by_field(prev_events, "homicide_type")
+    methods_prev = aggregate_by_field(prev_events, "method_of_death")
+    
+    # Calculate totals for share percentages
+    total_victims = sum(e.victim_count or 0 for e in current_events)
+    total_events = len(current_events)
+    
+    # Helper to format rankings with delta
+    def format_rankings(current, prev, label_field="name"):
+        """Format rankings with victim count, event count, share, and delta."""
+        rankings = []
+        for key, data in current.items():
+            prev_data = prev.get(key, {"victims": 0, "events": 0})
+            victim_delta = data["victims"] - prev_data["victims"]
+            event_delta = data["events"] - prev_data["events"]
+            
+            rankings.append({
+                label_field: key,
+                "victim_count": data["victims"],
+                "event_count": data["events"],
+                "victim_share": round(data["victims"] / total_victims * 100, 1) if total_victims > 0 else 0,
+                "event_share": round(data["events"] / total_events * 100, 1) if total_events > 0 else 0,
+                "victim_delta": victim_delta,
+                "event_delta": event_delta,
+            })
+        
+        # Sort by victim count descending
+        rankings.sort(key=lambda x: x["victim_count"], reverse=True)
+        return rankings
+    
+    return {
+        "period_days": days,
+        "period_start": current_start.date().isoformat(),
+        "period_end": now.date().isoformat(),
+        "country_filter": country,
+        "total_victims": total_victims,
+        "total_events": total_events,
+        "cities": format_rankings(cities_current, cities_prev, "city"),
+        "states": format_rankings(states_current, states_prev, "state"),
+        "countries": format_rankings(countries_current, countries_prev, "country"),
+        "homicide_types": format_rankings(types_current, types_prev, "type"),
+        "methods": format_rankings(methods_current, methods_prev, "method"),
     }
 
 

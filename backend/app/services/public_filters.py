@@ -4,52 +4,28 @@ from sqlalchemy import ColumnElement, or_
 
 from app.models.unique_event import UniqueEvent
 from app.taxonomy import SUBTYPES_BY_FAMILY, parse_legacy_homicide_type
+from app.geography import BRAZILIAN_STATES, CHILEAN_REGIONS
 
 _HOMICIDIO_SUBTYPES = SUBTYPES_BY_FAMILY["homicidio"]
 
 # Brazilian federative units (27 states + DF).
-BR_UFS = frozenset(
-    {
-        "AC",
-        "AL",
-        "AP",
-        "AM",
-        "BA",
-        "CE",
-        "DF",
-        "ES",
-        "GO",
-        "MA",
-        "MT",
-        "MS",
-        "MG",
-        "PA",
-        "PB",
-        "PR",
-        "PE",
-        "PI",
-        "RJ",
-        "RN",
-        "RS",
-        "RO",
-        "RR",
-        "SC",
-        "SP",
-        "SE",
-        "TO",
-    }
-)
+BR_UFS = frozenset(BRAZILIAN_STATES)
 
-# Public archive: homicides only (event_family=homicidio), single incidents, BR scope.
+# Chilean regions (regiones)
+CL_REGIONS = frozenset(CHILEAN_REGIONS)
+
+# Public archive: homicides only (event_family=homicidio), single incidents, BR + CL scope.
 
 
 def public_incident_criteria() -> tuple[ColumnElement, ...]:
-    """SQLAlchemy criteria for public homicide archive rows."""
+    """SQLAlchemy criteria for public homicide archive rows (BR + CL)."""
+    # Allow Brazilian UFs, Chilean regions, or null states
+    valid_states = BR_UFS.union(CL_REGIONS)
     return (
         UniqueEvent.event_family == "homicidio",
         UniqueEvent.content_class == "incident",
         UniqueEvent.victim_count <= 10,
-        or_(UniqueEvent.state.in_(BR_UFS), UniqueEvent.state.is_(None)),
+        or_(UniqueEvent.state.in_(valid_states), UniqueEvent.state.is_(None)),
     )
 
 
