@@ -95,6 +95,7 @@ CLASSIFIQUE COMO MORTE VIOLENTA (is_violent_death = true):
 - Corpo, restos mortais ou ossada encontrados com indícios de violência
 - Tiroteio/confronto/operação policial que deixa mortos (inclui jargão: "neutralizado",
   "CPF cancelado" no sentido de pessoa morta)
+  (ES: operativos de Carabineros, PDI — forças policiais chilenas)
 - Feminicídio, latrocínio, homicídio, chacina, execução
   (ES: femicidio, homicidio, asesinato, balacera)
 - Vítima que MORRE: "não resistiu aos ferimentos", "morre após ser baleado"
@@ -151,6 +152,7 @@ Use a manchete apenas como contexto. Baseie a decisão principalmente no corpo d
 CLASSIFIQUE COMO MORTE VIOLENTA (is_violent_death = true):
 - Morte violenta no Brasil ou Chile descrita no corpo: homicídio, tiroteio, operação policial com morte
   (ES: homicidio, asesinato, balacera, operativo policial)
+  (Forças policiais chilenas: Carabineros, PDI)
 - Corpo/restos encontrados com indícios de violência
 - Feminicídio, latrocínio, chacina, execução
   (ES: femicidio, homicidio, asesinato)

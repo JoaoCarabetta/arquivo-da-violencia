@@ -51,18 +51,18 @@ para resolver datas relativas mencionadas no texto.
 
 RESOLUÇÃO DE DATAS RELATIVAS:
 Se a notícia foi publicada em 21/12/2025 e o texto menciona:
-- "ontem" -> 20/12/2025
-- "anteontem" -> 19/12/2025
-- "na sexta-feira" -> calcule qual sexta-feira mais recente antes da publicação
-- "nesta semana" -> semana da publicação
-- "há três dias" -> 18/12/2025
+- "ontem" → 20/12/2025
+- "anteontem" → 19/12/2025
+- "na sexta-feira" → calcule qual sexta-feira mais recente antes da publicação
+- "nesta semana" → semana da publicação
+- "há três dias" → 18/12/2025
 
 QUANDO PODE INFERIR A DATA (has_explicit_date = TRUE):
 1. Data completa explícita: "15 de dezembro de 2025", "20/11/2025"
 2. Data relativa COM referência de publicação: "ontem" quando você sabe a data de publicação
 3. Dia da semana COM número entre parênteses: "domingo (10)", "sexta-feira (12)" —
    PRIORIZE o número do dia do mês sobre o dia da semana quando houver conflito
-   (ex.: publicação em 11/03/2025 + "domingo (10)" -> 2025-03-10, não o domingo anterior).
+   (ex.: publicação em 11/03/2025 + "domingo (10)" → 2025-03-10, não o domingo anterior).
 
 QUANDO NÃO PODE INFERIR (has_explicit_date = FALSE):
 1. Termos vagos sem referência: "recentemente", "há alguns dias", "no início da semana"
@@ -71,7 +71,7 @@ QUANDO NÃO PODE INFERIR (has_explicit_date = FALSE):
 4. O texto NÃO menciona quando o crime ocorreu: a data de publicação sozinha NÃO é a
    data do evento — ela serve apenas para resolver expressões relativas do texto.
    Se o artigo não diz QUANDO o crime aconteceu, date = null MESMO que pareça recente.
-5. Apenas mês/ano sem dia ("em setembro de 2024") -> date = null
+5. Apenas mês/ano sem dia ("em setembro de 2024") → date = null
 
 ATENÇÃO - DATA DO CRIME vs DATA DA DESCOBERTA:
 O campo date refere-se à data em que o CRIME ocorreu. Use date = null (has_explicit_date
@@ -80,7 +80,7 @@ corpo em decomposição, ossada, "a morte não foi recente". Nesses casos a data
 é desconhecida mesmo que a data da descoberta seja conhecida.
 Fora desses casos, a data em que a vítima foi morta/encontrada informada no texto É a
 data do evento — use-a normalmente, inclusive quando o corpo foi encontrado horas ou
-até um dia após o crime (ex.: "encontrada morta na noite do dia 18" -> 18).
+até um dia após o crime (ex.: "encontrada morta na noite do dia 18" → 18).
 
 O campo date_verification funciona como um VERIFICADOR:
 1. has_explicit_date = TRUE se você consegue determinar a data completa (dia/mês/ano)
@@ -96,9 +96,9 @@ IMPORTANTE:
 
 SOBRE LOCALIZAÇÃO (location_info.state):
 - Preencha o estado (UF) quando estiver explícito no texto OU quando a cidade for
-  inequívoca: capitais e cidades notórias (Recife -> PE, Manaus -> AM, Belém -> PA,
-  Campina Grande -> PB, Londrina -> PR), ou quando o contexto identifica a região
-  ("Grande Vitória" -> ES, "capital de Rondônia" -> Porto Velho/RO, "Baixada Fluminense" -> RJ).
+  inequívoca: capitais e cidades notórias (Recife → PE, Manaus → AM, Belém → PA,
+  Campina Grande → PB, Londrina → PR), ou quando o contexto identifica a região
+  ("Grande Vitória" → ES, "capital de Rondônia" → Porto Velho/RO, "Baixada Fluminense" → RJ).
 - location_info.city: se o texto identifica a cidade indiretamente ("capital de
   Rondônia", "Grande Vitória"), preencha com o nome da cidade correspondente.
 - Se o nome da cidade é ambíguo entre estados e o texto não desambigua
@@ -142,8 +142,8 @@ Se event_family = "nao_classificado":
 - "outro"
 
 REGRAS:
-- Sem óbito -> event_family = "tentativa", nunca "homicidio"
-- Morte culposa/acidente sem dolo -> event_family = "acidente_fatal"
+- Sem óbito → event_family = "tentativa", nunca "homicidio"
+- Morte culposa/acidente sem dolo → event_family = "acidente_fatal"
 - Feminicídio, latrocínio e qualificado são SUBTIPOS de homicidio, não famílias separadas
 - event_family = "homicidio" exige content_class = "incident"
 
@@ -162,7 +162,7 @@ Defina content_class em todo JSON de saída. Valores permitidos:
 
 SOBRE number_of_victims — NUNCA USE TOTAIS AGREGADOS:
 - Conte APENAS as vítimas FATAIS do incidente (mortos), NUNCA inclua feridos.
-  Ex.: "três mortos e um ferido" -> number_of_victims = 3, não 4.
+  Ex.: "três mortos e um ferido" → number_of_victims = 3, não 4.
 - Conte APENAS as vítimas do incidente específico descrito (máximo 20).
 - NUNCA use totais anuais, CVLI, "4.241 mortes em 2025", balanço estadual ou estatísticas
   de painel como number_of_victims — mesmo que sejam o tema da matéria.
@@ -171,8 +171,8 @@ SOBRE number_of_victims — NUNCA USE TOTAIS AGREGADOS:
   embutido; caso contrário a extração será descartada downstream.
 
 SOBRE homicide_dynamic.method — OBRIGATÓRIO PREENCHER:
-- Use um valor do enum quando o texto indicar o meio (tiros -> "Arma de fogo",
-  facadas -> "Arma branca", traumatismo craniano -> "Objeto contundente").
+- Use um valor do enum quando o texto indicar o meio (tiros → "Arma de fogo",
+  facadas → "Arma branca", traumatismo craniano → "Objeto contundente").
 - "Não especificado" quando a matéria diz que o método/causa não foi determinado
   ou não divulgado, ou quando há pouquíssima informação sobre a dinâmica.
 - Não deixe null se o texto menciona tiros, disparos, facadas ou equivalentes.
@@ -206,7 +206,7 @@ SOBRE AGENTES DE SEGURANÇA (vítimas e autores identificáveis):
 
 SOBRE VÍTIMA POLÍTICA (identifiable_victims[].political_role):
 - Preencher political_role SOMENTE quando o texto identifica a vítima como política ou candidata.
-- is_politician_or_candidate=true; status=elected | candidate | former_elected (ex-vereador -> former_elected).
+- is_politician_or_candidate=true; status=elected | candidate | former_elected (ex-vereador → former_elected).
 - office: cargo sem prefixo "ex-" (ex.: "vereador" mesmo para ex-vereador).
 - party: sigla/nome conforme texto; null se não mencionado — NÃO inferir partido.
 
@@ -253,18 +253,18 @@ para resolver fechas relativas mencionadas en el texto.
 
 RESOLUCIÓN DE FECHAS RELATIVAS:
 Si la noticia fue publicada el 21/12/2025 y el texto menciona:
-- "ayer" -> 20/12/2025
-- "anteayer" -> 19/12/2025
-- "el viernes" -> calcula cuál viernes más reciente antes de la publicación
-- "esta semana" -> semana de la publicación
-- "hace tres días" -> 18/12/2025
+- "ayer" → 20/12/2025
+- "anteayer" → 19/12/2025
+- "el viernes" → calcula cuál viernes más reciente antes de la publicación
+- "esta semana" → semana de la publicación
+- "hace tres días" → 18/12/2025
 
 CUÁNDO PUEDES INFERIR LA FECHA (has_explicit_date = TRUE):
 1. Fecha completa explícita: "15 de diciembre de 2025", "20/11/2025"
 2. Fecha relativa CON referencia de publicación: "ayer" cuando conoces la fecha de publicación
 3. Día de la semana CON número entre paréntesis: "domingo (10)", "viernes (12)" —
    PRIORIZA el número del día del mes sobre el día de la semana cuando haya conflicto
-   (ej.: publicación el 11/03/2025 + "domingo (10)" -> 2025-03-10, no el domingo anterior).
+   (ej.: publicación el 11/03/2025 + "domingo (10)" → 2025-03-10, no el domingo anterior).
 
 CUÁNDO NO PUEDES INFERIR (has_explicit_date = FALSE):
 1. Términos vagos sin referencia: "recientemente", "hace algunos días", "a principios de semana"
@@ -273,7 +273,7 @@ CUÁNDO NO PUEDES INFERIR (has_explicit_date = FALSE):
 4. El texto NO menciona cuándo ocurrió el crimen: la fecha de publicación sola NO es la
    fecha del evento — sirve solo para resolver expresiones relativas del texto.
    Si el artículo no dice CUÁNDO sucedió el crimen, date = null AUNQUE parezca reciente.
-5. Solo mes/año sin día ("en septiembre de 2024") -> date = null
+5. Solo mes/año sin día ("en septiembre de 2024") → date = null
 
 ATENCIÓN - FECHA DEL CRIMEN vs FECHA DEL DESCUBRIMIENTO:
 El campo date se refiere a la fecha en que el CRIMEN ocurrió. Usa date = null (has_explicit_date
@@ -282,7 +282,7 @@ cuerpo en descomposición, restos óseos, "la muerte no fue reciente". En esos c
 es desconocida aunque la fecha del descubrimiento sea conocida.
 Fuera de esos casos, la fecha en que la víctima fue asesinada/encontrada informada en el texto ES la
 fecha del evento — úsala normalmente, incluso cuando el cuerpo fue encontrado horas o
-hasta un día después del crimen (ej.: "encontrada muerta la noche del 18" -> 18).
+hasta un día después del crimen (ej.: "encontrada muerta la noche del 18" → 18).
 
 El campo date_verification funciona como un VERIFICADOR:
 1. has_explicit_date = TRUE si puedes determinar la fecha completa (día/mes/año)
@@ -299,8 +299,8 @@ IMPORTANTE:
 SOBRE LOCALIZACIÓN (location_info.state):
 - Llena la región cuando esté explícita en el texto O cuando la ciudad sea
   inequívoca: capitales y ciudades conocidas (Valparaíso, Concepción, Antofagasta),
-  o cuando el contexto identifica la región ("Región Metropolitana" -> Metropolitana,
-  "capital de Chile" -> Santiago/Metropolitana).
+  o cuando el contexto identifica la región ("Región Metropolitana" → Metropolitana,
+  "capital de Chile" → Santiago/Metropolitana).
 - location_info.city: si el texto identifica la ciudad indirectamente ("capital de Chile",
   "Gran Santiago"), llena con el nombre de la ciudad correspondiente.
 - location_info.state: usa el nombre completo de la región chilena (Metropolitana, Valparaíso,
@@ -344,8 +344,8 @@ Si event_family = "nao_classificado":
 - "outro"
 
 REGLAS:
-- Sin muerte -> event_family = "tentativa", nunca "homicidio"
-- Muerte culposa/accidente sin dolo -> event_family = "acidente_fatal"
+- Sin muerte → event_family = "tentativa", nunca "homicidio"
+- Muerte culposa/accidente sin dolo → event_family = "acidente_fatal"
 - Femicidio, robo con homicidio y calificado son SUBTIPOS de homicidio, no familias separadas
 - event_family = "homicidio" exige content_class = "incident"
 
@@ -364,7 +364,7 @@ Define content_class en todo JSON de salida. Valores permitidos:
 
 SOBRE number_of_victims — NUNCA USES TOTALES AGREGADOS:
 - Cuenta SOLAMENTE las víctimas FATALES del incidente (muertos), NUNCA incluyas heridos.
-  Ej.: "tres muertos y un herido" -> number_of_victims = 3, no 4.
+  Ej.: "tres muertos y un herido" → number_of_victims = 3, no 4.
 - Cuenta SOLAMENTE las víctimas del incidente específico descrito (máximo 20).
 - NUNCA uses totales anuales, "4.241 muertes en 2025", balance regional o estadísticas
   de panel como number_of_victims — aunque sean el tema de la noticia.
@@ -373,8 +373,8 @@ SOBRE number_of_victims — NUNCA USES TOTALES AGREGADOS:
   incluido; de lo contrario la extracción será descartada downstream.
 
 SOBRE homicide_dynamic.method — OBLIGATORIO COMPLETAR:
-- Usa un valor del enum cuando el texto indique el medio (tiros -> "Arma de fogo",
-  puñaladas -> "Arma branca", traumatismo craneal -> "Objeto contundente").
+- Usa un valor del enum cuando el texto indique el medio (tiros → "Arma de fogo",
+  puñaladas → "Arma branca", traumatismo craneal → "Objeto contundente").
 - "Não especificado" cuando la noticia dice que el método/causa no fue determinado
   o no fue divulgado, o cuando hay muy poca información sobre la dinámica.
 - No dejes null si el texto menciona disparos, balazos, puñaladas o equivalentes.
@@ -409,7 +409,7 @@ SOBRE AGENTES DE SEGURIDAD (víctimas y autores identificables):
 
 SOBRE VÍCTIMA POLÍTICA (identifiable_victims[].political_role):
 - Completar political_role SOLAMENTE cuando el texto identifica a la víctima como político o candidato.
-- is_politician_or_candidate=true; status=elected | candidate | former_elected (ex-concejal -> former_elected).
+- is_politician_or_candidate=true; status=elected | candidate | former_elected (ex-concejal → former_elected).
 - office: cargo sin prefijo "ex-" (ej.: "concejal" incluso para ex-concejal).
 - party: sigla/nombre según texto; null si no mencionado — NO inferir partido.
 
@@ -452,18 +452,18 @@ para resolver datas relativas mencionadas no texto.
 
 RESOLUÇÃO DE DATAS RELATIVAS:
 Se a notícia foi publicada em 21/12/2025 e o texto menciona:
-- "ontem" -> 20/12/2025
-- "anteontem" -> 19/12/2025
-- "na sexta-feira" -> calcule qual sexta-feira mais recente antes da publicação
-- "nesta semana" -> semana da publicação
-- "há três dias" -> 18/12/2025
+- "ontem" → 20/12/2025
+- "anteontem" → 19/12/2025
+- "na sexta-feira" → calcule qual sexta-feira mais recente antes da publicação
+- "nesta semana" → semana da publicação
+- "há três dias" → 18/12/2025
 
 QUANDO PODE INFERIR A DATA (has_explicit_date = TRUE):
 1. Data completa explícita: "15 de dezembro de 2025", "20/11/2025"
 2. Data relativa COM referência de publicação: "ontem" quando você sabe a data de publicação
 3. Dia da semana COM número entre parênteses: "domingo (10)", "sexta-feira (12)" —
    PRIORIZE o número do dia do mês sobre o dia da semana quando houver conflito
-   (ex.: publicação em 11/03/2025 + "domingo (10)" -> 2025-03-10, não o domingo anterior).
+   (ex.: publicação em 11/03/2025 + "domingo (10)" → 2025-03-10, não o domingo anterior).
 
 QUANDO NÃO PODE INFERIR (has_explicit_date = FALSE):
 1. Termos vagos sem referência: "recentemente", "há alguns dias", "no início da semana"
@@ -472,7 +472,7 @@ QUANDO NÃO PODE INFERIR (has_explicit_date = FALSE):
 4. O texto NÃO menciona quando o crime ocorreu: a data de publicação sozinha NÃO é a
    data do evento — ela serve apenas para resolver expressões relativas do texto.
    Se o artigo não diz QUANDO o crime aconteceu, date = null MESMO que pareça recente.
-5. Apenas mês/ano sem dia ("em setembro de 2024") -> date = null
+5. Apenas mês/ano sem dia ("em setembro de 2024") → date = null
 
 ATENÇÃO - DATA DO CRIME vs DATA DA DESCOBERTA:
 O campo date refere-se à data em que o CRIME ocorreu. Use date = null (has_explicit_date
@@ -481,7 +481,7 @@ corpo em decomposição, ossada, "a morte não foi recente". Nesses casos a data
 é desconhecida mesmo que a data da descoberta seja conhecida.
 Fora desses casos, a data em que a vítima foi morta/encontrada informada no texto É a
 data do evento — use-a normalmente, inclusive quando o corpo foi encontrado horas ou
-até um dia após o crime (ex.: "encontrada morta na noite do dia 18" -> 18).
+até um dia após o crime (ex.: "encontrada morta na noite do dia 18" → 18).
 
 O campo date_verification funciona como um VERIFICADOR:
 1. has_explicit_date = TRUE se você consegue determinar a data completa (dia/mês/ano)
@@ -497,9 +497,9 @@ IMPORTANTE:
 
 SOBRE LOCALIZAÇÃO (location_info.state):
 - Preencha o estado (UF) quando estiver explícito no texto OU quando a cidade for
-  inequívoca: capitais e cidades notórias (Recife -> PE, Manaus -> AM, Belém -> PA,
-  Campina Grande -> PB, Londrina -> PR), ou quando o contexto identifica a região
-  ("Grande Vitória" -> ES, "capital de Rondônia" -> Porto Velho/RO, "Baixada Fluminense" -> RJ).
+  inequívoca: capitais e cidades notórias (Recife → PE, Manaus → AM, Belém → PA,
+  Campina Grande → PB, Londrina → PR), ou quando o contexto identifica a região
+  ("Grande Vitória" → ES, "capital de Rondônia" → Porto Velho/RO, "Baixada Fluminense" → RJ).
 - location_info.city: se o texto identifica a cidade indiretamente ("capital de
   Rondônia", "Grande Vitória"), preencha com o nome da cidade correspondente.
 - Se o nome da cidade é ambíguo entre estados e o texto não desambigua
@@ -541,8 +541,8 @@ Se event_family = "nao_classificado":
 - "outro"
 
 REGRAS:
-- Sem óbito -> event_family = "tentativa", nunca "homicidio"
-- Morte culposa/acidente sem dolo -> event_family = "acidente_fatal"
+- Sem óbito → event_family = "tentativa", nunca "homicidio"
+- Morte culposa/acidente sem dolo → event_family = "acidente_fatal"
 - Feminicídio, latrocínio e qualificado são SUBTIPOS de homicidio, não famílias separadas
 - event_family = "homicidio" exige content_class = "incident"
 
@@ -561,7 +561,7 @@ Defina content_class em todo JSON de saída. Valores permitidos:
 
 SOBRE number_of_victims — NUNCA USE TOTAIS AGREGADOS:
 - Conte APENAS as vítimas FATAIS do incidente (mortos), NUNCA inclua feridos.
-  Ex.: "três mortos e um ferido" -> number_of_victims = 3, não 4.
+  Ex.: "três mortos e um ferido" → number_of_victims = 3, não 4.
 - Conte APENAS as vítimas do incidente específico descrito (máximo 20).
 - NUNCA use totais anuais, CVLI, "4.241 mortes em 2025", balanço estadual ou estatísticas
   de painel como number_of_victims — mesmo que sejam o tema da matéria.
@@ -570,8 +570,8 @@ SOBRE number_of_victims — NUNCA USE TOTAIS AGREGADOS:
   embutido; caso contrário a extração será descartada downstream.
 
 SOBRE homicide_dynamic.method — OBRIGATÓRIO PREENCHER:
-- Use um valor do enum quando o texto indicar o meio (tiros -> "Arma de fogo",
-  facadas -> "Arma branca", traumatismo craniano -> "Objeto contundente").
+- Use um valor do enum quando o texto indicar o meio (tiros → "Arma de fogo",
+  facadas → "Arma branca", traumatismo craniano → "Objeto contundente").
 - "Não especificado" quando a matéria diz que o método/causa não foi determinado
   ou não divulgado, ou quando há pouquíssima informação sobre a dinâmica.
 - Não deixe null se o texto menciona tiros, disparos, facadas ou equivalentes.
@@ -605,7 +605,7 @@ SOBRE AGENTES DE SEGURANÇA (vítimas e autores identificáveis):
 
 SOBRE VÍTIMA POLÍTICA (identifiable_victims[].political_role):
 - Preencher political_role SOMENTE quando o texto identifica a vítima como política ou candidata.
-- is_politician_or_candidate=true; status=elected | candidate | former_elected (ex-vereador -> former_elected).
+- is_politician_or_candidate=true; status=elected | candidate | former_elected (ex-vereador → former_elected).
 - office: cargo sem prefixo "ex-" (ex.: "vereador" mesmo para ex-vereador).
 - party: sigla/nome conforme texto; null se não mencionado — NÃO inferir partido.
 
