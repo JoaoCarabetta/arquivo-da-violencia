@@ -13,17 +13,19 @@ import {
 
 export type PortalMode = 'stats' | 'feed' | 'data';
 
-export type FilterGroup = 'types' | 'methods' | 'periods' | 'states' | 'cities';
+export type FilterGroup = 'types' | 'methods' | 'periods' | 'states' | 'cities' | 'countries';
 
 export interface PortalFilters {
   /** Homicide subtype slugs (e.g. feminicidio, latrocinio). */
   types: string[];
   methods: string[];
   periods: string[];
-  /** UF codes, e.g. "SP". */
+  /** UF codes for BR (e.g. "SP") or region names for CL (e.g. "Metropolitana"). */
   states: string[];
   /** City names from MapPoint.c. */
   cities: string[];
+  /** Country codes (e.g. "BR", "CL"). */
+  countries: string[];
   /** Inclusive ISO date (YYYY-MM-DD), empty = no lower bound. */
   startDate: string;
   /** Inclusive ISO date (YYYY-MM-DD), empty = no upper bound. */
@@ -38,6 +40,7 @@ export const EMPTY_FILTERS: PortalFilters = {
   periods: [],
   states: [],
   cities: [],
+  countries: [],
   startDate: '',
   endDate: '',
 };
@@ -48,6 +51,7 @@ export const DEFAULT_FILTERS: PortalFilters = {
   periods: [],
   states: [],
   cities: [],
+  countries: [],
   ...dateRangeForLastDays(DEFAULT_DATE_RANGE_DAYS),
 };
 
@@ -142,6 +146,7 @@ export function hasActiveFilters(f: PortalFilters): boolean {
     f.periods.length > 0 ||
     f.states.length > 0 ||
     f.cities.length > 0 ||
+    f.countries.length > 0 ||
     !datesMatchDefault(f)
   );
 }
@@ -160,6 +165,7 @@ export function applyFiltersExcept(
     periods: skip.has('periods') ? [] : f.periods,
     states: skip.has('states') ? [] : f.states,
     cities: skip.has('cities') ? [] : f.cities,
+    countries: skip.has('countries') ? [] : f.countries,
   });
 }
 
@@ -190,6 +196,7 @@ export function applyFilters(points: MapPoint[], f: PortalFilters): MapPoint[] {
       (f.methods.length === 0 || (p.m != null && f.methods.includes(p.m))) &&
       (f.states.length === 0 || (p.st != null && f.states.includes(p.st))) &&
       (f.cities.length === 0 || (p.c != null && f.cities.includes(p.c))) &&
+      (f.countries.length === 0 || (p.co != null && f.countries.includes(p.co))) &&
       matchesPeriodFilter(p.p, f.periods) &&
       matchesDateFilter(p.d, f.startDate, f.endDate)
   );

@@ -82,11 +82,35 @@ SUBTYPE_LABELS_PT: dict[tuple[EventFamily, EventSubtype], str] = {
     ("nao_classificado", "outro"): "Não especificado",
 }
 
+# Display labels (ES - Spanish/Chile) keyed by (family, subtype).
+SUBTYPE_LABELS_ES: dict[tuple[EventFamily, EventSubtype], str] = {
+    ("homicidio", "simples"): "Homicidio simple",
+    ("homicidio", "qualificado"): "Homicidio calificado",
+    ("homicidio", "feminicidio"): "Femicidio",
+    ("homicidio", "latrocinio"): "Robo con homicidio",
+    ("homicidio", "infanticidio"): "Infanticidio",
+    ("homicidio", "intervencao_policial"): "Intervención policial",
+    ("homicidio", "morte_transito_doloso"): "Muerte dolosa en tránsito",
+    ("tentativa", "simples"): "Tentativa de homicidio",
+    ("tentativa", "feminicidio"): "Tentativa de femicidio",
+    ("tentativa", "latrocinio"): "Tentativa de robo con homicidio",
+    ("acidente_fatal", "culposo"): "Homicidio culposo",
+    ("acidente_fatal", "transito_culposo"): "Accidente de tránsito fatal",
+    ("nao_classificado", "outro"): "No especificado",
+}
+
 FAMILY_LABELS_PT: dict[EventFamily, str] = {
     "homicidio": "Homicídio",
     "tentativa": "Tentativa",
     "acidente_fatal": "Acidente fatal",
     "nao_classificado": "Não classificado",
+}
+
+FAMILY_LABELS_ES: dict[EventFamily, str] = {
+    "homicidio": "Homicidio",
+    "tentativa": "Tentativa",
+    "acidente_fatal": "Accidente fatal",
+    "nao_classificado": "No clasificado",
 }
 
 # Legacy flat homicide_type strings (prod + extraction history) → (family, subtype).
@@ -122,10 +146,20 @@ def validate_family_subtype(family: EventFamily, subtype: EventSubtype) -> None:
         )
 
 
-def format_event_label(family: EventFamily, subtype: EventSubtype) -> str:
-    """Human-readable PT label for a (family, subtype) pair."""
+def format_event_label(family: EventFamily, subtype: EventSubtype, lang: str = "pt") -> str:
+    """Human-readable label for a (family, subtype) pair in the specified language.
+    
+    Args:
+        family: Event family
+        subtype: Event subtype
+        lang: Language code ("pt" for Portuguese, "es" for Spanish)
+    
+    Returns:
+        Formatted label in the specified language
+    """
     validate_family_subtype(family, subtype)
-    return SUBTYPE_LABELS_PT[(family, subtype)]
+    labels = SUBTYPE_LABELS_ES if lang == "es" else SUBTYPE_LABELS_PT
+    return labels[(family, subtype)]
 
 
 def format_legacy_homicide_type(family: EventFamily, subtype: EventSubtype) -> str:

@@ -272,6 +272,8 @@ export interface MapPoint {
   s: boolean | null;
   /** security_force_victim — any victim flagged is_security_force */
   sv?: boolean | null;
+  /** country code (BR, CL) */
+  co?: string | null;
   c: string | null;
   n: string | null;
   st: string | null;
@@ -504,6 +506,7 @@ export async function fetchNearby(params: {
 export async function fetchMapPoints(filters?: {
   days?: number;
   type?: string;
+  country?: string;
   minLng?: number;
   minLat?: number;
   maxLng?: number;
@@ -515,6 +518,7 @@ export async function fetchMapPoints(filters?: {
   const qs = new URLSearchParams();
   if (filters?.days != null) qs.set('days', filters.days.toString());
   if (filters?.type) qs.set('type', filters.type);
+  if (filters?.country) qs.set('country', filters.country);
   if (filters?.minLng != null) qs.set('min_lng', filters.minLng.toString());
   if (filters?.minLat != null) qs.set('min_lat', filters.minLat.toString());
   if (filters?.maxLng != null) qs.set('max_lng', filters.maxLng.toString());
@@ -530,6 +534,7 @@ export interface ExportFilters {
   periods?: string[];
   states?: string[];
   cities?: string[];
+  country?: string;
   days?: number;
   columns?: string[];
   startDate?: string;
@@ -545,6 +550,7 @@ export function getExportUrl(filters?: ExportFilters): string {
   } else {
     qs.set('days', String(filters?.days ?? 365));
   }
+  if (filters?.country) qs.set('country', filters.country);
   for (const t of filters?.types ?? []) qs.append('types', t);
   for (const m of filters?.methods ?? []) qs.append('methods', m);
   for (const p of filters?.periods ?? []) qs.append('periods', p);
