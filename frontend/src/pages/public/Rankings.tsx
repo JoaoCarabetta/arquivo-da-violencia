@@ -48,7 +48,7 @@ function DeltaBadge({ delta, label }: { delta: number; label: string }) {
 }
 
 function RankingTable({ title, rows, labelField, onRowClick, emptyMessage }: RankingTableProps) {
-  const { t } = useI18n();
+  const { t, lang } = useI18n();
   const [expanded, setExpanded] = useState(true);
   
   if (rows.length === 0) {
@@ -103,8 +103,8 @@ function RankingTable({ title, rows, labelField, onRowClick, emptyMessage }: Ran
             <tbody className="bg-white divide-y divide-stone-200">
               {displayRows.map((row, idx) => {
                 const label = row[labelField] as string || 'N/A';
-                const displayLabel = labelField === 'type' ? formatTypeStatLabel(label) : 
-                                   labelField === 'method' ? translateMethod(label) : 
+                const displayLabel = labelField === 'type' ? formatTypeStatLabel(label, lang) : 
+                                   labelField === 'method' ? translateMethod(label, lang) : 
                                    label;
                 return (
                   <tr
@@ -153,7 +153,7 @@ function RankingTable({ title, rows, labelField, onRowClick, emptyMessage }: Ran
 }
 
 export function Rankings() {
-  const { t } = useI18n();
+  const { t, lang } = useI18n();
   const navigate = useNavigate();
   const isMobile = useIsMobile();
   
@@ -197,6 +197,16 @@ export function Rankings() {
   const handleMethodClick = (method: string) => {
     // Deep link to map filtered to this method
     navigate(`/?method=${encodeURIComponent(method)}`);
+  };
+
+  const handleOpenMethodology = () => {
+    setAboutOpen(false);
+    setMethodologyOpen(true);
+  };
+
+  const handleSetMode = (mode: 'data') => {
+    // Navigate to data page when user clicks the data link in methodology
+    navigate('/dados');
   };
 
   return (
@@ -354,8 +364,8 @@ export function Rankings() {
         </div>
       </main>
 
-      <AboutModal open={aboutOpen} onClose={() => setAboutOpen(false)} />
-      <MethodologyPanel open={methodologyOpen} onClose={() => setMethodologyOpen(false)} />
+      <AboutModal open={aboutOpen} onClose={() => setAboutOpen(false)} onOpenMethodology={handleOpenMethodology} />
+      <MethodologyPanel open={methodologyOpen} onClose={() => setMethodologyOpen(false)} onSetMode={handleSetMode} />
     </div>
   );
 }
