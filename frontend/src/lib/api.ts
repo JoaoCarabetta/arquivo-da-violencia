@@ -309,6 +309,34 @@ export interface PaginatedResponse<T> {
   pages: number;
 }
 
+export interface RankingRow {
+  city?: string;
+  state?: string;
+  country?: string;
+  type?: string;
+  method?: string;
+  victim_count: number;
+  event_count: number;
+  victim_share: number;
+  event_share: number;
+  victim_delta: number;
+  event_delta: number;
+}
+
+export interface RankingsResponse {
+  period_days: number;
+  period_start: string;
+  period_end: string;
+  country_filter: string | null;
+  total_victims: number;
+  total_events: number;
+  cities: RankingRow[];
+  states: RankingRow[];
+  countries: RankingRow[];
+  homicide_types: RankingRow[];
+  methods: RankingRow[];
+}
+
 export interface SourcesByHourData {
   hour: string;
   count: number;
@@ -525,6 +553,17 @@ export async function fetchMapPoints(filters?: {
   if (filters?.maxLat != null) qs.set('max_lat', filters.maxLat.toString());
   const suffix = qs.toString() ? `?${qs.toString()}` : '';
   return fetchJson<MapPointsResponse>(`${API_BASE}/public/map-points${suffix}`);
+}
+
+export async function fetchRankings(params?: {
+  days?: number;
+  country?: string;
+}): Promise<RankingsResponse> {
+  const qs = new URLSearchParams();
+  if (params?.days != null) qs.set('days', params.days.toString());
+  if (params?.country) qs.set('country', params.country);
+  const suffix = qs.toString() ? `?${qs.toString()}` : '';
+  return fetchJson<RankingsResponse>(`${API_BASE}/public/stats/rankings${suffix}`);
 }
 
 // Export URLs
