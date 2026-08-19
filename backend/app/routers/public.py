@@ -491,17 +491,17 @@ async def get_rankings(
                 UniqueEvent.event_date <= end,
             )
         )
-    if country:
-        country_name = COUNTRY_NAMES.get(country.upper())
-        if country_name:
-            # Match both canonical code and legacy "Brasil" for BR
+        if country:
+            # Match canonical codes (BR, CL) and legacy "Brasil" for BR
             if country.upper() == "BR":
+                # BR matches both canonical "BR" and legacy "Brasil"
                 query = query.where(
-                    (UniqueEvent.country == country_name) | (UniqueEvent.country == country.upper())
+                    (UniqueEvent.country == "BR") | (UniqueEvent.country == "Brasil")
                 )
-            else:
-                query = query.where(UniqueEvent.country == country_name)
-    return query
+            elif country.upper() == "CL":
+                # CL matches canonical "CL" stored value
+                query = query.where(UniqueEvent.country == "CL")
+        return query
     
     current_query = build_query(current_start, now)
     prev_query = build_query(prev_start, prev_end)
