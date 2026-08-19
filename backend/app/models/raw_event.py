@@ -26,6 +26,7 @@ class RawEventBase(SQLModel):
     time_of_day: str | None = Field(default=None, max_length=20)
     
     # Location (key fields for filtering)
+    country: str | None = Field(default="BR", max_length=2, index=True)
     city: str | None = Field(default=None, max_length=100, index=True)
     state: str | None = Field(default=None, max_length=50)
     neighborhood: str | None = Field(default=None, max_length=100)

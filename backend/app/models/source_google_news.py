@@ -56,6 +56,9 @@ class SourceGoogleNewsBase(SQLModel):
     # Search context (which query found this)
     search_query: str | None = Field(default=None, max_length=256)
     
+    # Country (ISO 3166-1 alpha-2: BR, CL, etc.)
+    country: str | None = Field(default="BR", max_length=2, index=True)
+    
     # Pipeline status (stored as VARCHAR — avoids native Postgres enum drift)
     status: SourceStatus = Field(
         default=SourceStatus.ready_for_classification,
