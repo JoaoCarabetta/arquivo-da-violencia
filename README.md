@@ -2,7 +2,7 @@
 
 # 🚨 Arquivo da Violência
 
-### Monitoramento de Mortes Violentas no Brasil em Tempo Real
+### Monitoramento de Mortes Violentas no Brasil e Chile em Tempo Real
 
 *Dados abertos para pesquisa, jornalismo e sociedade civil*
 
@@ -19,11 +19,11 @@
 
 ## 📖 Sobre o Projeto
 
-O **Arquivo da Violência** é um sistema automatizado de monitoramento de mortes violentas reportadas no Brasil, coletando e estruturando dados em tempo real a partir de fontes jornalísticas.
+O **Arquivo da Violência** é um sistema automatizado de monitoramento de mortes violentas reportadas no Brasil e Chile, coletando e estruturando dados em tempo real a partir de fontes jornalísticas.
 
 ### 🎯 O Problema
 
-A violência é um dos maiores problemas do Brasil, mas os dados oficiais:
+A violência é um dos maiores problemas da América Latina, mas os dados oficiais:
 - 📅 São divulgados **apenas anualmente**
 - 🐢 Demoram meses ou anos para serem consolidados
 - 🔒 Frequentemente são **incompletos** ou de difícil acesso
@@ -32,8 +32,9 @@ A violência é um dos maiores problemas do Brasil, mas os dados oficiais:
 ### 💡 Nossa Solução
 
 Criamos um sistema que:
-- 🤖 **Coleta automaticamente** notícias de veículos jornalísticos
+- 🤖 **Coleta automaticamente** notícias de veículos jornalísticos do Brasil e Chile
 - 🧠 **Extrai informações estruturadas** usando LLMs (Large Language Models)
+- 🌍 **Suporta múltiplos idiomas** (Português e Espanhol) e geografias
 - 🔍 **Deduplica eventos** mencionados em múltiplas fontes
 - 📊 **Disponibiliza dados abertos** para download (CSV/JSON)
 - 🌐 **Interface pública** com estatísticas em tempo real
@@ -43,8 +44,8 @@ Criamos um sistema que:
 ## ✨ Funcionalidades
 
 ### 🌍 Site Público
-- **Dashboard em tempo real** com estatísticas atualizadas
-- **Linha do tempo de eventos** com filtros por estado e tipo
+- **Dashboard em tempo real** com estatísticas atualizadas do Brasil e Chile
+- **Linha do tempo de eventos** com filtros por país, estado/região e tipo
 - **Gráficos interativos** de tendências e distribuições
 - **Download de dados** em CSV e JSON
 - **API pública** para integração com outras ferramentas
@@ -393,13 +394,15 @@ são sempre bem-vindos!
 
 O sistema classifica mortes violentas em:
 
-- **Homicídio:** Morte intencional de uma pessoa por outra
-- **Feminicídio:** Homicídio de mulher por razões de gênero
-- **Latrocínio:** Roubo seguido de morte
-- **Chacina:** Múltiplas mortes no mesmo evento (geralmente 3+)
-- **Morte em confronto:** Mortes durante operações policiais
+- **Homicídio/Homicidio:** Morte intencional de uma pessoa por outra
+- **Feminicídio/Femicidio:** Homicídio de mulher por razões de gênero
+- **Latrocínio/Robo con homicidio:** Roubo seguido de morte
+- **Chacina/Masacre:** Múltiplas mortes no mesmo evento (geralmente 3+)
+- **Morte em confronto/Intervención policial:** Mortes durante operações policiais
 - **Linchamento:** Morte causada por multidão
 - **Outro:** Outras formas de morte violenta
+
+*Nomenclatura adaptada para contextos brasileiro e chileno*
 
 ---
 

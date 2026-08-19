@@ -41,6 +41,14 @@ const BRAZIL_VIEW: MapViewState = {
   bearing: 0,
 };
 
+const LATAM_VIEW: MapViewState = {
+  longitude: -60,
+  latitude: -20,
+  zoom: 3.2,
+  pitch: 0,
+  bearing: 0,
+};
+
 const PATH_FOR: Record<PortalMode, string> = {
   stats: '/',
   feed: '/eventos',
@@ -65,7 +73,7 @@ export function MapExplorer() {
   const aboutFromRoute = location.pathname === '/sobre';
   const methodologyFromRoute = location.pathname === '/metodologia';
 
-  const [viewState, setViewState] = useState<MapViewState>(BRAZIL_VIEW);
+  const [viewState, setViewState] = useState<MapViewState>(LATAM_VIEW);
   const [panelBounds, setPanelBounds] = useState<MapBounds | null>(null);
   const [panelZoom, setPanelZoom] = useState(BRAZIL_VIEW.zoom);
   const [panelLng, setPanelLng] = useState(BRAZIL_VIEW.longitude);
@@ -90,7 +98,7 @@ export function MapExplorer() {
   }, [filteredPoints, panelBounds]);
   const viewportReady = panelBounds != null;
 
-  const canReset = panelZoom > 4.2 || Math.abs(panelLng - BRAZIL_VIEW.longitude) > 6;
+  const canReset = panelZoom > 4.2 || Math.abs(panelLng - LATAM_VIEW.longitude) > 8;
   const filtersActive = hasActiveFilters(filters);
 
   const handleViewportSettled = useCallback((snapshot: ViewportSnapshot) => {
@@ -227,7 +235,7 @@ export function MapExplorer() {
   const onResetView = useCallback(() => {
     setSearchedLocation(null);
     setViewState({
-      ...BRAZIL_VIEW,
+      ...LATAM_VIEW,
       transitionDuration: 700,
       transitionInterpolator: flyInterpolatorRef.current,
     });
