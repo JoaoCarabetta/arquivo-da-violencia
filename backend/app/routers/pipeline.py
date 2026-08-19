@@ -136,7 +136,7 @@ async def run_city_ingestion(
     """
     Ingest news for ALL configured cities across all countries (BR + CL).
     
-    - Fetches news for 52+ Brazilian cities and Chilean cities
+    - Fetches news for 52+ cities in Brazil and major cities in Chile
     - Automatically shards high-volume cities (São Paulo, Rio, Santiago, etc.)
     - Rate limited to respect Google's limits
     
