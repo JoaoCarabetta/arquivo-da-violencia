@@ -196,6 +196,7 @@ async def geocode_address(
     input_granularity: str = PRECISION_CITY,
     client: httpx.AsyncClient | None = None,
     restrict_country: bool = False,
+    country: str | None = None,
 ) -> dict | None:
     """
     Call the Google Maps Geocoding API for a query string.
@@ -207,14 +208,32 @@ async def geocode_address(
         logger.warning("[Geocode] GOOGLE_MAPS_API_KEY not set; skipping geocoding")
         return None
 
+    # Normalize country: CL, BR, or legacy "Brasil" → BR
+    normalized_country = "BR"
+    if country:
+        if country.upper() == "CL":
+            normalized_country = "CL"
+        elif country.upper() in ("BR", "BRASIL"):
+            normalized_country = "BR"
+
+    # Set region and language based on country
+    if normalized_country == "CL":
+        region_code = "cl"
+        language_code = "es"
+        country_component = "CL"
+    else:
+        region_code = "br"
+        language_code = "pt-BR"
+        country_component = "BR"
+
     params = {
         "address": query,
         "key": settings.google_maps_api_key,
-        "region": "br",
-        "language": "pt-BR",
+        "region": region_code,
+        "language": language_code,
     }
     if restrict_country:
-        params["components"] = "country:BR"
+        params["components"] = f"country:{country_component}"
 
     owns_client = client is None
     if owns_client:
@@ -453,13 +472,16 @@ async def geocode_unique_event(
         return False
 
     granularity = _input_granularity(event)
+    
+    # Get country from event (CL, BR, or legacy "Brasil")
+    event_country = getattr(event, "country", None) or "BR"
 
-    # In-run cache keyed on (query, granularity) avoids duplicate billed calls
+    # In-run cache keyed on (query, granularity, country) avoids duplicate billed calls
     # for identical addresses (e.g. many city-only events in the same city).
-    cache_key = (query, granularity)
+    cache_key = (query, granularity, event_country)
     fields = cache.get(cache_key) if cache is not None else None
     if fields is None:
-        fields = await geocode_address(query, granularity, client=client)
+        fields = await geocode_address(query, granularity, client=client, country=event_country)
         if cache is not None:
             cache[cache_key] = fields
 
