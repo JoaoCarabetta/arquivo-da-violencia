@@ -492,9 +492,15 @@ async def get_rankings(
             )
         )
         if country:
-            country_name = COUNTRY_NAMES.get(country.upper())
-            if country_name:
-                query = query.where(UniqueEvent.country == country_name)
+            # Match canonical codes (BR, CL) and legacy "Brasil" for BR
+            if country.upper() == "BR":
+                # BR matches both canonical "BR" and legacy "Brasil"
+                query = query.where(
+                    (UniqueEvent.country == "BR") | (UniqueEvent.country == "Brasil")
+                )
+            elif country.upper() == "CL":
+                # CL matches canonical "CL" stored value
+                query = query.where(UniqueEvent.country == "CL")
         return query
     
     current_query = build_query(current_start, now)
@@ -508,6 +514,16 @@ async def get_rankings(
     prev_events = prev_result.scalars().all()
     
     # Helper to aggregate rankings
+    def normalize_country_for_display(country_code: str | None) -> str | None:
+        """Normalize country codes to display names, treating legacy 'Brasil' as BR."""
+        if not country_code:
+            return None
+        # Treat legacy "Brasil" as "BR"
+        if country_code == "Brasil":
+            country_code = "BR"
+        # Map country codes to display names
+        return COUNTRY_NAMES.get(country_code.upper(), country_code)
+    
     def aggregate_by_field(events, field_name):
         """Aggregate events by a field, counting victims and events."""
         aggregated = {}
@@ -515,6 +531,11 @@ async def get_rankings(
             key = getattr(event, field_name)
             if not key:
                 continue
+            # Normalize country field for aggregation
+            if field_name == "country":
+                key = normalize_country_for_display(key)
+                if not key:
+                    continue
             if key not in aggregated:
                 aggregated[key] = {"events": 0, "victims": 0}
             aggregated[key]["events"] += 1

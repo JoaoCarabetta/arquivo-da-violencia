@@ -1128,7 +1128,7 @@ async def create_unique_event_from_cluster(cluster: list[RawEvent]) -> UniqueEve
                 "event_date": best.event_date,
                 "date_precision": best.date_precision,
                 "time_of_day": best.time_of_day,
-                "country": "Brasil",
+                "country": best.country or "BR",  # Use RawEvent country, default to BR
                 "state": best.state,
                 "city": best.city,
                 "neighborhood": best.neighborhood,
@@ -1369,6 +1369,7 @@ async def process_pending_deduplication(limit: int = 200) -> dict:
         raw_event = RawEvent(
             id=row.id,
             event_date=parse_datetime(row.event_date),
+            country=getattr(row, "country", "BR"),
             city=row.city,
             state=row.state,
             neighborhood=row.neighborhood,
