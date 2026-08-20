@@ -115,9 +115,15 @@ function RankingTable({ title, rows, labelField, onRowClick, emptyMessage, showR
             <tbody className="bg-white divide-y divide-stone-200">
               {displayRows.map((row, idx) => {
                 const label = row[labelField] as string || 'N/A';
-                const displayLabel = labelField === 'type' ? formatTypeStatLabel(label, lang) : 
+                let displayLabel = labelField === 'type' ? formatTypeStatLabel(label, lang) : 
                                    labelField === 'method' ? translateMethod(label, lang) : 
                                    label;
+                
+                // For cities, append UF if available
+                if (labelField === 'city' && row.state_abbrev) {
+                  displayLabel = `${displayLabel}, ${row.state_abbrev}`;
+                }
+                
                 return (
                   <tr
                     key={idx}
@@ -181,12 +187,24 @@ export function Rankings() {
   
   const [period, setPeriod] = useState<PeriodOption>(365);
   const [country, setCountry] = useState<CountryOption>('');
+  const [cityLimit, setCityLimit] = useState<number>(50);
   const [aboutOpen, setAboutOpen] = useState(false);
   const [methodologyOpen, setMethodologyOpen] = useState(false);
+  
+  // Reset city limit when period or country changes
+  const handlePeriodChange = (newPeriod: PeriodOption) => {
+    setPeriod(newPeriod);
+    setCityLimit(50);
+  };
+  
+  const handleCountryChange = (newCountry: CountryOption) => {
+    setCountry(newCountry);
+    setCityLimit(50);
+  };
 
   const { data, isLoading } = useQuery({
-    queryKey: ['rankings', period, country],
-    queryFn: () => fetchRankings({ days: period, country: country || undefined }),
+    queryKey: ['rankings', period, country, cityLimit],
+    queryFn: () => fetchRankings({ days: period, country: country || undefined, cityLimit }),
   });
 
   const periodOptions: { value: PeriodOption; label: string }[] = [
@@ -270,7 +288,7 @@ export function Rankings() {
                 {periodOptions.map((option) => (
                   <button
                     key={option.value}
-                    onClick={() => setPeriod(option.value)}
+                    onClick={() => handlePeriodChange(option.value)}
                     className={cn(
                       'px-4 py-2 rounded-lg text-sm font-medium transition-colors',
                       period === option.value
@@ -292,7 +310,7 @@ export function Rankings() {
                 {countryOptions.map((option) => (
                   <button
                     key={option.value}
-                    onClick={() => setCountry(option.value)}
+                    onClick={() => handleCountryChange(option.value)}
                     className={cn(
                       'px-4 py-2 rounded-lg text-sm font-medium transition-colors',
                       country === option.value
@@ -332,12 +350,24 @@ export function Rankings() {
               {/* Cities */}
               <RankingTable
                 title={t.rankingsCities}
-                rows={data.cities.slice(0, 50)} // Top 50 cities
+                rows={data.cities}
                 labelField="city"
                 onRowClick={handleCityClick}
                 emptyMessage="Nenhuma cidade com eventos no período selecionado."
                 showRateColumns={true}
               />
+              
+              {/* Show More Cities button */}
+              {data.cities.length === cityLimit && cityLimit < 500 && (
+                <div className="rounded-xl border border-stone-200 bg-white p-4 text-center">
+                  <button
+                    onClick={() => setCityLimit(prev => Math.min(prev + 100, 500))}
+                    className="text-sm text-blue-600 hover:text-blue-700 font-medium"
+                  >
+                    Mostrar mais cidades ({cityLimit} de ~{cityLimit + 100}+)
+                  </button>
+                </div>
+              )}
 
               {/* States/Regions */}
               <RankingTable

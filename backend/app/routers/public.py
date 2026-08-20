@@ -9,19 +9,27 @@ import math
 import csv
 import json  # For serializing merged_data
 import io
+from typing import Optional
+import time
 
 from app.database import get_session
 from app.models.unique_event import UniqueEvent
 from app.models.raw_event import RawEvent
 from app.models.source_google_news import SourceGoogleNews
+from app.models.ibge_population import IBGEPopulation
 from app.services.public_filters import (
     apply_public_incident_filter,
     homicide_type_filter,
     homicide_types_filter,
 )
-from app.geography import COUNTRY_NAMES
+from app.geography import COUNTRY_NAMES, BRAZILIAN_STATES
 
 router = APIRouter(prefix="/public", tags=["public"])
+
+# Simple cache for rankings endpoint (default 365d payload)
+# Invalidate on ingest or every 1 hour
+_rankings_cache: dict[str, tuple[dict, float]] = {}
+RANKINGS_CACHE_TTL = 3600  # 1 hour in seconds
 
 # Rolling window shared by the map, export, and temporal-scope note.
 PUBLIC_MAP_DAYS = 365
@@ -470,6 +478,7 @@ async def get_rankings(
     session: AsyncSession = Depends(get_session),
     days: int = Query(365, ge=1, le=3650, description="Only events in the last N days"),
     country: str | None = Query(None, description="Filter by country: BR, CL, or omit for both"),
+    city_limit: int | None = Query(50, ge=1, le=10000, description="Limit number of cities returned (default 50 for fast load)"),
 ):
     """
     Get rankings of cities, states/regions, countries, homicide types, and methods of death
@@ -484,6 +493,17 @@ async def get_rankings(
         get_state_populations,
         calculate_rate_per_100k,
     )
+    
+    # Check cache for default 365d unfiltered request (before expensive aggregation)
+    cache_key = f"rankings_{days}_{country}_{city_limit}"
+    if cache_key in _rankings_cache:
+        cached_result, cached_time = _rankings_cache[cache_key]
+        # Check if cache is still valid (TTL)
+        if time.time() - cached_time < RANKINGS_CACHE_TTL:
+            return cached_result
+        else:
+            # Cache expired, remove it
+            del _rankings_cache[cache_key]
     
     now = datetime.utcnow()
     current_start = now - timedelta(days=days)
@@ -533,42 +553,50 @@ async def get_rankings(
         return COUNTRY_NAMES.get(country_code.upper(), country_code)
     
     def aggregate_by_field(events, field_name):
-        """Aggregate events by a field, counting victims and events, tracking city/state for rate calculation."""
+        """Aggregate events by a field, counting victims and events.
+        
+        For cities, keys by (city, state) tuple to keep same-named cities in different states distinct.
+        """
         aggregated = {}
-        city_states = {}  # Track (city, state) pairs for rate calculation
         
         for event in events:
-            key = getattr(event, field_name)
-            if not key:
-                continue
-            # Normalize country field for aggregation
-            if field_name == "country":
-                key = normalize_country_for_display(key)
+            if field_name == "city":
+                # Key by (city, state) tuple to distinguish same-named cities
+                city = event.city
+                state = event.state
+                if not city:
+                    continue
+                key = (city, state) if state else (city, None)
+            else:
+                key = getattr(event, field_name)
                 if not key:
                     continue
+                # Normalize country field for aggregation
+                if field_name == "country":
+                    key = normalize_country_for_display(key)
+                    if not key:
+                        continue
+            
             if key not in aggregated:
                 aggregated[key] = {"events": 0, "victims": 0}
-                # Store city/state pair for city rankings (for rate lookup)
-                if field_name == "city":
-                    city_states[key] = getattr(event, "state", None)
             aggregated[key]["events"] += 1
             aggregated[key]["victims"] += event.victim_count or 0
         
-        return aggregated, city_states if field_name == "city" else {}
+        return aggregated
     
     # Aggregate current period
-    cities_current, city_states = aggregate_by_field(current_events, "city")
-    states_current, _ = aggregate_by_field(current_events, "state")
-    countries_current, _ = aggregate_by_field(current_events, "country")
-    types_current, _ = aggregate_by_field(current_events, "homicide_type")
-    methods_current, _ = aggregate_by_field(current_events, "method_of_death")
+    cities_current = aggregate_by_field(current_events, "city")
+    states_current = aggregate_by_field(current_events, "state")
+    countries_current = aggregate_by_field(current_events, "country")
+    types_current = aggregate_by_field(current_events, "homicide_type")
+    methods_current = aggregate_by_field(current_events, "method_of_death")
     
     # Aggregate previous period
-    cities_prev, _ = aggregate_by_field(prev_events, "city")
-    states_prev, _ = aggregate_by_field(prev_events, "state")
-    countries_prev, _ = aggregate_by_field(prev_events, "country")
-    types_prev, _ = aggregate_by_field(prev_events, "homicide_type")
-    methods_prev, _ = aggregate_by_field(prev_events, "method_of_death")
+    cities_prev = aggregate_by_field(prev_events, "city")
+    states_prev = aggregate_by_field(prev_events, "state")
+    countries_prev = aggregate_by_field(prev_events, "country")
+    types_prev = aggregate_by_field(prev_events, "homicide_type")
+    methods_prev = aggregate_by_field(prev_events, "method_of_death")
     
     # Calculate totals for share percentages
     total_victims = sum(e.victim_count or 0 for e in current_events)
@@ -586,10 +614,12 @@ async def get_rankings(
     if has_br_events:
         # Lookup city populations
         if cities_current:
-            # Build list of (city, state) pairs
+            # Build list of (city, state) pairs from city keys (which are now tuples)
             city_list = []
             state_list = []
-            for city, state in city_states.items():
+            for city_key in cities_current.keys():
+                # city_key is (city, state) tuple
+                city, state = city_key
                 if state:  # Only include cities with known states
                     city_list.append(city)
                     state_list.append(state)
@@ -634,33 +664,70 @@ async def get_rankings(
                         # Track the year for display
                         if population_vintage is None:
                             population_vintage = state_pop_data[code_state]["year"]
+        
+        # Lookup Brazil national population (sum of all municipalities in cache)
+        # This avoids re-hitting geobr/SIDRA per request
+        from sqlalchemy import func as sql_func
+        brasil_pop_query = select(
+            sql_func.sum(IBGEPopulation.population).label("total_pop"),
+            sql_func.min(IBGEPopulation.year).label("year")
+        )
+        brasil_pop_result = await session.execute(brasil_pop_query)
+        brasil_pop_row = brasil_pop_result.one_or_none()
+        
+        brasil_population_data = None
+        if brasil_pop_row and brasil_pop_row.total_pop:
+            brasil_population_data = {
+                "population": int(brasil_pop_row.total_pop),
+                "year": brasil_pop_row.year
+            }
+            if population_vintage is None:
+                population_vintage = brasil_pop_row.year
+    else:
+        brasil_population_data = None
     
     # Helper to format rankings with delta and rate
-    def format_rankings(current, prev, label_field="name", include_rate=False, city_states_map=None, state_pops=None):
-        """Format rankings with victim count, event count, share, delta, and optionally rate per 100k."""
+    def format_rankings(current, prev, label_field="name", include_rate=False, is_city=False, state_pops=None, country_pops=None):
+        """Format rankings with victim count, event count, share, delta, and optionally rate per 100k.
+        
+        For cities, key is (city, state) tuple; for others, key is a simple string.
+        """
         rankings = []
         for key, data in current.items():
             prev_data = prev.get(key, {"victims": 0, "events": 0})
             victim_delta = data["victims"] - prev_data["victims"]
             event_delta = data["events"] - prev_data["events"]
             
-            row = {
-                label_field: key,
-                "victim_count": data["victims"],
-                "event_count": data["events"],
-                "victim_share": round(data["victims"] / total_victims * 100, 1) if total_victims > 0 else 0,
-                "event_share": round(data["events"] / total_events * 100, 1) if total_events > 0 else 0,
-                "victim_delta": victim_delta,
-                "event_delta": event_delta,
-            }
-            
-            # Add rate per 100k if available
-            if include_rate:
-                # Try city lookup first (if city_states_map provided)
-                if city_states_map:
-                    state = city_states_map.get(key)
-                    if state and (key, state) in city_population_data:
-                        pop_info = city_population_data[(key, state)]
+            # Handle city tuple vs simple key
+            if is_city:
+                # key is (city, state) tuple
+                city, state = key
+                row = {
+                    "city": city,
+                    "state": state,  # Display name from event
+                    "victim_count": data["victims"],
+                    "event_count": data["events"],
+                    "victim_share": round(data["victims"] / total_victims * 100, 1) if total_victims > 0 else 0,
+                    "event_share": round(data["events"] / total_events * 100, 1) if total_events > 0 else 0,
+                    "victim_delta": victim_delta,
+                    "event_delta": event_delta,
+                }
+                
+                # Add state_abbrev: prefer IBGE abbrev, fallback to event.state ONLY if it's a valid BR UF
+                if state and key in city_population_data:
+                    pop_info = city_population_data[key]
+                    row["state_abbrev"] = pop_info.get("abbrev_state")
+                elif state and state in BRAZILIAN_STATES:
+                    # Fallback: use event.state only if it's a valid Brazilian UF
+                    row["state_abbrev"] = state
+                else:
+                    # Unmatched or invalid (like "ZA") - no abbrev
+                    row["state_abbrev"] = None
+                
+                # Add rate per 100k for cities
+                if include_rate:
+                    if key in city_population_data:
+                        pop_info = city_population_data[key]
                         row["population"] = pop_info["population"]
                         row["rate_per_100k"] = calculate_rate_per_100k(
                             data["victims"],
@@ -669,17 +736,39 @@ async def get_rankings(
                     else:
                         row["population"] = None
                         row["rate_per_100k"] = None
-                # Try state lookup (if state_pops flag set)
-                elif state_pops and key in state_population_data:
-                    pop_info = state_population_data[key]
-                    row["population"] = pop_info["population"]
-                    row["rate_per_100k"] = calculate_rate_per_100k(
-                        data["victims"],
-                        pop_info["population"]
-                    )
-                else:
-                    row["population"] = None
-                    row["rate_per_100k"] = None
+            else:
+                # Simple key for states, countries, types, methods
+                row = {
+                    label_field: key,
+                    "victim_count": data["victims"],
+                    "event_count": data["events"],
+                    "victim_share": round(data["victims"] / total_victims * 100, 1) if total_victims > 0 else 0,
+                    "event_share": round(data["events"] / total_events * 100, 1) if total_events > 0 else 0,
+                    "victim_delta": victim_delta,
+                    "event_delta": event_delta,
+                }
+                
+                # Add rate per 100k if available
+                if include_rate:
+                    # Try state lookup
+                    if state_pops and key in state_population_data:
+                        pop_info = state_population_data[key]
+                        row["population"] = pop_info["population"]
+                        row["rate_per_100k"] = calculate_rate_per_100k(
+                            data["victims"],
+                            pop_info["population"]
+                        )
+                    # Try country lookup
+                    elif country_pops and key in country_pops:
+                        pop_info = country_pops[key]
+                        row["population"] = pop_info["population"]
+                        row["rate_per_100k"] = calculate_rate_per_100k(
+                            data["victims"],
+                            pop_info["population"]
+                        )
+                    else:
+                        row["population"] = None
+                        row["rate_per_100k"] = None
             
             rankings.append(row)
         
@@ -696,6 +785,18 @@ async def get_rankings(
         
         return rankings
     
+    # Build country populations dict (Brasil only, CL stays null)
+    country_population_data = {}
+    if brasil_population_data:
+        country_population_data["Brasil"] = brasil_population_data
+    
+    # Format rankings
+    cities_rankings = format_rankings(cities_current, cities_prev, include_rate=True, is_city=True)
+    
+    # Apply city_limit for performance (default 50 for fast default load)
+    if city_limit is not None and city_limit > 0:
+        cities_rankings = cities_rankings[:city_limit]
+    
     response = {
         "period_days": days,
         "period_start": current_start.date().isoformat(),
@@ -703,9 +804,9 @@ async def get_rankings(
         "country_filter": country,
         "total_victims": total_victims,
         "total_events": total_events,
-        "cities": format_rankings(cities_current, cities_prev, "city", include_rate=True, city_states_map=city_states),
+        "cities": cities_rankings,
         "states": format_rankings(states_current, states_prev, "state", include_rate=True, state_pops=True),
-        "countries": format_rankings(countries_current, countries_prev, "country"),
+        "countries": format_rankings(countries_current, countries_prev, "country", include_rate=True, country_pops=country_population_data),
         "homicide_types": format_rankings(types_current, types_prev, "type"),
         "methods": format_rankings(methods_current, methods_prev, "method"),
     }
@@ -713,6 +814,9 @@ async def get_rankings(
     # Add population vintage if we have population data
     if population_vintage is not None:
         response["population_vintage"] = population_vintage
+    
+    # Cache the result (store current time for TTL check)
+    _rankings_cache[cache_key] = (response, time.time())
     
     return response
 

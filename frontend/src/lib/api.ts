@@ -312,6 +312,7 @@ export interface PaginatedResponse<T> {
 export interface RankingRow {
   city?: string;
   state?: string;
+  state_abbrev?: string | null;
   country?: string;
   type?: string;
   method?: string;
@@ -561,10 +562,12 @@ export async function fetchMapPoints(filters?: {
 export async function fetchRankings(params?: {
   days?: number;
   country?: string;
+  cityLimit?: number;
 }): Promise<RankingsResponse> {
   const qs = new URLSearchParams();
   if (params?.days != null) qs.set('days', params.days.toString());
   if (params?.country) qs.set('country', params.country);
+  if (params?.cityLimit != null) qs.set('city_limit', params.cityLimit.toString());
   const suffix = qs.toString() ? `?${qs.toString()}` : '';
   return fetchJson<RankingsResponse>(`${API_BASE}/public/stats/rankings${suffix}`);
 }
