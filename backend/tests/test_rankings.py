@@ -906,13 +906,11 @@ async def test_rankings_city_unmatched_no_invented_uf(app, async_session, popula
         joanesburgo = next((c for c in data["cities"] if c["city"] == "Joanesburgo"), None)
         assert joanesburgo is not None
         
-        # Should NOT have a state_abbrev (unmatched)
-        # or if present, should be None or the raw "ZA" from event.state
-        # (we'll implement to prefer IBGE abbrev, fallback to event.state if it's a 2-letter UF, else None)
-        assert joanesburgo.get("state_abbrev") is None or joanesburgo.get("state_abbrev") == "ZA"
+        # Should NOT have a state_abbrev (ZA is not a valid Brazilian UF)
+        assert joanesburgo.get("state_abbrev") is None
         
-        # Should still have state display name if present
-        assert joanesburgo.get("state") in [None, "ZA"]
+        # Should still have state display name from event
+        assert joanesburgo.get("state") == "ZA"
 
 
 @pytest.mark.asyncio
