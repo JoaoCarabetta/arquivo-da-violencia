@@ -2,8 +2,8 @@ import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { ChevronDown, TrendingUp, TrendingDown, Minus, ArrowLeft } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
-import { fetchRankings } from '@/lib/api';
-import type { RankingRow } from '@/lib/api';
+import { fetchRankings, fetchStatsMatrix } from '@/lib/api';
+import type { RankingRow, MatrixResponse } from '@/lib/api';
 import { useI18n } from '@/contexts/I18nContext';
 import { ArchiveLogo } from '@/components/portal/ArchiveLogo';
 import { LeftRail } from '@/components/portal/LeftRail';
@@ -207,6 +207,11 @@ export function Rankings() {
     queryFn: () => fetchRankings({ days: period, country: country || undefined, cityLimit }),
   });
 
+  const { data: matrixData, isLoading: isMatrixLoading } = useQuery({
+    queryKey: ['statsMatrix'],
+    queryFn: fetchStatsMatrix,
+  });
+
   const periodOptions: { value: PeriodOption; label: string }[] = [
     { value: 7, label: t.rankingsLast7Days },
     { value: 30, label: t.rankingsLast30Days },
@@ -329,6 +334,126 @@ export function Rankings() {
           {isLoading && (
             <div className="flex items-center justify-center py-12">
               <div className="text-stone-500">{t.rankingsLoading}</div>
+            </div>
+          )}
+
+          {/* Matrix Grids (Hero) */}
+          {matrixData && !isMatrixLoading && (
+            <div className="space-y-6 mb-8">
+              {/* UF × Month Grid */}
+              <div className="rounded-xl border border-stone-200 bg-white overflow-hidden">
+                <div className="px-6 py-4 border-b border-stone-200">
+                  <h2 className="text-lg font-semibold text-stone-900">
+                    Taxa de Homicídios por UF (por 100 mil hab.)
+                  </h2>
+                  <p className="text-sm text-stone-500 mt-1">
+                    Dados desde julho de 2026 • Fontes: notícias + população IBGE {matrixData.ufs[0]?.population && '(Censo 2022)'}
+                  </p>
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead className="bg-stone-50 border-b border-stone-200">
+                      <tr>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-stone-500 uppercase tracking-wider sticky left-0 bg-stone-50 z-10">
+                          UF
+                        </th>
+                        {matrixData.months.map((month) => (
+                          <th key={month} className="px-4 py-3 text-center text-xs font-medium text-stone-500 uppercase tracking-wider whitespace-nowrap">
+                            {month}
+                          </th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody className="bg-white divide-y divide-stone-200">
+                      {matrixData.ufs.map((uf) => (
+                        <tr key={uf.abbrev} className="hover:bg-stone-50">
+                          <td className="px-4 py-3 font-medium text-stone-900 sticky left-0 bg-white z-10 whitespace-nowrap border-r border-stone-200">
+                            {uf.abbrev}
+                          </td>
+                          {uf.cells.map((cell) => {
+                            const rate = cell.rate_per_100k || 0;
+                            const color = rate === 0 
+                              ? 'bg-stone-50' 
+                              : rate < 1 
+                                ? 'bg-green-50' 
+                                : rate < 2 
+                                  ? 'bg-yellow-50' 
+                                  : rate < 3 
+                                    ? 'bg-orange-50' 
+                                    : 'bg-red-50';
+                            return (
+                              <td 
+                                key={cell.month} 
+                                className={cn('px-4 py-3 text-center', color)}
+                                title={`${uf.name}, ${cell.month}: ${cell.victims} vítimas, taxa ${rate}/100k`}
+                              >
+                                <div className="font-medium text-stone-900">{rate.toFixed(2)}</div>
+                                <div className="text-xs text-stone-500">{cell.victims}v</div>
+                              </td>
+                            );
+                          })}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              {/* Type × Month Grid */}
+              <div className="rounded-xl border border-stone-200 bg-white overflow-hidden">
+                <div className="px-6 py-4 border-b border-stone-200">
+                  <h2 className="text-lg font-semibold text-stone-900">
+                    Vítimas por Tipo de Homicídio
+                  </h2>
+                  <p className="text-sm text-stone-500 mt-1">
+                    Contagem de vítimas desde julho de 2026
+                  </p>
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead className="bg-stone-50 border-b border-stone-200">
+                      <tr>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-stone-500 uppercase tracking-wider sticky left-0 bg-stone-50 z-10 min-w-[200px]">
+                          Tipo
+                        </th>
+                        {matrixData.months.map((month) => (
+                          <th key={month} className="px-4 py-3 text-center text-xs font-medium text-stone-500 uppercase tracking-wider whitespace-nowrap">
+                            {month}
+                          </th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody className="bg-white divide-y divide-stone-200">
+                      {matrixData.types.map((type) => (
+                        <tr key={type.type} className="hover:bg-stone-50">
+                          <td className="px-4 py-3 font-medium text-stone-900 sticky left-0 bg-white z-10 border-r border-stone-200">
+                            {type.type}
+                          </td>
+                          {type.cells.map((cell) => {
+                            const victims = cell.victims || 0;
+                            const color = victims === 0 
+                              ? 'bg-stone-50' 
+                              : victims < 50 
+                                ? 'bg-blue-50' 
+                                : victims < 100 
+                                  ? 'bg-blue-100' 
+                                  : 'bg-blue-200';
+                            return (
+                              <td 
+                                key={cell.month} 
+                                className={cn('px-4 py-3 text-center', color)}
+                                title={`${type.type}, ${cell.month}: ${victims} vítimas`}
+                              >
+                                <div className="font-medium text-stone-900">{victims}</div>
+                              </td>
+                            );
+                          })}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
             </div>
           )}
 

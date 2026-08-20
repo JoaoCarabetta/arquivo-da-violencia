@@ -341,6 +341,30 @@ export interface RankingsResponse {
   population_vintage?: number;
 }
 
+export interface MatrixCell {
+  month: string;
+  victims: number;
+  rate_per_100k?: number;
+}
+
+export interface MatrixUF {
+  abbrev: string;
+  name: string;
+  population: number;
+  cells: MatrixCell[];
+}
+
+export interface MatrixType {
+  type: string;
+  cells: MatrixCell[];
+}
+
+export interface MatrixResponse {
+  months: string[];
+  ufs: MatrixUF[];
+  types: MatrixType[];
+}
+
 export interface SourcesByHourData {
   hour: string;
   count: number;
@@ -570,6 +594,10 @@ export async function fetchRankings(params?: {
   if (params?.cityLimit != null) qs.set('city_limit', params.cityLimit.toString());
   const suffix = qs.toString() ? `?${qs.toString()}` : '';
   return fetchJson<RankingsResponse>(`${API_BASE}/public/stats/rankings${suffix}`);
+}
+
+export async function fetchStatsMatrix(): Promise<MatrixResponse> {
+  return fetchJson<MatrixResponse>(`${API_BASE}/public/stats/matrix`);
 }
 
 // Export URLs
