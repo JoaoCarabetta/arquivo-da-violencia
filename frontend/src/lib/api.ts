@@ -321,6 +321,8 @@ export interface RankingRow {
   event_share: number;
   victim_delta: number;
   event_delta: number;
+  population?: number | null;
+  rate_per_100k?: number | null;
 }
 
 export interface RankingsResponse {
@@ -335,6 +337,7 @@ export interface RankingsResponse {
   countries: RankingRow[];
   homicide_types: RankingRow[];
   methods: RankingRow[];
+  population_vintage?: number;
 }
 
 export interface SourcesByHourData {
