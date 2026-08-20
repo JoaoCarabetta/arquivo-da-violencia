@@ -913,3 +913,55 @@ async def test_rankings_city_unmatched_no_invented_uf(app, async_session, popula
         
         # Should still have state display name if present
         assert joanesburgo.get("state") in [None, "ZA"]
+
+
+@pytest.mark.asyncio
+async def test_rankings_city_limit_default(app, async_session, population_fixture):
+    """Test that rankings default to returning top 50 cities for fast load."""
+    now = datetime.utcnow()
+    current_start = now - timedelta(days=30)
+    
+    # Create 100 cities to test limiting
+    events = []
+    for i in range(100):
+        events.append(
+            create_ranking_event(
+                event_date=current_start + timedelta(days=1),
+                country="Brasil",
+                city=f"City{i:03d}",
+                state="SP",
+                victim_count=1
+            )
+        )
+    
+    for event in events:
+        async_session.add(event)
+    await async_session.commit()
+    
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://test"
+    ) as client:
+        # Default request should limit to 50 cities
+        response = await client.get("/api/public/stats/rankings?days=30&country=BR")
+        assert response.status_code == 200
+        data = response.json()
+        
+        # Should return exactly 50 cities (default limit)
+        assert len(data["cities"]) == 50
+        
+        # Request with explicit limit=100
+        response_all = await client.get("/api/public/stats/rankings?days=30&country=BR&city_limit=100")
+        assert response_all.status_code == 200
+        data_all = response_all.json()
+        
+        # Should return all 100 cities
+        assert len(data_all["cities"]) == 100
+        
+        # Request with limit=10
+        response_small = await client.get("/api/public/stats/rankings?days=30&country=BR&city_limit=10")
+        assert response_small.status_code == 200
+        data_small = response_small.json()
+        
+        # Should return only 10 cities
+        assert len(data_small["cities"]) == 10

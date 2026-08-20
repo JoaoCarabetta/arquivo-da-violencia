@@ -471,6 +471,7 @@ async def get_rankings(
     session: AsyncSession = Depends(get_session),
     days: int = Query(365, ge=1, le=3650, description="Only events in the last N days"),
     country: str | None = Query(None, description="Filter by country: BR, CL, or omit for both"),
+    city_limit: int | None = Query(50, ge=1, le=10000, description="Limit number of cities returned (default 50 for fast load)"),
 ):
     """
     Get rankings of cities, states/regions, countries, homicide types, and methods of death
@@ -747,6 +748,13 @@ async def get_rankings(
     if brasil_population_data:
         country_population_data["Brasil"] = brasil_population_data
     
+    # Format rankings
+    cities_rankings = format_rankings(cities_current, cities_prev, "city", include_rate=True, city_states_map=city_states)
+    
+    # Apply city_limit for performance (default 50 for fast default load)
+    if city_limit is not None and city_limit > 0:
+        cities_rankings = cities_rankings[:city_limit]
+    
     response = {
         "period_days": days,
         "period_start": current_start.date().isoformat(),
@@ -754,7 +762,7 @@ async def get_rankings(
         "country_filter": country,
         "total_victims": total_victims,
         "total_events": total_events,
-        "cities": format_rankings(cities_current, cities_prev, "city", include_rate=True, city_states_map=city_states),
+        "cities": cities_rankings,
         "states": format_rankings(states_current, states_prev, "state", include_rate=True, state_pops=True),
         "countries": format_rankings(countries_current, countries_prev, "country", include_rate=True, country_pops=country_population_data),
         "homicide_types": format_rankings(types_current, types_prev, "type"),
