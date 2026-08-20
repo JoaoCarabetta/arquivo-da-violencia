@@ -115,3 +115,23 @@ def test_derive_security_force_victim_public_field():
     fields = derive_public_fields(event)
     assert fields["security_force_victim"] is True
     assert fields["security_force_involved"] is True
+
+
+def test_police_operation_force_truncates_long_responsible_force():
+    """police_operation_force must be truncated to 100 chars to fit DB column."""
+    long_force = "Polícia Militar do Estado do Rio de Janeiro - Batalhão de Operações Especiais (BOPE) em conjunto com Comando de Operações Táticas"
+    assert len(long_force) > 100
+    
+    event = _base_event(
+        police_operation_context=PoliceOperationContext(
+            connected=True,
+            responsible_force=long_force,
+            targeted_armed_groups=True,
+        ),
+    )
+    fields = derive_public_fields(event)
+    
+    assert fields["police_operation_force"] is not None
+    assert len(fields["police_operation_force"]) <= 100
+    assert fields["police_operation_force"] == long_force[:100]
+    assert long_force.startswith(fields["police_operation_force"])
