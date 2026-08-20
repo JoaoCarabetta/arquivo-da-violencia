@@ -115,9 +115,15 @@ function RankingTable({ title, rows, labelField, onRowClick, emptyMessage, showR
             <tbody className="bg-white divide-y divide-stone-200">
               {displayRows.map((row, idx) => {
                 const label = row[labelField] as string || 'N/A';
-                const displayLabel = labelField === 'type' ? formatTypeStatLabel(label, lang) : 
+                let displayLabel = labelField === 'type' ? formatTypeStatLabel(label, lang) : 
                                    labelField === 'method' ? translateMethod(label, lang) : 
                                    label;
+                
+                // For cities, append UF if available
+                if (labelField === 'city' && row.state_abbrev) {
+                  displayLabel = `${displayLabel}, ${row.state_abbrev}`;
+                }
+                
                 return (
                   <tr
                     key={idx}

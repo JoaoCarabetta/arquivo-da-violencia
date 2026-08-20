@@ -312,6 +312,7 @@ export interface PaginatedResponse<T> {
 export interface RankingRow {
   city?: string;
   state?: string;
+  state_abbrev?: string | null;
   country?: string;
   type?: string;
   method?: string;

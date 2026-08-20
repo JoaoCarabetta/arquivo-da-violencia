@@ -676,6 +676,22 @@ async def get_rankings(
                 "event_delta": event_delta,
             }
             
+            # Add state and state_abbrev for cities
+            if city_states_map:
+                state = city_states_map.get(key)
+                row["state"] = state  # Display name from event
+                
+                # Add state_abbrev: prefer IBGE abbrev, fallback to event.state if 2-letter
+                if state and (key, state) in city_population_data:
+                    pop_info = city_population_data[(key, state)]
+                    row["state_abbrev"] = pop_info.get("abbrev_state")
+                elif state and len(state) == 2 and state.isupper():
+                    # Fallback: use event.state if it's already a 2-letter UF
+                    row["state_abbrev"] = state
+                else:
+                    # Unmatched or invalid - no abbrev
+                    row["state_abbrev"] = None
+            
             # Add rate per 100k if available
             if include_rate:
                 # Try city lookup first (if city_states_map provided)

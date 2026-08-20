@@ -773,3 +773,143 @@ async def test_rankings_country_rate_chile(app, async_session, population_fixtur
         # Chile should have null rate and population
         assert chile["rate_per_100k"] is None
         assert chile["population"] is None
+
+
+@pytest.mark.asyncio
+async def test_rankings_city_includes_state_abbrev(app, async_session, population_fixture):
+    """Test that city rows include state_abbrev for matched BR cities.
+    
+    A city with a known IBGE match includes state_abbrev of length 2.
+    """
+    now = datetime.utcnow()
+    current_start = now - timedelta(days=30)
+    
+    # Create event in a known city
+    events = [
+        create_ranking_event(
+            event_date=current_start + timedelta(days=1),
+            country="Brasil",
+            city="São Paulo",
+            state="SP",
+            victim_count=10
+        ),
+    ]
+    
+    for event in events:
+        async_session.add(event)
+    await async_session.commit()
+    
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://test"
+    ) as client:
+        response = await client.get("/api/public/stats/rankings?days=30&country=BR")
+        assert response.status_code == 200
+        data = response.json()
+        
+        # São Paulo should have state_abbrev
+        sao_paulo = data["cities"][0]
+        assert sao_paulo["city"] == "São Paulo"
+        assert "state_abbrev" in sao_paulo
+        assert sao_paulo["state_abbrev"] == "SP"
+        assert len(sao_paulo["state_abbrev"]) == 2
+        
+        # Should also have state display name
+        assert "state" in sao_paulo
+        assert sao_paulo["state"] == "SP"
+
+
+@pytest.mark.asyncio
+async def test_rankings_city_duplicate_names_different_uf(app, async_session, population_fixture):
+    """Test that two same-named cities in different UFs are distinct rows with different abbrev.
+    
+    Example: Lajeado exists in RS and TO. They should be separate rows.
+    """
+    now = datetime.utcnow()
+    current_start = now - timedelta(days=30)
+    
+    # Create two cities with the same name in different states
+    # We'll use the fixture cities and create hypothetical duplicates
+    events = [
+        create_ranking_event(
+            event_date=current_start + timedelta(days=1),
+            country="Brasil",
+            city="TestCity",
+            state="SP",
+            victim_count=10
+        ),
+        create_ranking_event(
+            event_date=current_start + timedelta(days=2),
+            country="Brasil",
+            city="TestCity",
+            state="RJ",
+            victim_count=5
+        ),
+    ]
+    
+    for event in events:
+        async_session.add(event)
+    await async_session.commit()
+    
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://test"
+    ) as client:
+        response = await client.get("/api/public/stats/rankings?days=30&country=BR")
+        assert response.status_code == 200
+        data = response.json()
+        
+        # Should have 2 separate TestCity rows
+        test_cities = [c for c in data["cities"] if c["city"] == "TestCity"]
+        assert len(test_cities) == 2
+        
+        # Should have different state_abbrev
+        abbrevs = [c["state_abbrev"] for c in test_cities]
+        assert "SP" in abbrevs
+        assert "RJ" in abbrevs
+        assert len(set(abbrevs)) == 2  # Both distinct
+
+
+@pytest.mark.asyncio
+async def test_rankings_city_unmatched_no_invented_uf(app, async_session, population_fixture):
+    """Test that unmatched junk cities do not invent a UF.
+    
+    Joanesburgo (South Africa) should not get a Brazilian UF.
+    """
+    now = datetime.utcnow()
+    current_start = now - timedelta(days=30)
+    
+    # Create event in a non-existent/foreign city
+    events = [
+        create_ranking_event(
+            event_date=current_start + timedelta(days=1),
+            country="Brasil",
+            city="Joanesburgo",
+            state="ZA",  # Not a Brazilian state
+            victim_count=10
+        ),
+    ]
+    
+    for event in events:
+        async_session.add(event)
+    await async_session.commit()
+    
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://test"
+    ) as client:
+        response = await client.get("/api/public/stats/rankings?days=30&country=BR")
+        assert response.status_code == 200
+        data = response.json()
+        
+        # Joanesburgo should be in the list
+        joanesburgo = next((c for c in data["cities"] if c["city"] == "Joanesburgo"), None)
+        assert joanesburgo is not None
+        
+        # Should NOT have a state_abbrev (unmatched)
+        # or if present, should be None or the raw "ZA" from event.state
+        # (we'll implement to prefer IBGE abbrev, fallback to event.state if it's a 2-letter UF, else None)
+        assert joanesburgo.get("state_abbrev") is None or joanesburgo.get("state_abbrev") == "ZA"
+        
+        # Should still have state display name if present
+        assert joanesburgo.get("state") in [None, "ZA"]

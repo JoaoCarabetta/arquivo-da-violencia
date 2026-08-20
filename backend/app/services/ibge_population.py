@@ -281,7 +281,8 @@ async def get_ibge_populations(
             code_muni: {
                 "name": str,
                 "population": int,
-                "year": int
+                "year": int,
+                "abbrev_state": str (e.g. "SP", "RJ")
             }
         }
     """
@@ -302,7 +303,8 @@ async def get_ibge_populations(
             pop_dict[pop.code_muni] = {
                 "name": pop.name_muni,
                 "population": pop.population,
-                "year": pop.year
+                "year": pop.year,
+                "abbrev_state": pop.abbrev_state
             }
     
     return pop_dict
