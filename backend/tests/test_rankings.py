@@ -2,7 +2,7 @@
 
 import pytest
 from datetime import datetime, timedelta
-from httpx import AsyncClient
+from httpx import AsyncClient, ASGITransport
 from decimal import Decimal
 
 from app.models.unique_event import UniqueEvent
@@ -92,10 +92,10 @@ async def test_rankings_basic_aggregation(app, async_session):
         async_session.add(event)
     await async_session.commit()
     
-    from app.database import get_session
-    app.dependency_overrides[get_session] = lambda: async_session
-    
-    async with AsyncClient(app=app, base_url="http://test") as client:
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://test"
+    ) as client:
         response = await client.get("/api/public/stats/rankings?days=365")
         assert response.status_code == 200
         data = response.json()
@@ -158,10 +158,10 @@ async def test_rankings_country_filter_brazil(app, async_session):
         async_session.add(event)
     await async_session.commit()
     
-    from app.database import get_session
-    app.dependency_overrides[get_session] = lambda: async_session
-    
-    async with AsyncClient(app=app, base_url="http://test") as client:
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://test"
+    ) as client:
         response = await client.get("/api/public/stats/rankings?days=30&country=BR")
         assert response.status_code == 200
         data = response.json()
@@ -202,10 +202,10 @@ async def test_rankings_country_filter_chile(app, async_session):
         async_session.add(event)
     await async_session.commit()
     
-    from app.database import get_session
-    app.dependency_overrides[get_session] = lambda: async_session
-    
-    async with AsyncClient(app=app, base_url="http://test") as client:
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://test"
+    ) as client:
         response = await client.get("/api/public/stats/rankings?days=30&country=CL")
         assert response.status_code == 200
         data = response.json()
@@ -239,7 +239,10 @@ async def test_rankings_empty_chile_data(app, async_session):
     from app.database import get_session
     app.dependency_overrides[get_session] = lambda: async_session
     
-    async with AsyncClient(app=app, base_url="http://test") as client:
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://test"
+    ) as client:
         # Request without country filter (should include both)
         response = await client.get("/api/public/stats/rankings?days=30")
         assert response.status_code == 200
@@ -304,10 +307,10 @@ async def test_rankings_delta_calculation(app, async_session):
         async_session.add(event)
     await async_session.commit()
     
-    from app.database import get_session
-    app.dependency_overrides[get_session] = lambda: async_session
-    
-    async with AsyncClient(app=app, base_url="http://test") as client:
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://test"
+    ) as client:
         response = await client.get("/api/public/stats/rankings?days=30")
         assert response.status_code == 200
         data = response.json()
@@ -344,10 +347,10 @@ async def test_rankings_different_periods(app, async_session):
         async_session.add(event)
     await async_session.commit()
     
-    from app.database import get_session
-    app.dependency_overrides[get_session] = lambda: async_session
-    
-    async with AsyncClient(app=app, base_url="http://test") as client:
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://test"
+    ) as client:
         # Test 7 days
         response = await client.get("/api/public/stats/rankings?days=7")
         assert response.status_code == 200
@@ -399,10 +402,10 @@ async def test_rankings_victim_vs_event_counts(app, async_session):
         async_session.add(event)
     await async_session.commit()
     
-    from app.database import get_session
-    app.dependency_overrides[get_session] = lambda: async_session
-    
-    async with AsyncClient(app=app, base_url="http://test") as client:
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://test"
+    ) as client:
         response = await client.get("/api/public/stats/rankings?days=30")
         assert response.status_code == 200
         data = response.json()
@@ -420,3 +423,219 @@ async def test_rankings_victim_vs_event_counts(app, async_session):
         sp = next(c for c in data["cities"] if c["city"] == "São Paulo")
         assert sp["victim_count"] == 2
         assert sp["event_count"] == 1
+
+
+@pytest.mark.asyncio
+async def test_rankings_rate_per_100k_matched_br(app, async_session, population_fixture):
+    """Test that matched BR cities include rate_per_100k and population."""
+    now = datetime.utcnow()
+    current_start = now - timedelta(days=30)
+    
+    # Create events in matched BR cities
+    events = [
+        create_ranking_event(
+            event_date=current_start + timedelta(days=1),
+            country="Brasil",
+            city="São Paulo",
+            state="SP",
+            victim_count=100
+        ),
+        create_ranking_event(
+            event_date=current_start + timedelta(days=2),
+            country="Brasil",
+            city="Rio de Janeiro",
+            state="RJ",
+            victim_count=50
+        ),
+    ]
+    
+    for event in events:
+        async_session.add(event)
+    await async_session.commit()
+    
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://test"
+    ) as client:
+        response = await client.get("/api/public/stats/rankings?days=30&country=BR")
+        assert response.status_code == 200
+        data = response.json()
+        
+        # Check that population_vintage is included
+        assert "population_vintage" in data
+        assert data["population_vintage"] == 2022
+        
+        # Check São Paulo has rate and population
+        sp = next(c for c in data["cities"] if c["city"] == "São Paulo")
+        assert "population" in sp
+        assert "rate_per_100k" in sp
+        assert sp["population"] == 11451245
+        # rate = 100 / 11451245 * 100000 ≈ 0.87
+        assert sp["rate_per_100k"] is not None
+        assert 0.8 < sp["rate_per_100k"] < 0.9
+        
+        # Check Rio has rate and population
+        rio = next(c for c in data["cities"] if c["city"] == "Rio de Janeiro")
+        assert "population" in rio
+        assert "rate_per_100k" in rio
+        assert rio["population"] == 6211423
+        # rate = 50 / 6211423 * 100000 ≈ 0.80
+        assert rio["rate_per_100k"] is not None
+        assert 0.7 < rio["rate_per_100k"] < 0.9
+
+
+@pytest.mark.asyncio
+async def test_rankings_rate_per_100k_sao_paulo_specific(app, async_session, population_fixture):
+    """Test São Paulo (code_muni 3550308) gets correct rate calculation."""
+    now = datetime.utcnow()
+    current_start = now - timedelta(days=30)
+    
+    # Create event with known victim count
+    event = create_ranking_event(
+        event_date=current_start + timedelta(days=1),
+        country="Brasil",
+        city="São Paulo",
+        state="SP",
+        victim_count=1000
+    )
+    
+    async_session.add(event)
+    await async_session.commit()
+    
+    from app.database import get_session
+    app.dependency_overrides[get_session] = lambda: async_session
+    
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://test"
+    ) as client:
+        response = await client.get("/api/public/stats/rankings?days=30&country=BR")
+        assert response.status_code == 200
+        data = response.json()
+        
+        sp = data["cities"][0]
+        assert sp["city"] == "São Paulo"
+        assert sp["population"] == 11451245
+        # rate = 1000 / 11451245 * 100000 = 8.733...
+        expected_rate = 1000 / 11451245 * 100000
+        assert sp["rate_per_100k"] is not None
+        assert abs(sp["rate_per_100k"] - expected_rate) < 0.01
+
+
+@pytest.mark.asyncio
+async def test_rankings_junk_city_no_rate(app, async_session, population_fixture):
+    """Test that junk string 'Joanesburgo' does not get a rate."""
+    now = datetime.utcnow()
+    current_start = now - timedelta(days=30)
+    
+    # Create event with junk city name
+    event = create_ranking_event(
+        event_date=current_start + timedelta(days=1),
+        country="Brasil",
+        city="Joanesburgo",  # Not a BR city
+        state="XX",
+        victim_count=10
+    )
+    
+    async_session.add(event)
+    await async_session.commit()
+    
+    from app.database import get_session
+    app.dependency_overrides[get_session] = lambda: async_session
+    
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://test"
+    ) as client:
+        response = await client.get("/api/public/stats/rankings?days=30&country=BR")
+        assert response.status_code == 200
+        data = response.json()
+        
+        joanesburg = data["cities"][0]
+        assert joanesburg["city"] == "Joanesburgo"
+        assert joanesburg["victim_count"] == 10
+        # Should not have rate or population
+        assert joanesburg.get("rate_per_100k") is None
+        assert joanesburg.get("population") is None
+
+
+@pytest.mark.asyncio
+async def test_rankings_chile_no_rate(app, async_session, population_fixture):
+    """Test that Chile events do not get rate_per_100k (not using geobr)."""
+    now = datetime.utcnow()
+    current_start = now - timedelta(days=30)
+    
+    # Create Chile event
+    event = create_ranking_event(
+        event_date=current_start + timedelta(days=1),
+        country="Chile",
+        city="Santiago",
+        state="Metropolitana",
+        victim_count=20
+    )
+    
+    async_session.add(event)
+    await async_session.commit()
+    
+    from app.database import get_session
+    app.dependency_overrides[get_session] = lambda: async_session
+    
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://test"
+    ) as client:
+        response = await client.get("/api/public/stats/rankings?days=30&country=CL")
+        assert response.status_code == 200
+        data = response.json()
+        
+        santiago = data["cities"][0]
+        assert santiago["city"] == "Santiago"
+        assert santiago["victim_count"] == 20
+        # Chile should not have rate or population (INE later, not geobr)
+        assert santiago.get("rate_per_100k") is None
+        assert santiago.get("population") is None
+
+
+@pytest.mark.asyncio
+async def test_rankings_default_sort_by_rate(app, async_session, population_fixture):
+    """Test that rankings default sort by rate_per_100k when available."""
+    now = datetime.utcnow()
+    current_start = now - timedelta(days=30)
+    
+    # Create events: São Paulo has more victims but lower rate
+    # Bauru has fewer victims but higher rate
+    events = [
+        create_ranking_event(
+            event_date=current_start + timedelta(days=1),
+            country="Brasil",
+            city="São Paulo",
+            state="SP",
+            victim_count=100  # rate ≈ 0.87 per 100k
+        ),
+        create_ranking_event(
+            event_date=current_start + timedelta(days=2),
+            country="Brasil",
+            city="Bauru",
+            state="SP",
+            victim_count=10  # rate ≈ 2.64 per 100k (higher!)
+        ),
+    ]
+    
+    for event in events:
+        async_session.add(event)
+    await async_session.commit()
+    
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://test"
+    ) as client:
+        response = await client.get("/api/public/stats/rankings?days=30&country=BR")
+        assert response.status_code == 200
+        data = response.json()
+        
+        # Bauru should be first (higher rate despite fewer victims)
+        assert data["cities"][0]["city"] == "Bauru"
+        assert data["cities"][0]["rate_per_100k"] > data["cities"][1]["rate_per_100k"]
+        
+        # São Paulo should be second
+        assert data["cities"][1]["city"] == "São Paulo"

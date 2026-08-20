@@ -59,3 +59,11 @@ async def client(app):
     ) as client:
         yield client
 
+
+@pytest.fixture
+async def population_fixture(async_session):
+    """Load IBGE population fixture data for testing."""
+    from app.services.ibge_population import load_ibge_population_fixture
+    await load_ibge_population_fixture(async_session)
+    yield
+
