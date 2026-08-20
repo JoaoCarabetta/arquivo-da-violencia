@@ -30,6 +30,7 @@ from app.models.pipeline_attempt import (
     PipelineAttemptBase,
     PipelineAttemptRead,
 )
+from app.models.ibge_population import IBGEPopulation
 
 __all__ = [
     # Source Google News
@@ -57,4 +58,6 @@ __all__ = [
     "PipelineAttempt",
     "PipelineAttemptBase",
     "PipelineAttemptRead",
+    # IBGE Population
+    "IBGEPopulation",
 ]

@@ -309,6 +309,62 @@ export interface PaginatedResponse<T> {
   pages: number;
 }
 
+export interface RankingRow {
+  city?: string;
+  state?: string;
+  state_abbrev?: string | null;
+  country?: string;
+  type?: string;
+  method?: string;
+  victim_count: number;
+  event_count: number;
+  victim_share: number;
+  event_share: number;
+  victim_delta: number;
+  event_delta: number;
+  population?: number | null;
+  rate_per_100k?: number | null;
+}
+
+export interface RankingsResponse {
+  period_days: number;
+  period_start: string;
+  period_end: string;
+  country_filter: string | null;
+  total_victims: number;
+  total_events: number;
+  cities: RankingRow[];
+  states: RankingRow[];
+  countries: RankingRow[];
+  homicide_types: RankingRow[];
+  methods: RankingRow[];
+  population_vintage?: number;
+}
+
+export interface MatrixCell {
+  month: string;
+  victims: number;
+  rate_per_100k?: number;
+}
+
+export interface MatrixUF {
+  abbrev: string;
+  name: string;
+  population: number;
+  cells: MatrixCell[];
+}
+
+export interface MatrixType {
+  type: string;
+  cells: MatrixCell[];
+}
+
+export interface MatrixResponse {
+  months: string[];
+  ufs: MatrixUF[];
+  types: MatrixType[];
+}
+
 export interface SourcesByHourData {
   hour: string;
   count: number;
@@ -525,6 +581,23 @@ export async function fetchMapPoints(filters?: {
   if (filters?.maxLat != null) qs.set('max_lat', filters.maxLat.toString());
   const suffix = qs.toString() ? `?${qs.toString()}` : '';
   return fetchJson<MapPointsResponse>(`${API_BASE}/public/map-points${suffix}`);
+}
+
+export async function fetchRankings(params?: {
+  days?: number;
+  country?: string;
+  cityLimit?: number;
+}): Promise<RankingsResponse> {
+  const qs = new URLSearchParams();
+  if (params?.days != null) qs.set('days', params.days.toString());
+  if (params?.country) qs.set('country', params.country);
+  if (params?.cityLimit != null) qs.set('city_limit', params.cityLimit.toString());
+  const suffix = qs.toString() ? `?${qs.toString()}` : '';
+  return fetchJson<RankingsResponse>(`${API_BASE}/public/stats/rankings${suffix}`);
+}
+
+export async function fetchStatsMatrix(): Promise<MatrixResponse> {
+  return fetchJson<MatrixResponse>(`${API_BASE}/public/stats/matrix`);
 }
 
 // Export URLs

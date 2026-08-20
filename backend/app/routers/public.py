@@ -9,18 +9,27 @@ import math
 import csv
 import json  # For serializing merged_data
 import io
+from typing import Optional
+import time
 
 from app.database import get_session
 from app.models.unique_event import UniqueEvent
 from app.models.raw_event import RawEvent
 from app.models.source_google_news import SourceGoogleNews
+from app.models.ibge_population import IBGEPopulation
 from app.services.public_filters import (
     apply_public_incident_filter,
     homicide_type_filter,
     homicide_types_filter,
 )
+from app.geography import COUNTRY_NAMES, BRAZILIAN_STATES
 
 router = APIRouter(prefix="/public", tags=["public"])
+
+# Simple cache for rankings endpoint (default 365d payload)
+# Invalidate on ingest or every 1 hour
+_rankings_cache: dict[str, tuple[dict, float]] = {}
+RANKINGS_CACHE_TTL = 3600  # 1 hour in seconds
 
 # Rolling window shared by the map, export, and temporal-scope note.
 PUBLIC_MAP_DAYS = 365
@@ -461,6 +470,582 @@ async def get_security_force_stats(session: AsyncSession = Depends(get_session))
         "involved": involved or 0,
         "not_involved": not_involved or 0,
         "unknown": unknown or 0
+    }
+
+
+@router.get("/stats/rankings")
+async def get_rankings(
+    session: AsyncSession = Depends(get_session),
+    days: int = Query(365, ge=1, le=3650, description="Only events in the last N days"),
+    country: str | None = Query(None, description="Filter by country: BR, CL, or omit for both"),
+    city_limit: int | None = Query(50, ge=1, le=10000, description="Limit number of cities returned (default 50 for fast load)"),
+):
+    """
+    Get rankings of cities, states/regions, countries, homicide types, and methods of death
+    by victim count and event count for a given time period.
+    
+    Includes delta vs previous equal period, and rate per 100k for matched BR locations (cities and states).
+    """
+    from app.services.ibge_population import (
+        lookup_city_codes,
+        lookup_state_codes,
+        get_ibge_populations,
+        get_state_populations,
+        calculate_rate_per_100k,
+    )
+    
+    # Check cache for default 365d unfiltered request (before expensive aggregation)
+    cache_key = f"rankings_{days}_{country}_{city_limit}"
+    if cache_key in _rankings_cache:
+        cached_result, cached_time = _rankings_cache[cache_key]
+        # Check if cache is still valid (TTL)
+        if time.time() - cached_time < RANKINGS_CACHE_TTL:
+            return cached_result
+        else:
+            # Cache expired, remove it
+            del _rankings_cache[cache_key]
+    
+    now = datetime.utcnow()
+    current_start = now - timedelta(days=days)
+    prev_start = now - timedelta(days=days * 2)
+    prev_end = current_start
+    
+    # Build base query with date filters
+    def build_query(start: datetime, end: datetime):
+        query = apply_public_incident_filter(
+            select(UniqueEvent).where(
+                UniqueEvent.event_date.isnot(None),
+                UniqueEvent.event_date >= start,
+                UniqueEvent.event_date <= end,
+            )
+        )
+        if country:
+            # Match canonical codes (BR, CL) and legacy "Brasil" for BR
+            if country.upper() == "BR":
+                # BR matches both canonical "BR" and legacy "Brasil"
+                query = query.where(
+                    (UniqueEvent.country == "BR") | (UniqueEvent.country == "Brasil")
+                )
+            elif country.upper() == "CL":
+                # CL matches canonical "CL" stored value
+                query = query.where(UniqueEvent.country == "CL")
+        return query
+    
+    current_query = build_query(current_start, now)
+    prev_query = build_query(prev_start, prev_end)
+    
+    # Fetch all events for current and previous periods
+    current_result = await session.execute(current_query)
+    current_events = current_result.scalars().all()
+    
+    prev_result = await session.execute(prev_query)
+    prev_events = prev_result.scalars().all()
+    
+    # Helper to aggregate rankings
+    def normalize_country_for_display(country_code: str | None) -> str | None:
+        """Normalize country codes to display names, treating legacy 'Brasil' as BR."""
+        if not country_code:
+            return None
+        # Treat legacy "Brasil" as "BR"
+        if country_code == "Brasil":
+            country_code = "BR"
+        # Map country codes to display names
+        return COUNTRY_NAMES.get(country_code.upper(), country_code)
+    
+    def aggregate_by_field(events, field_name):
+        """Aggregate events by a field, counting victims and events.
+        
+        For cities, keys by (city, state) tuple to keep same-named cities in different states distinct.
+        """
+        aggregated = {}
+        
+        for event in events:
+            if field_name == "city":
+                # Key by (city, state) tuple to distinguish same-named cities
+                city = event.city
+                state = event.state
+                if not city:
+                    continue
+                key = (city, state) if state else (city, None)
+            else:
+                key = getattr(event, field_name)
+                if not key:
+                    continue
+                # Normalize country field for aggregation
+                if field_name == "country":
+                    key = normalize_country_for_display(key)
+                    if not key:
+                        continue
+            
+            if key not in aggregated:
+                aggregated[key] = {"events": 0, "victims": 0}
+            aggregated[key]["events"] += 1
+            aggregated[key]["victims"] += event.victim_count or 0
+        
+        return aggregated
+    
+    # Aggregate current period
+    cities_current = aggregate_by_field(current_events, "city")
+    states_current = aggregate_by_field(current_events, "state")
+    countries_current = aggregate_by_field(current_events, "country")
+    types_current = aggregate_by_field(current_events, "homicide_type")
+    methods_current = aggregate_by_field(current_events, "method_of_death")
+    
+    # Aggregate previous period
+    cities_prev = aggregate_by_field(prev_events, "city")
+    states_prev = aggregate_by_field(prev_events, "state")
+    countries_prev = aggregate_by_field(prev_events, "country")
+    types_prev = aggregate_by_field(prev_events, "homicide_type")
+    methods_prev = aggregate_by_field(prev_events, "method_of_death")
+    
+    # Calculate totals for share percentages
+    total_victims = sum(e.victim_count or 0 for e in current_events)
+    total_events = len(current_events)
+    
+    # Lookup population data for BR cities and states
+    city_population_data = {}
+    state_population_data = {}
+    population_vintage = None
+    
+    # Only lookup populations if we have BR events
+    is_br_only = country and country.upper() == "BR"
+    has_br_events = not country or is_br_only
+    
+    if has_br_events:
+        # Lookup city populations
+        if cities_current:
+            # Build list of (city, state) pairs from city keys (which are now tuples)
+            city_list = []
+            state_list = []
+            for city_key in cities_current.keys():
+                # city_key is (city, state) tuple
+                city, state = city_key
+                if state:  # Only include cities with known states
+                    city_list.append(city)
+                    state_list.append(state)
+            
+            # Lookup IBGE codes
+            city_code_map = await lookup_city_codes(session, city_list, state_list)
+            
+            # Get code_munis
+            code_munis = list(city_code_map.values())
+            
+            if code_munis:
+                # Fetch population data
+                pop_data = await get_ibge_populations(session, code_munis)
+                
+                # Map back to (city, state) keys
+                for (city, state), code_muni in city_code_map.items():
+                    if code_muni in pop_data:
+                        city_population_data[(city, state)] = pop_data[code_muni]
+                        # Track the year for display (use the first one we find)
+                        if population_vintage is None:
+                            population_vintage = pop_data[code_muni]["year"]
+        
+        # Lookup state populations
+        if states_current:
+            # Get list of unique states
+            state_list = list(states_current.keys())
+            
+            # Lookup state codes
+            state_code_map = await lookup_state_codes(session, state_list)
+            
+            # Get code_states
+            code_states = list(state_code_map.values())
+            
+            if code_states:
+                # Fetch aggregated state populations
+                state_pop_data = await get_state_populations(session, code_states)
+                
+                # Map back to state abbreviation keys
+                for state, code_state in state_code_map.items():
+                    if code_state in state_pop_data:
+                        state_population_data[state] = state_pop_data[code_state]
+                        # Track the year for display
+                        if population_vintage is None:
+                            population_vintage = state_pop_data[code_state]["year"]
+        
+        # Lookup Brazil national population (sum of all municipalities in cache)
+        # This avoids re-hitting geobr/SIDRA per request
+        from sqlalchemy import func as sql_func
+        brasil_pop_query = select(
+            sql_func.sum(IBGEPopulation.population).label("total_pop"),
+            sql_func.min(IBGEPopulation.year).label("year")
+        )
+        brasil_pop_result = await session.execute(brasil_pop_query)
+        brasil_pop_row = brasil_pop_result.one_or_none()
+        
+        brasil_population_data = None
+        if brasil_pop_row and brasil_pop_row.total_pop:
+            brasil_population_data = {
+                "population": int(brasil_pop_row.total_pop),
+                "year": brasil_pop_row.year
+            }
+            if population_vintage is None:
+                population_vintage = brasil_pop_row.year
+    else:
+        brasil_population_data = None
+    
+    # Helper to format rankings with delta and rate
+    def format_rankings(current, prev, label_field="name", include_rate=False, is_city=False, state_pops=None, country_pops=None):
+        """Format rankings with victim count, event count, share, delta, and optionally rate per 100k.
+        
+        For cities, key is (city, state) tuple; for others, key is a simple string.
+        """
+        rankings = []
+        for key, data in current.items():
+            prev_data = prev.get(key, {"victims": 0, "events": 0})
+            victim_delta = data["victims"] - prev_data["victims"]
+            event_delta = data["events"] - prev_data["events"]
+            
+            # Handle city tuple vs simple key
+            if is_city:
+                # key is (city, state) tuple
+                city, state = key
+                row = {
+                    "city": city,
+                    "state": state,  # Display name from event
+                    "victim_count": data["victims"],
+                    "event_count": data["events"],
+                    "victim_share": round(data["victims"] / total_victims * 100, 1) if total_victims > 0 else 0,
+                    "event_share": round(data["events"] / total_events * 100, 1) if total_events > 0 else 0,
+                    "victim_delta": victim_delta,
+                    "event_delta": event_delta,
+                }
+                
+                # Add state_abbrev: prefer IBGE abbrev, fallback to event.state ONLY if it's a valid BR UF
+                if state and key in city_population_data:
+                    pop_info = city_population_data[key]
+                    row["state_abbrev"] = pop_info.get("abbrev_state")
+                elif state and state in BRAZILIAN_STATES:
+                    # Fallback: use event.state only if it's a valid Brazilian UF
+                    row["state_abbrev"] = state
+                else:
+                    # Unmatched or invalid (like "ZA") - no abbrev
+                    row["state_abbrev"] = None
+                
+                # Add rate per 100k for cities
+                if include_rate:
+                    if key in city_population_data:
+                        pop_info = city_population_data[key]
+                        row["population"] = pop_info["population"]
+                        row["rate_per_100k"] = calculate_rate_per_100k(
+                            data["victims"],
+                            pop_info["population"]
+                        )
+                    else:
+                        row["population"] = None
+                        row["rate_per_100k"] = None
+            else:
+                # Simple key for states, countries, types, methods
+                row = {
+                    label_field: key,
+                    "victim_count": data["victims"],
+                    "event_count": data["events"],
+                    "victim_share": round(data["victims"] / total_victims * 100, 1) if total_victims > 0 else 0,
+                    "event_share": round(data["events"] / total_events * 100, 1) if total_events > 0 else 0,
+                    "victim_delta": victim_delta,
+                    "event_delta": event_delta,
+                }
+                
+                # Add rate per 100k if available
+                if include_rate:
+                    # Try state lookup
+                    if state_pops and key in state_population_data:
+                        pop_info = state_population_data[key]
+                        row["population"] = pop_info["population"]
+                        row["rate_per_100k"] = calculate_rate_per_100k(
+                            data["victims"],
+                            pop_info["population"]
+                        )
+                    # Try country lookup
+                    elif country_pops and key in country_pops:
+                        pop_info = country_pops[key]
+                        row["population"] = pop_info["population"]
+                        row["rate_per_100k"] = calculate_rate_per_100k(
+                            data["victims"],
+                            pop_info["population"]
+                        )
+                    else:
+                        row["population"] = None
+                        row["rate_per_100k"] = None
+            
+            rankings.append(row)
+        
+        # Sort by rate if available, otherwise by victim count
+        if include_rate and any(r.get("rate_per_100k") is not None for r in rankings):
+            # Sort by rate (nulls last), then by victim count
+            rankings.sort(
+                key=lambda x: (x.get("rate_per_100k") is None, -(x.get("rate_per_100k") or 0)),
+                reverse=False
+            )
+        else:
+            # Sort by victim count descending
+            rankings.sort(key=lambda x: x["victim_count"], reverse=True)
+        
+        return rankings
+    
+    # Build country populations dict (Brasil only, CL stays null)
+    country_population_data = {}
+    if brasil_population_data:
+        country_population_data["Brasil"] = brasil_population_data
+    
+    # Format rankings
+    cities_rankings = format_rankings(cities_current, cities_prev, include_rate=True, is_city=True)
+    
+    # Apply city_limit for performance (default 50 for fast default load)
+    if city_limit is not None and city_limit > 0:
+        cities_rankings = cities_rankings[:city_limit]
+    
+    response = {
+        "period_days": days,
+        "period_start": current_start.date().isoformat(),
+        "period_end": now.date().isoformat(),
+        "country_filter": country,
+        "total_victims": total_victims,
+        "total_events": total_events,
+        "cities": cities_rankings,
+        "states": format_rankings(states_current, states_prev, "state", include_rate=True, state_pops=True),
+        "countries": format_rankings(countries_current, countries_prev, "country", include_rate=True, country_pops=country_population_data),
+        "homicide_types": format_rankings(types_current, types_prev, "type"),
+        "methods": format_rankings(methods_current, methods_prev, "method"),
+    }
+    
+    # Add population vintage if we have population data
+    if population_vintage is not None:
+        response["population_vintage"] = population_vintage
+    
+    # Cache the result (store current time for TTL check)
+    _rankings_cache[cache_key] = (response, time.time())
+    
+    return response
+
+
+def matrix_months(now: datetime) -> list[str]:
+    """Month keys from 2026-07 through the UTC-4 month of `now`.
+    
+    Args:
+        now: Current datetime in UTC-4 timezone
+        
+    Returns:
+        List of month strings like ["2026-07", "2026-08", ...]
+    """
+    MATRIX_START_YEAR = 2026
+    MATRIX_START_MONTH = 7
+    
+    # Extract year and month from the provided UTC-4 datetime
+    end_year = now.year
+    end_month = now.month
+    
+    months = []
+    current_year = MATRIX_START_YEAR
+    current_month = MATRIX_START_MONTH
+    
+    while (current_year < end_year) or (current_year == end_year and current_month <= end_month):
+        months.append(f"{current_year}-{current_month:02d}")
+        # Move to next month
+        if current_month == 12:
+            current_year += 1
+            current_month = 1
+        else:
+            current_month += 1
+    
+    return months
+
+
+@router.get("/stats/matrix")
+async def get_stats_matrix(
+    session: AsyncSession = Depends(get_session),
+):
+    """
+    Return GVA-style numeric matrices for /estatisticas page.
+    
+    Time axis: 2026-07-01 through end of current UTC-4 month.
+    Geography: 27 Brazilian UFs only (no Chile).
+    
+    Returns:
+        {
+            months: ["2026-07", "2026-08", ...],
+            ufs: [
+                {
+                    abbrev: "SP",
+                    name: "São Paulo",
+                    population: 44411238,
+                    cells: [
+                        {month: "2026-07", victims: 150, rate_per_100k: 0.34},
+                        ...
+                    ]
+                },
+                ...
+            ],
+            types: [
+                {
+                    type: "Homicídio simples",
+                    cells: [
+                        {month: "2026-07", victims: 100},
+                        ...
+                    ]
+                },
+                ...
+            ]
+        }
+    """
+    from datetime import timezone
+    from collections import defaultdict
+    from app.services.ibge_population import (
+        lookup_state_codes,
+        get_state_populations,
+        calculate_rate_per_100k,
+    )
+    from app.geography import BRAZILIAN_STATES, BRAZILIAN_STATE_NAMES
+    
+    # Determine time window: 2026-07-01 through end of current UTC-4 month
+    MATRIX_START = datetime(2026, 7, 1, tzinfo=timezone.utc)
+    
+    # Current time in UTC-4 (same as rankings)
+    now_utc = datetime.now(timezone.utc)
+    # UTC-4 offset for Rio de Janeiro
+    utc_minus_4 = timezone(timedelta(hours=-4))
+    now_local = now_utc.astimezone(utc_minus_4)
+    
+    # Get month list using the pure helper
+    months = matrix_months(now_local)
+    
+    # End of current month in UTC-4 for query cutoff
+    if now_local.month == 12:
+        end_of_month = datetime(now_local.year + 1, 1, 1, tzinfo=utc_minus_4) - timedelta(seconds=1)
+    else:
+        end_of_month = datetime(now_local.year, now_local.month + 1, 1, tzinfo=utc_minus_4) - timedelta(seconds=1)
+    
+    # Convert back to UTC for query
+    end_date = end_of_month.astimezone(timezone.utc).replace(tzinfo=None)
+    
+    # Query events: BR only, 2026-07-01 onwards
+    query = select(UniqueEvent).where(
+        UniqueEvent.event_date >= MATRIX_START.replace(tzinfo=None),
+        UniqueEvent.event_date <= end_date,
+    )
+    
+    # Apply Brazilian incident filter (same as rankings)
+    query = apply_public_incident_filter(query)
+    
+    # Filter to Brasil only (exclude Chile)
+    query = query.where(
+        func.upper(UniqueEvent.country).in_(["BRASIL", "BR"])
+    )
+    
+    result = await session.execute(query)
+    events = result.scalars().all()
+    
+    # Aggregate by UF × month
+    uf_month_victims = defaultdict(lambda: defaultdict(int))
+    type_month_victims = defaultdict(lambda: defaultdict(int))
+    
+    for event in events:
+        # Extract month key
+        if not event.event_date:
+            continue
+        month_key = event.event_date.strftime("%Y-%m")
+        
+        # UF aggregation (only valid Brazilian states)
+        if event.state and event.state in BRAZILIAN_STATES:
+            uf_month_victims[event.state][month_key] += event.victim_count or 0
+        
+        # Type aggregation (use homicide_type from rankings)
+        if event.homicide_type:
+            type_month_victims[event.homicide_type][month_key] += event.victim_count or 0
+    
+    # Fetch state populations
+    state_list = list(BRAZILIAN_STATES)
+    state_code_map = await lookup_state_codes(session, state_list)
+    code_states = list(state_code_map.values())
+    
+    state_population_data = {}
+    if code_states:
+        state_pop_data = await get_state_populations(session, code_states)
+        for state, code_state in state_code_map.items():
+            if code_state in state_pop_data:
+                state_population_data[state] = state_pop_data[code_state]
+    
+    # Build UF rows (sorted A-Z by abbrev)
+    # Always emit all 27 UFs, even if no population or no events
+    ufs = []
+    for state_abbrev in sorted(BRAZILIAN_STATES):
+        pop_info = state_population_data.get(state_abbrev)
+        
+        cells = []
+        for month in months:
+            victims = uf_month_victims[state_abbrev].get(month, 0)
+            if pop_info:
+                rate = calculate_rate_per_100k(victims, pop_info["population"])
+            else:
+                # No population data: rate is None
+                rate = None
+            cells.append({
+                "month": month,
+                "victims": victims,
+                "rate_per_100k": rate,
+            })
+        
+        ufs.append({
+            "abbrev": state_abbrev,
+            "name": BRAZILIAN_STATE_NAMES.get(state_abbrev, state_abbrev),
+            "population": pop_info["population"] if pop_info else None,
+            "cells": cells,
+        })
+    
+    # Build type rows
+    # Get canonical types from homicide_types_filter (same as rankings)
+    canonical_types = [
+        "Homicídio simples",
+        "Feminicídio",
+        "Latrocínio",
+        "Chacina",
+        "Homicídio seguido de suicídio",
+    ]
+    
+    types = []
+    outro_month_victims = defaultdict(int)
+    
+    for homicide_type in canonical_types:
+        cells = []
+        for month in months:
+            victims = type_month_victims[homicide_type].get(month, 0)
+            cells.append({
+                "month": month,
+                "victims": victims,
+            })
+        
+        types.append({
+            "type": homicide_type,
+            "cells": cells,
+        })
+    
+    # Collect leftover types into "Outro"
+    for homicide_type, month_data in type_month_victims.items():
+        if homicide_type not in canonical_types:
+            for month, victims in month_data.items():
+                outro_month_victims[month] += victims
+    
+    # Add Outro row if there are any leftover victims
+    if outro_month_victims:
+        outro_cells = []
+        for month in months:
+            victims = outro_month_victims.get(month, 0)
+            outro_cells.append({
+                "month": month,
+                "victims": victims,
+            })
+        
+        types.append({
+            "type": "Outro",
+            "cells": outro_cells,
+        })
+    
+    return {
+        "months": months,
+        "ufs": ufs,
+        "types": types,
     }
 
 

@@ -13,6 +13,10 @@ const MapExplorer = lazy(() =>
   import('@/pages/public/MapExplorer').then((m) => ({ default: m.MapExplorer }))
 );
 
+const Rankings = lazy(() =>
+  import('@/pages/public/Rankings').then((m) => ({ default: m.Rankings }))
+);
+
 // Admin pages
 import { Login } from '@/pages/admin/Login';
 import { Dashboard } from '@/pages/admin/Dashboard';
@@ -80,6 +84,15 @@ function App() {
                 <Route path="sobre" />
                 <Route path="metodologia" />
               </Route>
+
+              <Route
+                path="/estatisticas"
+                element={
+                  <Suspense fallback={<PortalFallback />}>
+                    <Rankings />
+                  </Suspense>
+                }
+              />
 
               <Route path="/admin/login" element={<Login />} />
 

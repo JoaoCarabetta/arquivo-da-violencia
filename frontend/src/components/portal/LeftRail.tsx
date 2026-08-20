@@ -1,5 +1,6 @@
 import { memo } from 'react';
-import { Info, Globe, BookOpen } from 'lucide-react';
+import { Info, Globe, BookOpen, BarChart3 } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 import { useI18n } from '@/contexts/I18nContext';
 import { ArchiveLogo } from '@/components/portal/ArchiveLogo';
 import { cn } from '@/lib/utils';
@@ -56,6 +57,7 @@ function RailButton({ title, onClick, children, variant = 'desktop' }: RailButto
 
 function DesktopRail({ onAbout, onMethodology }: LeftRailProps) {
   const { t, lang, toggleLang } = useI18n();
+  const navigate = useNavigate();
 
   return (
     <nav
@@ -85,6 +87,9 @@ function DesktopRail({ onAbout, onMethodology }: LeftRailProps) {
       </div>
 
       <div className="flex w-full flex-col items-center gap-1.5">
+        <RailButton title={t.navRankings} onClick={() => navigate('/estatisticas')}>
+          <BarChart3 className="h-[21px] w-[21px]" strokeWidth={1.9} />
+        </RailButton>
         <RailButton title={t.navMethodology} onClick={onMethodology}>
           <BookOpen className="h-[21px] w-[21px]" strokeWidth={1.9} />
         </RailButton>
@@ -120,6 +125,7 @@ function DesktopRail({ onAbout, onMethodology }: LeftRailProps) {
 
 function MobileRail({ onAbout, onMethodology }: LeftRailProps) {
   const { t, lang, toggleLang } = useI18n();
+  const navigate = useNavigate();
 
   return (
     <nav
@@ -131,6 +137,9 @@ function MobileRail({ onAbout, onMethodology }: LeftRailProps) {
       }}
     >
       <div className="flex w-full items-stretch gap-0.5 px-1 py-1.5">
+        <RailButton title={t.navRankings} variant="mobile" onClick={() => navigate('/estatisticas')}>
+          <BarChart3 className="h-[18px] w-[18px]" strokeWidth={1.9} />
+        </RailButton>
         <RailButton title={t.navMethodology} variant="mobile" onClick={onMethodology}>
           <BookOpen className="h-[18px] w-[18px]" strokeWidth={1.9} />
         </RailButton>

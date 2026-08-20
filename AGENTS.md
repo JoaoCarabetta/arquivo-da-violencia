@@ -20,6 +20,60 @@ Always follow the flow: **local -> develop -> prod**.
 Never deploy straight to production: changes must pass through `develop`/staging
 first.
 
+## IBGE Population Data (for /estatisticas rates)
+
+The `/estatisticas` rankings page shows rates per 100k using IBGE population data.
+This data must be loaded **once** after deploying the database migration.
+
+### One-time setup (after migration)
+
+**Local / Docker dev:**
+```bash
+docker compose -f docker-compose.dev.yml exec api python scripts/load_ibge_population.py
+```
+
+**Staging / Production (SSH):**
+```bash
+ssh hetzner-arv
+cd /root/arquivo-da-violencia
+docker exec arquivo-api python scripts/load_ibge_population.py --year 2022
+```
+
+**Verify:**
+```bash
+# Check table has data
+docker exec -it arquivo-api python -c "
+import asyncio
+from app.database import get_engine
+from sqlalchemy import text
+from sqlmodel.ext.asyncio.session import AsyncSession
+
+async def check():
+    engine = get_engine()
+    async with AsyncSession(engine) as session:
+        result = await session.execute(text('SELECT COUNT(*) FROM ibge_population'))
+        count = result.scalar()
+        print(f'Population records: {count}')
+        if count > 5000:
+            print('✓ IBGE data loaded successfully')
+        else:
+            print('✗ Run: python scripts/load_ibge_population.py')
+
+asyncio.run(check())
+"
+```
+
+**What it does:**
+- Loads all ~5,570 Brazilian municipalities from geobr (`read_municipal_seat(year=2022)`)
+- Fetches Censo 2022 population data from SIDRA API (table 4714)
+- Joins and caches in `ibge_population` table
+- Enables rate per 100k calculations for cities and states on `/estatisticas`
+
+**Re-run with `--force` to reload:**
+```bash
+python scripts/load_ibge_population.py --force
+```
+
 ## Local development (Docker only)
 
 **Always run and test locally inside Docker.** Do not rely on host `npm install`,

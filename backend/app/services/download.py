@@ -80,10 +80,15 @@ async def _fetch_html(url: str) -> tuple[int, str]:
     can classify the reason.
     """
     settings = get_settings()
+    # Country-aware Accept-Language header (issue #129)
+    accept_language = "pt-BR,pt;q=0.9,en;q=0.8"
+    if ".cl/" in url or url.endswith(".cl"):
+        accept_language = "es-CL,es;q=0.9,pt-BR;q=0.8,pt;q=0.7,en;q=0.6"
+
     headers = {
         "User-Agent": settings.download_user_agent,
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-        "Accept-Language": "pt-BR,pt;q=0.9,en;q=0.8",
+        "Accept-Language": accept_language,
     }
     async with httpx.AsyncClient(
         follow_redirects=True,
