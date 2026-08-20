@@ -475,11 +475,13 @@ async def get_rankings(
     Get rankings of cities, states/regions, countries, homicide types, and methods of death
     by victim count and event count for a given time period.
     
-    Includes delta vs previous equal period, and rate per 100k for matched BR locations.
+    Includes delta vs previous equal period, and rate per 100k for matched BR locations (cities and states).
     """
     from app.services.ibge_population import (
         lookup_city_codes,
+        lookup_state_codes,
         get_ibge_populations,
+        get_state_populations,
         calculate_rate_per_100k,
     )
     
@@ -572,43 +574,69 @@ async def get_rankings(
     total_victims = sum(e.victim_count or 0 for e in current_events)
     total_events = len(current_events)
     
-    # Lookup population data for BR cities only
-    population_data = {}
+    # Lookup population data for BR cities and states
+    city_population_data = {}
+    state_population_data = {}
     population_vintage = None
     
     # Only lookup populations if we have BR events
     is_br_only = country and country.upper() == "BR"
     has_br_events = not country or is_br_only
     
-    if has_br_events and cities_current:
-        # Build list of (city, state) pairs
-        city_list = []
-        state_list = []
-        for city, state in city_states.items():
-            if state:  # Only include cities with known states
-                city_list.append(city)
-                state_list.append(state)
-        
-        # Lookup IBGE codes
-        city_code_map = await lookup_city_codes(city_list, state_list)
-        
-        # Get code_munis
-        code_munis = list(city_code_map.values())
-        
-        if code_munis:
-            # Fetch population data
-            pop_data = await get_ibge_populations(session, code_munis)
+    if has_br_events:
+        # Lookup city populations
+        if cities_current:
+            # Build list of (city, state) pairs
+            city_list = []
+            state_list = []
+            for city, state in city_states.items():
+                if state:  # Only include cities with known states
+                    city_list.append(city)
+                    state_list.append(state)
             
-            # Map back to (city, state) keys
-            for (city, state), code_muni in city_code_map.items():
-                if code_muni in pop_data:
-                    population_data[(city, state)] = pop_data[code_muni]
-                    # Track the year for display (use the first one we find)
-                    if population_vintage is None:
-                        population_vintage = pop_data[code_muni]["year"]
+            # Lookup IBGE codes
+            city_code_map = await lookup_city_codes(session, city_list, state_list)
+            
+            # Get code_munis
+            code_munis = list(city_code_map.values())
+            
+            if code_munis:
+                # Fetch population data
+                pop_data = await get_ibge_populations(session, code_munis)
+                
+                # Map back to (city, state) keys
+                for (city, state), code_muni in city_code_map.items():
+                    if code_muni in pop_data:
+                        city_population_data[(city, state)] = pop_data[code_muni]
+                        # Track the year for display (use the first one we find)
+                        if population_vintage is None:
+                            population_vintage = pop_data[code_muni]["year"]
+        
+        # Lookup state populations
+        if states_current:
+            # Get list of unique states
+            state_list = list(states_current.keys())
+            
+            # Lookup state codes
+            state_code_map = await lookup_state_codes(session, state_list)
+            
+            # Get code_states
+            code_states = list(state_code_map.values())
+            
+            if code_states:
+                # Fetch aggregated state populations
+                state_pop_data = await get_state_populations(session, code_states)
+                
+                # Map back to state abbreviation keys
+                for state, code_state in state_code_map.items():
+                    if code_state in state_pop_data:
+                        state_population_data[state] = state_pop_data[code_state]
+                        # Track the year for display
+                        if population_vintage is None:
+                            population_vintage = state_pop_data[code_state]["year"]
     
     # Helper to format rankings with delta and rate
-    def format_rankings(current, prev, label_field="name", include_rate=False, city_states_map=None):
+    def format_rankings(current, prev, label_field="name", include_rate=False, city_states_map=None, state_pops=None):
         """Format rankings with victim count, event count, share, delta, and optionally rate per 100k."""
         rankings = []
         for key, data in current.items():
@@ -627,10 +655,23 @@ async def get_rankings(
             }
             
             # Add rate per 100k if available
-            if include_rate and city_states_map:
-                state = city_states_map.get(key)
-                if state and (key, state) in population_data:
-                    pop_info = population_data[(key, state)]
+            if include_rate:
+                # Try city lookup first (if city_states_map provided)
+                if city_states_map:
+                    state = city_states_map.get(key)
+                    if state and (key, state) in city_population_data:
+                        pop_info = city_population_data[(key, state)]
+                        row["population"] = pop_info["population"]
+                        row["rate_per_100k"] = calculate_rate_per_100k(
+                            data["victims"],
+                            pop_info["population"]
+                        )
+                    else:
+                        row["population"] = None
+                        row["rate_per_100k"] = None
+                # Try state lookup (if state_pops flag set)
+                elif state_pops and key in state_population_data:
+                    pop_info = state_population_data[key]
                     row["population"] = pop_info["population"]
                     row["rate_per_100k"] = calculate_rate_per_100k(
                         data["victims"],
@@ -663,7 +704,7 @@ async def get_rankings(
         "total_victims": total_victims,
         "total_events": total_events,
         "cities": format_rankings(cities_current, cities_prev, "city", include_rate=True, city_states_map=city_states),
-        "states": format_rankings(states_current, states_prev, "state"),
+        "states": format_rankings(states_current, states_prev, "state", include_rate=True, state_pops=True),
         "countries": format_rankings(countries_current, countries_prev, "country"),
         "homicide_types": format_rankings(types_current, types_prev, "type"),
         "methods": format_rankings(methods_current, methods_prev, "method"),

@@ -639,3 +639,44 @@ async def test_rankings_default_sort_by_rate(app, async_session, population_fixt
         
         # São Paulo should be second
         assert data["cities"][1]["city"] == "São Paulo"
+
+
+@pytest.mark.asyncio
+async def test_rankings_campinas_not_hardcoded(app, async_session, population_fixture):
+    """Test that Campinas gets a rate even though it's not in any hardcoded list.
+    
+    This proves the lookup uses the database, not a hardcoded mapping.
+    Campinas (code_muni 3509502) is in the fixture but was never mentioned in code.
+    """
+    now = datetime.utcnow()
+    current_start = now - timedelta(days=30)
+    
+    # Create event in Campinas - NOT in any hardcoded list
+    event = create_ranking_event(
+        event_date=current_start + timedelta(days=1),
+        country="Brasil",
+        city="Campinas",
+        state="SP",
+        victim_count=25
+    )
+    
+    async_session.add(event)
+    await async_session.commit()
+    
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://test"
+    ) as client:
+        response = await client.get("/api/public/stats/rankings?days=30&country=BR")
+        assert response.status_code == 200
+        data = response.json()
+        
+        campinas = data["cities"][0]
+        assert campinas["city"] == "Campinas"
+        assert campinas["victim_count"] == 25
+        # Should have rate and population despite not being hardcoded
+        assert campinas["rate_per_100k"] is not None
+        assert campinas["population"] == 1213792  # From fixture
+        # rate = 25 / 1213792 * 100000 ≈ 2.06
+        expected_rate = 25 / 1213792 * 100000
+        assert abs(campinas["rate_per_100k"] - expected_rate) < 0.01

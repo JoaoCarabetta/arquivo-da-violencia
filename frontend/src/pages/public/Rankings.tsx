@@ -23,6 +23,7 @@ interface RankingTableProps {
   labelField: keyof RankingRow;
   onRowClick?: (value: string) => void;
   emptyMessage?: string;
+  showRateColumns?: boolean;
 }
 
 function DeltaBadge({ delta, label }: { delta: number; label: string }) {
@@ -47,7 +48,7 @@ function DeltaBadge({ delta, label }: { delta: number; label: string }) {
   );
 }
 
-function RankingTable({ title, rows, labelField, onRowClick, emptyMessage }: RankingTableProps) {
+function RankingTable({ title, rows, labelField, onRowClick, emptyMessage, showRateColumns = false }: RankingTableProps) {
   const { t, lang } = useI18n();
   const [expanded, setExpanded] = useState(true);
   
@@ -61,6 +62,7 @@ function RankingTable({ title, rows, labelField, onRowClick, emptyMessage }: Ran
   }
 
   const displayRows = expanded ? rows : rows.slice(0, 10);
+  const hasRateData = showRateColumns && rows.some(r => r.rate_per_100k != null);
 
   return (
     <div className="rounded-xl border border-stone-200 bg-white overflow-hidden">
@@ -98,7 +100,7 @@ function RankingTable({ title, rows, labelField, onRowClick, emptyMessage }: Ran
                 <th className="px-6 py-3 text-right text-xs font-medium text-stone-500 uppercase tracking-wider">
                   {t.rankingsDelta}
                 </th>
-                {labelField === 'city' && rows.some(r => r.rate_per_100k != null) && (
+                {hasRateData && (
                   <>
                     <th className="px-6 py-3 text-right text-xs font-medium text-stone-500 uppercase tracking-wider">
                       Taxa / 100k
@@ -140,7 +142,7 @@ function RankingTable({ title, rows, labelField, onRowClick, emptyMessage }: Ran
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-right">
                       <DeltaBadge delta={row.victim_delta} label={t.rankingsVictimCount} />
                     </td>
-                    {labelField === 'city' && rows.some(r => r.rate_per_100k != null) && (
+                    {hasRateData && (
                       <>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-right text-stone-900 font-semibold">
                           {row.rate_per_100k != null ? row.rate_per_100k.toFixed(2) : '—'}
@@ -334,6 +336,7 @@ export function Rankings() {
                 labelField="city"
                 onRowClick={handleCityClick}
                 emptyMessage="Nenhuma cidade com eventos no período selecionado."
+                showRateColumns={true}
               />
 
               {/* States/Regions */}
@@ -343,6 +346,7 @@ export function Rankings() {
                 labelField="state"
                 onRowClick={handleStateClick}
                 emptyMessage="Nenhum estado/região com eventos no período selecionado."
+                showRateColumns={true}
               />
 
               {/* Countries */}
