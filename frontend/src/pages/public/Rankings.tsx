@@ -23,6 +23,7 @@ interface RankingTableProps {
   labelField: keyof RankingRow;
   onRowClick?: (value: string) => void;
   emptyMessage?: string;
+  showRateColumns?: boolean;
 }
 
 function DeltaBadge({ delta, label }: { delta: number; label: string }) {
@@ -47,7 +48,7 @@ function DeltaBadge({ delta, label }: { delta: number; label: string }) {
   );
 }
 
-function RankingTable({ title, rows, labelField, onRowClick, emptyMessage }: RankingTableProps) {
+function RankingTable({ title, rows, labelField, onRowClick, emptyMessage, showRateColumns = false }: RankingTableProps) {
   const { t, lang } = useI18n();
   const [expanded, setExpanded] = useState(true);
   
@@ -61,6 +62,7 @@ function RankingTable({ title, rows, labelField, onRowClick, emptyMessage }: Ran
   }
 
   const displayRows = expanded ? rows : rows.slice(0, 10);
+  const hasRateData = showRateColumns && rows.some(r => r.rate_per_100k != null);
 
   return (
     <div className="rounded-xl border border-stone-200 bg-white overflow-hidden">
@@ -98,6 +100,16 @@ function RankingTable({ title, rows, labelField, onRowClick, emptyMessage }: Ran
                 <th className="px-6 py-3 text-right text-xs font-medium text-stone-500 uppercase tracking-wider">
                   {t.rankingsDelta}
                 </th>
+                {hasRateData && (
+                  <>
+                    <th className="px-6 py-3 text-right text-xs font-medium text-stone-500 uppercase tracking-wider">
+                      Taxa / 100k
+                    </th>
+                    <th className="px-6 py-3 text-right text-xs font-medium text-stone-500 uppercase tracking-wider">
+                      População
+                    </th>
+                  </>
+                )}
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-stone-200">
@@ -130,6 +142,16 @@ function RankingTable({ title, rows, labelField, onRowClick, emptyMessage }: Ran
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-right">
                       <DeltaBadge delta={row.victim_delta} label={t.rankingsVictimCount} />
                     </td>
+                    {hasRateData && (
+                      <>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-right text-stone-900 font-semibold">
+                          {row.rate_per_100k != null ? row.rate_per_100k.toFixed(2) : '—'}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-right text-stone-700">
+                          {row.population != null ? row.population.toLocaleString() : '—'}
+                        </td>
+                      </>
+                    )}
                   </tr>
                 );
               })}
@@ -314,6 +336,7 @@ export function Rankings() {
                 labelField="city"
                 onRowClick={handleCityClick}
                 emptyMessage="Nenhuma cidade com eventos no período selecionado."
+                showRateColumns={true}
               />
 
               {/* States/Regions */}
@@ -323,6 +346,7 @@ export function Rankings() {
                 labelField="state"
                 onRowClick={handleStateClick}
                 emptyMessage="Nenhum estado/região com eventos no período selecionado."
+                showRateColumns={true}
               />
 
               {/* Countries */}
@@ -358,6 +382,11 @@ export function Rankings() {
                 <p className="text-sm text-amber-900">
                   <strong className="font-semibold">{t.disclaimerLabel}:</strong> {t.rankingsMethodologyNote}
                 </p>
+                {data.population_vintage && (
+                  <p className="text-sm text-amber-900 mt-2">
+                    <strong className="font-semibold">População:</strong> Dados populacionais do IBGE {data.population_vintage}.
+                  </p>
+                )}
               </div>
             </div>
           )}
