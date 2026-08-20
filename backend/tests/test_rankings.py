@@ -680,3 +680,96 @@ async def test_rankings_campinas_not_hardcoded(app, async_session, population_fi
         # rate = 25 / 1213792 * 100000 ≈ 2.06
         expected_rate = 25 / 1213792 * 100000
         assert abs(campinas["rate_per_100k"] - expected_rate) < 0.01
+
+
+@pytest.mark.asyncio
+async def test_rankings_country_rate_brasil(app, async_session, population_fixture):
+    """Test that Brasil country row includes rate_per_100k and population from cached IBGE data.
+    
+    Brasil national population = sum of all state populations = sum of all municipalities.
+    """
+    now = datetime.utcnow()
+    current_start = now - timedelta(days=30)
+    
+    # Create events in Brazil
+    events = [
+        create_ranking_event(
+            event_date=current_start + timedelta(days=1),
+            country="Brasil",
+            city="São Paulo",
+            state="SP",
+            victim_count=50
+        ),
+        create_ranking_event(
+            event_date=current_start + timedelta(days=2),
+            country="Brasil",
+            city="Rio de Janeiro",
+            state="RJ",
+            victim_count=30
+        ),
+    ]
+    
+    for event in events:
+        async_session.add(event)
+    await async_session.commit()
+    
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://test"
+    ) as client:
+        response = await client.get("/api/public/stats/rankings?days=30")
+        assert response.status_code == 200
+        data = response.json()
+        
+        # Should have a Brasil/BR country row
+        assert len(data["countries"]) == 1
+        brasil = data["countries"][0]
+        assert brasil["country"] == "Brasil"
+        assert brasil["victim_count"] == 80
+        
+        # Should have rate and population from cached IBGE data
+        # Fixture has: São Paulo (11451245) + Rio (6211423) + Bauru (379297) + Campinas (1213792) = 19255757
+        assert brasil["population"] is not None
+        assert brasil["population"] == 19255757
+        assert brasil["rate_per_100k"] is not None
+        expected_rate = 80 / 19255757 * 100000
+        assert abs(brasil["rate_per_100k"] - expected_rate) < 0.01
+
+
+@pytest.mark.asyncio
+async def test_rankings_country_rate_chile(app, async_session, population_fixture):
+    """Test that Chile country row has null rate and population (no Brazilian denominator)."""
+    now = datetime.utcnow()
+    current_start = now - timedelta(days=30)
+    
+    # Create events in Chile
+    events = [
+        create_ranking_event(
+            event_date=current_start + timedelta(days=1),
+            country="CL",
+            city="Santiago",
+            state="Región Metropolitana",
+            victim_count=25
+        ),
+    ]
+    
+    for event in events:
+        async_session.add(event)
+    await async_session.commit()
+    
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://test"
+    ) as client:
+        response = await client.get("/api/public/stats/rankings?days=30")
+        assert response.status_code == 200
+        data = response.json()
+        
+        # Should have a Chile country row
+        chile = next((c for c in data["countries"] if c["country"] == "Chile"), None)
+        assert chile is not None
+        assert chile["victim_count"] == 25
+        
+        # Chile should have null rate and population
+        assert chile["rate_per_100k"] is None
+        assert chile["population"] is None

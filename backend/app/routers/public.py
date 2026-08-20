@@ -14,6 +14,7 @@ from app.database import get_session
 from app.models.unique_event import UniqueEvent
 from app.models.raw_event import RawEvent
 from app.models.source_google_news import SourceGoogleNews
+from app.models.ibge_population import IBGEPopulation
 from app.services.public_filters import (
     apply_public_incident_filter,
     homicide_type_filter,
@@ -634,9 +635,30 @@ async def get_rankings(
                         # Track the year for display
                         if population_vintage is None:
                             population_vintage = state_pop_data[code_state]["year"]
+        
+        # Lookup Brazil national population (sum of all municipalities in cache)
+        # This avoids re-hitting geobr/SIDRA per request
+        from sqlalchemy import func as sql_func
+        brasil_pop_query = select(
+            sql_func.sum(IBGEPopulation.population).label("total_pop"),
+            sql_func.min(IBGEPopulation.year).label("year")
+        )
+        brasil_pop_result = await session.execute(brasil_pop_query)
+        brasil_pop_row = brasil_pop_result.one_or_none()
+        
+        brasil_population_data = None
+        if brasil_pop_row and brasil_pop_row.total_pop:
+            brasil_population_data = {
+                "population": int(brasil_pop_row.total_pop),
+                "year": brasil_pop_row.year
+            }
+            if population_vintage is None:
+                population_vintage = brasil_pop_row.year
+    else:
+        brasil_population_data = None
     
     # Helper to format rankings with delta and rate
-    def format_rankings(current, prev, label_field="name", include_rate=False, city_states_map=None, state_pops=None):
+    def format_rankings(current, prev, label_field="name", include_rate=False, city_states_map=None, state_pops=None, country_pops=None):
         """Format rankings with victim count, event count, share, delta, and optionally rate per 100k."""
         rankings = []
         for key, data in current.items():
@@ -677,6 +699,14 @@ async def get_rankings(
                         data["victims"],
                         pop_info["population"]
                     )
+                # Try country lookup (if country_pops dict provided)
+                elif country_pops and key in country_pops:
+                    pop_info = country_pops[key]
+                    row["population"] = pop_info["population"]
+                    row["rate_per_100k"] = calculate_rate_per_100k(
+                        data["victims"],
+                        pop_info["population"]
+                    )
                 else:
                     row["population"] = None
                     row["rate_per_100k"] = None
@@ -696,6 +726,11 @@ async def get_rankings(
         
         return rankings
     
+    # Build country populations dict (Brasil only, CL stays null)
+    country_population_data = {}
+    if brasil_population_data:
+        country_population_data["Brasil"] = brasil_population_data
+    
     response = {
         "period_days": days,
         "period_start": current_start.date().isoformat(),
@@ -705,7 +740,7 @@ async def get_rankings(
         "total_events": total_events,
         "cities": format_rankings(cities_current, cities_prev, "city", include_rate=True, city_states_map=city_states),
         "states": format_rankings(states_current, states_prev, "state", include_rate=True, state_pops=True),
-        "countries": format_rankings(countries_current, countries_prev, "country"),
+        "countries": format_rankings(countries_current, countries_prev, "country", include_rate=True, country_pops=country_population_data),
         "homicide_types": format_rankings(types_current, types_prev, "type"),
         "methods": format_rankings(methods_current, methods_prev, "method"),
     }
