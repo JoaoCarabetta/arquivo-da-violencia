@@ -111,7 +111,7 @@ async def load_ibge_data_from_geobr_and_sidra(
             
             pop = IBGEPopulation(
                 code_muni=int(row['code_muni']),
-                code_state=str(row['code_state']),
+                code_state=str(int(float(row['code_state']))).zfill(2),
                 name_muni=str(row['name_muni']),
                 name_state=str(row['name_state']) if pd.notna(row.get('name_state')) else None,
                 abbrev_state=str(row['abbrev_state']) if pd.notna(row.get('abbrev_state')) else None,
