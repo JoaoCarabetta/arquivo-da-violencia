@@ -821,6 +821,234 @@ async def get_rankings(
     return response
 
 
+def matrix_months(now: datetime) -> list[str]:
+    """Month keys from 2026-07 through the UTC-4 month of `now`.
+    
+    Args:
+        now: Current datetime in UTC-4 timezone
+        
+    Returns:
+        List of month strings like ["2026-07", "2026-08", ...]
+    """
+    MATRIX_START_YEAR = 2026
+    MATRIX_START_MONTH = 7
+    
+    # Extract year and month from the provided UTC-4 datetime
+    end_year = now.year
+    end_month = now.month
+    
+    months = []
+    current_year = MATRIX_START_YEAR
+    current_month = MATRIX_START_MONTH
+    
+    while (current_year < end_year) or (current_year == end_year and current_month <= end_month):
+        months.append(f"{current_year}-{current_month:02d}")
+        # Move to next month
+        if current_month == 12:
+            current_year += 1
+            current_month = 1
+        else:
+            current_month += 1
+    
+    return months
+
+
+@router.get("/stats/matrix")
+async def get_stats_matrix(
+    session: AsyncSession = Depends(get_session),
+):
+    """
+    Return GVA-style numeric matrices for /estatisticas page.
+    
+    Time axis: 2026-07-01 through end of current UTC-4 month.
+    Geography: 27 Brazilian UFs only (no Chile).
+    
+    Returns:
+        {
+            months: ["2026-07", "2026-08", ...],
+            ufs: [
+                {
+                    abbrev: "SP",
+                    name: "São Paulo",
+                    population: 44411238,
+                    cells: [
+                        {month: "2026-07", victims: 150, rate_per_100k: 0.34},
+                        ...
+                    ]
+                },
+                ...
+            ],
+            types: [
+                {
+                    type: "Homicídio simples",
+                    cells: [
+                        {month: "2026-07", victims: 100},
+                        ...
+                    ]
+                },
+                ...
+            ]
+        }
+    """
+    from datetime import timezone
+    from collections import defaultdict
+    from app.services.ibge_population import (
+        lookup_state_codes,
+        get_state_populations,
+        calculate_rate_per_100k,
+    )
+    from app.geography import BRAZILIAN_STATES, BRAZILIAN_STATE_NAMES
+    
+    # Determine time window: 2026-07-01 through end of current UTC-4 month
+    MATRIX_START = datetime(2026, 7, 1, tzinfo=timezone.utc)
+    
+    # Current time in UTC-4 (same as rankings)
+    now_utc = datetime.now(timezone.utc)
+    # UTC-4 offset for Rio de Janeiro
+    utc_minus_4 = timezone(timedelta(hours=-4))
+    now_local = now_utc.astimezone(utc_minus_4)
+    
+    # Get month list using the pure helper
+    months = matrix_months(now_local)
+    
+    # End of current month in UTC-4 for query cutoff
+    if now_local.month == 12:
+        end_of_month = datetime(now_local.year + 1, 1, 1, tzinfo=utc_minus_4) - timedelta(seconds=1)
+    else:
+        end_of_month = datetime(now_local.year, now_local.month + 1, 1, tzinfo=utc_minus_4) - timedelta(seconds=1)
+    
+    # Convert back to UTC for query
+    end_date = end_of_month.astimezone(timezone.utc).replace(tzinfo=None)
+    
+    # Query events: BR only, 2026-07-01 onwards
+    query = select(UniqueEvent).where(
+        UniqueEvent.event_date >= MATRIX_START.replace(tzinfo=None),
+        UniqueEvent.event_date <= end_date,
+    )
+    
+    # Apply Brazilian incident filter (same as rankings)
+    query = apply_public_incident_filter(query)
+    
+    # Filter to Brasil only (exclude Chile)
+    query = query.where(
+        func.upper(UniqueEvent.country).in_(["BRASIL", "BR"])
+    )
+    
+    result = await session.execute(query)
+    events = result.scalars().all()
+    
+    # Aggregate by UF × month
+    uf_month_victims = defaultdict(lambda: defaultdict(int))
+    type_month_victims = defaultdict(lambda: defaultdict(int))
+    
+    for event in events:
+        # Extract month key
+        if not event.event_date:
+            continue
+        month_key = event.event_date.strftime("%Y-%m")
+        
+        # UF aggregation (only valid Brazilian states)
+        if event.state and event.state in BRAZILIAN_STATES:
+            uf_month_victims[event.state][month_key] += event.victim_count or 0
+        
+        # Type aggregation (use homicide_type from rankings)
+        if event.homicide_type:
+            type_month_victims[event.homicide_type][month_key] += event.victim_count or 0
+    
+    # Fetch state populations
+    state_list = list(BRAZILIAN_STATES)
+    state_code_map = await lookup_state_codes(session, state_list)
+    code_states = list(state_code_map.values())
+    
+    state_population_data = {}
+    if code_states:
+        state_pop_data = await get_state_populations(session, code_states)
+        for state, code_state in state_code_map.items():
+            if code_state in state_pop_data:
+                state_population_data[state] = state_pop_data[code_state]
+    
+    # Build UF rows (sorted A-Z by abbrev)
+    # Always emit all 27 UFs, even if no population or no events
+    ufs = []
+    for state_abbrev in sorted(BRAZILIAN_STATES):
+        pop_info = state_population_data.get(state_abbrev)
+        
+        cells = []
+        for month in months:
+            victims = uf_month_victims[state_abbrev].get(month, 0)
+            if pop_info:
+                rate = calculate_rate_per_100k(victims, pop_info["population"])
+            else:
+                # No population data: rate is None
+                rate = None
+            cells.append({
+                "month": month,
+                "victims": victims,
+                "rate_per_100k": rate,
+            })
+        
+        ufs.append({
+            "abbrev": state_abbrev,
+            "name": BRAZILIAN_STATE_NAMES.get(state_abbrev, state_abbrev),
+            "population": pop_info["population"] if pop_info else None,
+            "cells": cells,
+        })
+    
+    # Build type rows
+    # Get canonical types from homicide_types_filter (same as rankings)
+    canonical_types = [
+        "Homicídio simples",
+        "Feminicídio",
+        "Latrocínio",
+        "Chacina",
+        "Homicídio seguido de suicídio",
+    ]
+    
+    types = []
+    outro_month_victims = defaultdict(int)
+    
+    for homicide_type in canonical_types:
+        cells = []
+        for month in months:
+            victims = type_month_victims[homicide_type].get(month, 0)
+            cells.append({
+                "month": month,
+                "victims": victims,
+            })
+        
+        types.append({
+            "type": homicide_type,
+            "cells": cells,
+        })
+    
+    # Collect leftover types into "Outro"
+    for homicide_type, month_data in type_month_victims.items():
+        if homicide_type not in canonical_types:
+            for month, victims in month_data.items():
+                outro_month_victims[month] += victims
+    
+    # Add Outro row if there are any leftover victims
+    if outro_month_victims:
+        outro_cells = []
+        for month in months:
+            victims = outro_month_victims.get(month, 0)
+            outro_cells.append({
+                "month": month,
+                "victims": victims,
+            })
+        
+        types.append({
+            "type": "Outro",
+            "cells": outro_cells,
+        })
+    
+    return {
+        "months": months,
+        "ufs": ufs,
+        "types": types,
+    }
+
+
 @router.get("/geocode")
 async def geocode_location(
     request: Request,

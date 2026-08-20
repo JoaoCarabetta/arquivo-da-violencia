@@ -6,6 +6,7 @@ from httpx import AsyncClient, ASGITransport
 from decimal import Decimal
 
 from app.models.unique_event import UniqueEvent
+from app.geography import BRAZILIAN_STATES
 
 
 def create_ranking_event(
@@ -963,3 +964,372 @@ async def test_rankings_city_limit_default(app, async_session, population_fixtur
         
         # Should return only 10 cities
         assert len(data_small["cities"]) == 10
+
+
+# ============================================================================
+# Matrix endpoint tests (Issue #141)
+# ============================================================================
+
+def test_matrix_months_pure_logic():
+    """Test matrix_months helper with frozen time (pure unit test, no HTTP/FastAPI).
+    
+    This is the clock/fixture test: verifies that after a new month starts,
+    the next column appears without schema changes.
+    """
+    from datetime import timezone
+    from app.routers.public import matrix_months
+    
+    # Test 1: September 2026 (UTC-4) → includes Jul, Aug, Sep
+    sept_now = datetime(2026, 9, 15, tzinfo=timezone(timedelta(hours=-4)))
+    result_sept = matrix_months(sept_now)
+    assert result_sept == ["2026-07", "2026-08", "2026-09"]
+    assert result_sept[0] == "2026-07", "First month always July 2026"
+    
+    # Test 2: August 2026 (UTC-4) → includes Jul, Aug only
+    aug_now = datetime(2026, 8, 19, tzinfo=timezone(timedelta(hours=-4)))
+    result_aug = matrix_months(aug_now)
+    assert result_aug == ["2026-07", "2026-08"]
+    assert "2026-09" not in result_aug, "September should not appear in August"
+    
+    # Test 3: July 2026 (UTC-4) → includes Jul only
+    july_now = datetime(2026, 7, 1, tzinfo=timezone(timedelta(hours=-4)))
+    result_july = matrix_months(july_now)
+    assert result_july == ["2026-07"]
+    
+    # Test 4: December 2026 (UTC-4) → crosses year boundary correctly
+    dec_now = datetime(2026, 12, 31, tzinfo=timezone(timedelta(hours=-4)))
+    result_dec = matrix_months(dec_now)
+    assert result_dec[0] == "2026-07"
+    assert result_dec[-1] == "2026-12"
+    assert len(result_dec) == 6  # Jul through Dec
+
+
+@pytest.mark.asyncio
+async def test_matrix_months_start_july_2026(app, async_session, population_fixture):
+    """Test matrix endpoint returns months starting with 2026-07 as first column."""
+    now = datetime.utcnow()
+    
+    # Create events in July and August 2026
+    events = [
+        create_ranking_event(
+            event_date=datetime(2026, 7, 15),
+            state="SP",
+            country="Brasil",
+            victim_count=1
+        ),
+        create_ranking_event(
+            event_date=datetime(2026, 8, 10),
+            state="RJ",
+            country="Brasil",
+            victim_count=2
+        ),
+    ]
+    
+    for event in events:
+        async_session.add(event)
+    await async_session.commit()
+    
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://test"
+    ) as client:
+        response = await client.get("/api/public/stats/matrix")
+        assert response.status_code == 200
+        data = response.json()
+        
+        # Months should start with "2026-07" and include "2026-08"
+        assert "months" in data
+        assert len(data["months"]) >= 2
+        assert data["months"][0] == "2026-07"
+        assert "2026-08" in data["months"]
+
+
+@pytest.mark.asyncio
+async def test_matrix_uf_with_population_has_rate(app, async_session, population_fixture):
+    """Test UF with population has numeric rate_per_100k; unmatched state excluded."""
+    # Create events in known UFs
+    events = [
+        create_ranking_event(
+            event_date=datetime(2026, 7, 15),
+            state="SP",  # Known state with population
+            country="Brasil",
+            victim_count=5
+        ),
+        create_ranking_event(
+            event_date=datetime(2026, 7, 16),
+            state="RJ",  # Another known state
+            country="Brasil",
+            victim_count=3
+        ),
+        create_ranking_event(
+            event_date=datetime(2026, 7, 17),
+            state=None,  # Unmatched state should be excluded
+            country="Brasil",
+            victim_count=2
+        ),
+    ]
+    
+    for event in events:
+        async_session.add(event)
+    await async_session.commit()
+    
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://test"
+    ) as client:
+        response = await client.get("/api/public/stats/matrix")
+        assert response.status_code == 200
+        data = response.json()
+        
+        # UFs should have population and rate_per_100k
+        assert "ufs" in data
+        
+        # Find SP and RJ in the results
+        sp_uf = next((uf for uf in data["ufs"] if uf["abbrev"] == "SP"), None)
+        rj_uf = next((uf for uf in data["ufs"] if uf["abbrev"] == "RJ"), None)
+        
+        assert sp_uf is not None
+        assert rj_uf is not None
+        
+        # Check population exists
+        assert sp_uf["population"] > 0
+        assert rj_uf["population"] > 0
+        
+        # Check cells have rate_per_100k
+        july_cell = next((c for c in sp_uf["cells"] if c["month"] == "2026-07"), None)
+        assert july_cell is not None
+        assert "rate_per_100k" in july_cell
+        assert july_cell["rate_per_100k"] > 0
+        assert july_cell["victims"] == 5
+
+
+@pytest.mark.asyncio
+async def test_matrix_type_rows_victim_sums(app, async_session, population_fixture):
+    """Test type-row victim sums vs monthly victim totals for included types."""
+    events = [
+        create_ranking_event(
+            event_date=datetime(2026, 7, 15),
+            state="SP",
+            country="Brasil",
+            homicide_type="Homicídio simples",
+            victim_count=3
+        ),
+        create_ranking_event(
+            event_date=datetime(2026, 7, 16),
+            state="RJ",
+            country="Brasil",
+            homicide_type="Feminicídio",
+            victim_count=2
+        ),
+        create_ranking_event(
+            event_date=datetime(2026, 7, 17),
+            state="MG",
+            country="Brasil",
+            homicide_type="Latrocínio",
+            victim_count=1
+        ),
+    ]
+    
+    for event in events:
+        async_session.add(event)
+    await async_session.commit()
+    
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://test"
+    ) as client:
+        response = await client.get("/api/public/stats/matrix")
+        assert response.status_code == 200
+        data = response.json()
+        
+        # Types should have cells with victim counts
+        assert "types" in data
+        assert len(data["types"]) > 0
+        
+        # Sum victims across all types for July
+        total_july_victims = 0
+        for type_row in data["types"]:
+            july_cell = next((c for c in type_row["cells"] if c["month"] == "2026-07"), None)
+            if july_cell:
+                total_july_victims += july_cell["victims"]
+        
+        # Should equal total victims from events
+        assert total_july_victims == 6  # 3 + 2 + 1
+
+
+@pytest.mark.asyncio
+async def test_matrix_rankings_period_does_not_affect_matrix(app, async_session, population_fixture):
+    """Test that rankings period query params do not change matrix months."""
+    # Create events in July 2026
+    events = [
+        create_ranking_event(
+            event_date=datetime(2026, 7, 15),
+            state="SP",
+            country="Brasil",
+            victim_count=1
+        ),
+    ]
+    
+    for event in events:
+        async_session.add(event)
+    await async_session.commit()
+    
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://test"
+    ) as client:
+        # Matrix endpoint should ignore ranking-style period filters
+        response = await client.get("/api/public/stats/matrix")
+        assert response.status_code == 200
+        data = response.json()
+        
+        # Months should always start with "2026-07" regardless of any filters
+        assert data["months"][0] == "2026-07"
+
+
+@pytest.mark.asyncio
+async def test_matrix_excludes_chile(app, async_session, population_fixture):
+    """Test that matrix excludes Chilean events (BR only)."""
+    events = [
+        create_ranking_event(
+            event_date=datetime(2026, 7, 15),
+            state="SP",
+            country="Brasil",
+            victim_count=3
+        ),
+        create_ranking_event(
+            event_date=datetime(2026, 7, 16),
+            state="Metropolitana",  # Chilean region
+            country="CL",  # Use ISO code as stored in database
+            victim_count=5
+        ),
+    ]
+    
+    for event in events:
+        async_session.add(event)
+    await async_session.commit()
+    
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://test"
+    ) as client:
+        response = await client.get("/api/public/stats/matrix")
+        assert response.status_code == 200
+        data = response.json()
+        
+        # UFs should only contain Brazilian states
+        assert "ufs" in data
+        for uf in data["ufs"]:
+            # All UF abbrevs should be valid Brazilian states
+            assert uf["abbrev"] in BRAZILIAN_STATES
+        
+        # Total victims in matrix should only be from Brasil
+        total_victims = 0
+        for uf in data["ufs"]:
+            for cell in uf["cells"]:
+                total_victims += cell["victims"]
+        
+        # Should only count the Brazilian event
+        assert total_victims == 3
+
+
+@pytest.mark.asyncio
+async def test_matrix_all_27_ufs_present(app, async_session, population_fixture):
+    """Test that all 27 Brazilian UFs are present even if they have no events."""
+    # Create events only in SP
+    events = [
+        create_ranking_event(
+            event_date=datetime(2026, 7, 15),
+            state="SP",
+            country="Brasil",
+            victim_count=5
+        ),
+    ]
+    
+    for event in events:
+        async_session.add(event)
+    await async_session.commit()
+    
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://test"
+    ) as client:
+        response = await client.get("/api/public/stats/matrix")
+        assert response.status_code == 200
+        data = response.json()
+        
+        # Should have exactly 27 UF rows
+        assert len(data["ufs"]) == 27
+        
+        # All Brazilian states should be present
+        uf_abbrevs = {uf["abbrev"] for uf in data["ufs"]}
+        assert uf_abbrevs == set(BRAZILIAN_STATES)
+        
+        # SP should have victims
+        sp_uf = next((uf for uf in data["ufs"] if uf["abbrev"] == "SP"), None)
+        assert sp_uf is not None
+        july_cell = next((c for c in sp_uf["cells"] if c["month"] == "2026-07"), None)
+        assert july_cell["victims"] == 5
+        
+        # AC (first alphabetically) should have 0 victims
+        ac_uf = next((uf for uf in data["ufs"] if uf["abbrev"] == "AC"), None)
+        assert ac_uf is not None
+        ac_july_cell = next((c for c in ac_uf["cells"] if c["month"] == "2026-07"), None)
+        assert ac_july_cell["victims"] == 0
+
+
+@pytest.mark.asyncio
+async def test_matrix_leftover_types_in_outro(app, async_session, population_fixture):
+    """Test that types not in canonical list go into Outro row."""
+    events = [
+        create_ranking_event(
+            event_date=datetime(2026, 7, 15),
+            state="SP",
+            country="Brasil",
+            homicide_type="Homicídio simples",
+            victim_count=3
+        ),
+        create_ranking_event(
+            event_date=datetime(2026, 7, 16),
+            state="RJ",
+            country="Brasil",
+            homicide_type="Tipo não canônico A",  # Not in canonical list
+            victim_count=2
+        ),
+        create_ranking_event(
+            event_date=datetime(2026, 8, 1),
+            state="MG",
+            country="Brasil",
+            homicide_type="Tipo não canônico B",  # Not in canonical list
+            victim_count=1
+        ),
+    ]
+    
+    for event in events:
+        async_session.add(event)
+    await async_session.commit()
+    
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://test"
+    ) as client:
+        response = await client.get("/api/public/stats/matrix")
+        assert response.status_code == 200
+        data = response.json()
+        
+        # Should have canonical types plus Outro
+        type_names = [t["type"] for t in data["types"]]
+        assert "Homicídio simples" in type_names
+        assert "Outro" in type_names
+        
+        # Outro should have the leftover victims
+        outro = next((t for t in data["types"] if t["type"] == "Outro"), None)
+        assert outro is not None
+        
+        july_cell = next((c for c in outro["cells"] if c["month"] == "2026-07"), None)
+        assert july_cell["victims"] == 2  # From tipo não canônico A
+        
+        aug_cell = next((c for c in outro["cells"] if c["month"] == "2026-08"), None)
+        assert aug_cell["victims"] == 1  # From tipo não canônico B
+
+
