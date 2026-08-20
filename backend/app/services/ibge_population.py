@@ -28,7 +28,9 @@ async def load_ibge_data_from_geobr_and_sidra(
     Load full IBGE municipality data from geobr + SIDRA and cache in database.
     
     This is the production path. Loads all ~5,570 Brazilian municipalities:
-    1. geobr.lookup_muni(name_muni="all", year=2022) → codes, names, state info
+    1. geobr.read_municipal_seat(year=2022) → codes, names, state info
+       Note: geobr.lookup_muni defaults to year=2010 (municipal seats).
+       For 2022, we use read_municipal_seat which has 2022 data.
     2. sidrapy.get_table(table_code="4714", ...) → population from Censo 2022
     3. Join by code_muni and store in ibge_population table
     
@@ -38,7 +40,9 @@ async def load_ibge_data_from_geobr_and_sidra(
         force_reload: If True, reload even if data exists
     
     Note:
-        Call this once on deployment or via admin script.
+        Call this once on deployment or via CLI script:
+        python scripts/load_ibge_population.py
+        
         Unit tests use load_ibge_population_fixture() instead.
     """
     # Check if data already loaded
@@ -53,11 +57,19 @@ async def load_ibge_data_from_geobr_and_sidra(
     logger.info(f"Loading IBGE municipality codes from geobr (year={year})...")
     
     try:
-        from geobr import lookup_muni
         import pandas as pd
         
-        # Load all municipalities from geobr
-        munis_df = lookup_muni(name_muni="all", year=year)
+        # Use read_municipal_seat instead of lookup_muni for 2022 data
+        # read_municipal_seat has data for 2022, lookup_muni defaults to 2010
+        from geobr import read_municipal_seat
+        
+        # Load all municipal seats with codes
+        logger.info("Fetching municipal seat data from geobr...")
+        gdf = read_municipal_seat(year=year, verbose=False)
+        
+        # Drop geometry column to work with regular DataFrame
+        munis_df = pd.DataFrame(gdf.drop(columns='geometry', errors='ignore'))
+        
         logger.info(f"Loaded {len(munis_df)} municipalities from geobr")
         
         # Load population data from SIDRA API
