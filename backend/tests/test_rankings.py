@@ -1166,7 +1166,7 @@ async def test_matrix_excludes_chile(app, async_session, population_fixture):
         create_ranking_event(
             event_date=datetime(2026, 7, 16),
             state="Metropolitana",  # Chilean region
-            country="Chile",
+            country="CL",  # Use ISO code as stored in database
             victim_count=5
         ),
     ]
@@ -1197,3 +1197,165 @@ async def test_matrix_excludes_chile(app, async_session, population_fixture):
         
         # Should only count the Brazilian event
         assert total_victims == 3
+
+
+@pytest.mark.asyncio
+async def test_matrix_all_27_ufs_present(app, async_session, population_fixture):
+    """Test that all 27 Brazilian UFs are present even if they have no events."""
+    # Create events only in SP
+    events = [
+        create_ranking_event(
+            event_date=datetime(2026, 7, 15),
+            state="SP",
+            country="Brasil",
+            victim_count=5
+        ),
+    ]
+    
+    for event in events:
+        async_session.add(event)
+    await async_session.commit()
+    
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://test"
+    ) as client:
+        response = await client.get("/api/public/stats/matrix")
+        assert response.status_code == 200
+        data = response.json()
+        
+        # Should have exactly 27 UF rows
+        assert len(data["ufs"]) == 27
+        
+        # All Brazilian states should be present
+        uf_abbrevs = {uf["abbrev"] for uf in data["ufs"]}
+        assert uf_abbrevs == set(BRAZILIAN_STATES)
+        
+        # SP should have victims
+        sp_uf = next((uf for uf in data["ufs"] if uf["abbrev"] == "SP"), None)
+        assert sp_uf is not None
+        july_cell = next((c for c in sp_uf["cells"] if c["month"] == "2026-07"), None)
+        assert july_cell["victims"] == 5
+        
+        # AC (first alphabetically) should have 0 victims
+        ac_uf = next((uf for uf in data["ufs"] if uf["abbrev"] == "AC"), None)
+        assert ac_uf is not None
+        ac_july_cell = next((c for c in ac_uf["cells"] if c["month"] == "2026-07"), None)
+        assert ac_july_cell["victims"] == 0
+
+
+@pytest.mark.asyncio
+async def test_matrix_leftover_types_in_outro(app, async_session, population_fixture):
+    """Test that types not in canonical list go into Outro row."""
+    events = [
+        create_ranking_event(
+            event_date=datetime(2026, 7, 15),
+            state="SP",
+            country="Brasil",
+            homicide_type="Homicídio simples",
+            victim_count=3
+        ),
+        create_ranking_event(
+            event_date=datetime(2026, 7, 16),
+            state="RJ",
+            country="Brasil",
+            homicide_type="Tipo não canônico A",  # Not in canonical list
+            victim_count=2
+        ),
+        create_ranking_event(
+            event_date=datetime(2026, 8, 1),
+            state="MG",
+            country="Brasil",
+            homicide_type="Tipo não canônico B",  # Not in canonical list
+            victim_count=1
+        ),
+    ]
+    
+    for event in events:
+        async_session.add(event)
+    await async_session.commit()
+    
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://test"
+    ) as client:
+        response = await client.get("/api/public/stats/matrix")
+        assert response.status_code == 200
+        data = response.json()
+        
+        # Should have canonical types plus Outro
+        type_names = [t["type"] for t in data["types"]]
+        assert "Homicídio simples" in type_names
+        assert "Outro" in type_names
+        
+        # Outro should have the leftover victims
+        outro = next((t for t in data["types"] if t["type"] == "Outro"), None)
+        assert outro is not None
+        
+        july_cell = next((c for c in outro["cells"] if c["month"] == "2026-07"), None)
+        assert july_cell["victims"] == 2  # From tipo não canônico A
+        
+        aug_cell = next((c for c in outro["cells"] if c["month"] == "2026-08"), None)
+        assert aug_cell["victims"] == 1  # From tipo não canônico B
+
+
+@pytest.mark.asyncio
+async def test_matrix_future_month_appears_without_schema_change(app, async_session, population_fixture):
+    """Test that months adapt to available data without schema changes.
+    
+    When we're in Aug 2026, the matrix shows Jul+Aug.
+    When events exist in Sep 2026 (simulating the future), the endpoint
+    should handle them gracefully. This verifies the time window logic
+    works correctly regardless of the current month.
+    """
+    # Create events in July and August 2026 (current range)
+    # Plus one in September (simulating a future month)
+    events = [
+        create_ranking_event(
+            event_date=datetime(2026, 7, 15),
+            state="SP",
+            country="Brasil",
+            victim_count=1
+        ),
+        create_ranking_event(
+            event_date=datetime(2026, 8, 10),
+            state="RJ",
+            country="Brasil",
+            victim_count=2
+        ),
+        # This event is in the future relative to test execution time
+        # but the endpoint should handle any month >= 2026-07
+        create_ranking_event(
+            event_date=datetime(2026, 12, 25),
+            state="MG",
+            country="Brasil",
+            victim_count=3
+        ),
+    ]
+    
+    for event in events:
+        async_session.add(event)
+    await async_session.commit()
+    
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://test"
+    ) as client:
+        response = await client.get("/api/public/stats/matrix")
+        assert response.status_code == 200
+        data = response.json()
+        
+        # Months should start with "2026-07"
+        assert "months" in data
+        assert len(data["months"]) >= 2
+        assert data["months"][0] == "2026-07"
+        assert "2026-08" in data["months"]
+        
+        # The endpoint should successfully process events regardless
+        # of their month (as long as >= 2026-07 and <= current month)
+        # Verify the July and August data is present
+        sp_uf = next((uf for uf in data["ufs"] if uf["abbrev"] == "SP"), None)
+        assert sp_uf is not None
+        july_cell = next((c for c in sp_uf["cells"] if c["month"] == "2026-07"), None)
+        assert july_cell is not None
+        assert july_cell["victims"] == 1

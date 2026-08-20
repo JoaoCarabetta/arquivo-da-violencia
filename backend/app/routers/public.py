@@ -945,17 +945,19 @@ async def get_stats_matrix(
                 state_population_data[state] = state_pop_data[code_state]
     
     # Build UF rows (sorted A-Z by abbrev)
+    # Always emit all 27 UFs, even if no population or no events
     ufs = []
     for state_abbrev in sorted(BRAZILIAN_STATES):
         pop_info = state_population_data.get(state_abbrev)
-        if not pop_info:
-            # Skip states without population data (shouldn't happen with full IBGE cache)
-            continue
         
         cells = []
         for month in months:
             victims = uf_month_victims[state_abbrev].get(month, 0)
-            rate = calculate_rate_per_100k(victims, pop_info["population"])
+            if pop_info:
+                rate = calculate_rate_per_100k(victims, pop_info["population"])
+            else:
+                # No population data: rate is None
+                rate = None
             cells.append({
                 "month": month,
                 "victims": victims,
@@ -965,7 +967,7 @@ async def get_stats_matrix(
         ufs.append({
             "abbrev": state_abbrev,
             "name": BRAZILIAN_STATE_NAMES.get(state_abbrev, state_abbrev),
-            "population": pop_info["population"],
+            "population": pop_info["population"] if pop_info else None,
             "cells": cells,
         })
     
@@ -980,22 +982,41 @@ async def get_stats_matrix(
     ]
     
     types = []
+    outro_month_victims = defaultdict(int)
+    
     for homicide_type in canonical_types:
-        if homicide_type not in type_month_victims:
-            # Include type with zero counts
-            cells = [{"month": month, "victims": 0} for month in months]
-        else:
-            cells = []
-            for month in months:
-                victims = type_month_victims[homicide_type].get(month, 0)
-                cells.append({
-                    "month": month,
-                    "victims": victims,
-                })
+        cells = []
+        for month in months:
+            victims = type_month_victims[homicide_type].get(month, 0)
+            cells.append({
+                "month": month,
+                "victims": victims,
+            })
         
         types.append({
             "type": homicide_type,
             "cells": cells,
+        })
+    
+    # Collect leftover types into "Outro"
+    for homicide_type, month_data in type_month_victims.items():
+        if homicide_type not in canonical_types:
+            for month, victims in month_data.items():
+                outro_month_victims[month] += victims
+    
+    # Add Outro row if there are any leftover victims
+    if outro_month_victims:
+        outro_cells = []
+        for month in months:
+            victims = outro_month_victims.get(month, 0)
+            outro_cells.append({
+                "month": month,
+                "victims": victims,
+            })
+        
+        types.append({
+            "type": "Outro",
+            "cells": outro_cells,
         })
     
     return {
