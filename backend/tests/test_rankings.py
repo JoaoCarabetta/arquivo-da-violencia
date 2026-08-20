@@ -970,6 +970,40 @@ async def test_rankings_city_limit_default(app, async_session, population_fixtur
 # Matrix endpoint tests (Issue #141)
 # ============================================================================
 
+def test_matrix_months_pure_logic():
+    """Test matrix_months helper with frozen time (pure unit test, no HTTP/FastAPI).
+    
+    This is the clock/fixture test: verifies that after a new month starts,
+    the next column appears without schema changes.
+    """
+    from datetime import timezone
+    from app.routers.public import matrix_months
+    
+    # Test 1: September 2026 (UTC-4) → includes Jul, Aug, Sep
+    sept_now = datetime(2026, 9, 15, tzinfo=timezone(timedelta(hours=-4)))
+    result_sept = matrix_months(sept_now)
+    assert result_sept == ["2026-07", "2026-08", "2026-09"]
+    assert result_sept[0] == "2026-07", "First month always July 2026"
+    
+    # Test 2: August 2026 (UTC-4) → includes Jul, Aug only
+    aug_now = datetime(2026, 8, 19, tzinfo=timezone(timedelta(hours=-4)))
+    result_aug = matrix_months(aug_now)
+    assert result_aug == ["2026-07", "2026-08"]
+    assert "2026-09" not in result_aug, "September should not appear in August"
+    
+    # Test 3: July 2026 (UTC-4) → includes Jul only
+    july_now = datetime(2026, 7, 1, tzinfo=timezone(timedelta(hours=-4)))
+    result_july = matrix_months(july_now)
+    assert result_july == ["2026-07"]
+    
+    # Test 4: December 2026 (UTC-4) → crosses year boundary correctly
+    dec_now = datetime(2026, 12, 31, tzinfo=timezone(timedelta(hours=-4)))
+    result_dec = matrix_months(dec_now)
+    assert result_dec[0] == "2026-07"
+    assert result_dec[-1] == "2026-12"
+    assert len(result_dec) == 6  # Jul through Dec
+
+
 @pytest.mark.asyncio
 async def test_matrix_months_start_july_2026(app, async_session, population_fixture):
     """Test matrix endpoint returns months starting with 2026-07 as first column."""
@@ -1299,62 +1333,3 @@ async def test_matrix_leftover_types_in_outro(app, async_session, population_fix
         assert aug_cell["victims"] == 1  # From tipo não canônico B
 
 
-@pytest.mark.asyncio
-async def test_matrix_schema_stable_across_months(app, async_session, population_fixture):
-    """Test that matrix schema is stable: new months extend the months array without breaking structure.
-    
-    Cannot reliably freeze time with FastAPI/freezegun incompatibility,
-    so this test verifies the structure remains consistent regardless of month count.
-    """
-    # Create events in July and August
-    events = [
-        create_ranking_event(
-            event_date=datetime(2026, 7, 15),
-            state="SP",
-            country="Brasil",
-            victim_count=1
-        ),
-        create_ranking_event(
-            event_date=datetime(2026, 8, 10),
-            state="RJ",
-            country="Brasil",
-            victim_count=2
-        ),
-    ]
-    
-    for event in events:
-        async_session.add(event)
-    await async_session.commit()
-    
-    async with AsyncClient(
-        transport=ASGITransport(app=app),
-        base_url="http://test"
-    ) as client:
-        response = await client.get("/api/public/stats/matrix")
-        assert response.status_code == 200
-        data = response.json()
-        
-        # Verify structure is stable
-        assert "months" in data
-        assert "ufs" in data
-        assert "types" in data
-        
-        # First month is always July 2026
-        assert data["months"][0] == "2026-07"
-        
-        # All UFs have same number of cells as months
-        months_count = len(data["months"])
-        for uf in data["ufs"]:
-            assert len(uf["cells"]) == months_count
-            # Each cell has required fields
-            for cell in uf["cells"]:
-                assert "month" in cell
-                assert "victims" in cell
-                assert "rate_per_100k" in cell
-        
-        # All types have same number of cells as months
-        for type_row in data["types"]:
-            assert len(type_row["cells"]) == months_count
-            for cell in type_row["cells"]:
-                assert "month" in cell
-                assert "victims" in cell

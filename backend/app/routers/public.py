@@ -821,6 +821,38 @@ async def get_rankings(
     return response
 
 
+def matrix_months(now: datetime) -> list[str]:
+    """Month keys from 2026-07 through the UTC-4 month of `now`.
+    
+    Args:
+        now: Current datetime in UTC-4 timezone
+        
+    Returns:
+        List of month strings like ["2026-07", "2026-08", ...]
+    """
+    MATRIX_START_YEAR = 2026
+    MATRIX_START_MONTH = 7
+    
+    # Extract year and month from the provided UTC-4 datetime
+    end_year = now.year
+    end_month = now.month
+    
+    months = []
+    current_year = MATRIX_START_YEAR
+    current_month = MATRIX_START_MONTH
+    
+    while (current_year < end_year) or (current_year == end_year and current_month <= end_month):
+        months.append(f"{current_year}-{current_month:02d}")
+        # Move to next month
+        if current_month == 12:
+            current_year += 1
+            current_month = 1
+        else:
+            current_month += 1
+    
+    return months
+
+
 @router.get("/stats/matrix")
 async def get_stats_matrix(
     session: AsyncSession = Depends(get_session),
@@ -876,8 +908,10 @@ async def get_stats_matrix(
     utc_minus_4 = timezone(timedelta(hours=-4))
     now_local = now_utc.astimezone(utc_minus_4)
     
-    # End of current month in UTC-4
-    # Move to first day of next month, then subtract one day
+    # Get month list using the pure helper
+    months = matrix_months(now_local)
+    
+    # End of current month in UTC-4 for query cutoff
     if now_local.month == 12:
         end_of_month = datetime(now_local.year + 1, 1, 1, tzinfo=utc_minus_4) - timedelta(seconds=1)
     else:
@@ -902,17 +936,6 @@ async def get_stats_matrix(
     
     result = await session.execute(query)
     events = result.scalars().all()
-    
-    # Build month list: "2026-07", "2026-08", etc.
-    months = []
-    current = MATRIX_START.replace(tzinfo=None)
-    while current <= end_date:
-        months.append(current.strftime("%Y-%m"))
-        # Move to next month
-        if current.month == 12:
-            current = current.replace(year=current.year + 1, month=1)
-        else:
-            current = current.replace(month=current.month + 1)
     
     # Aggregate by UF × month
     uf_month_victims = defaultdict(lambda: defaultdict(int))
