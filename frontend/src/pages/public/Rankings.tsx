@@ -3,7 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { ChevronDown, TrendingUp, TrendingDown, Minus, ArrowLeft } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { fetchRankings, fetchStatsMatrix } from '@/lib/api';
-import type { RankingRow, MatrixResponse } from '@/lib/api';
+import type { RankingRow } from '@/lib/api';
 import { useI18n } from '@/contexts/I18nContext';
 import { ArchiveLogo } from '@/components/portal/ArchiveLogo';
 import { LeftRail } from '@/components/portal/LeftRail';
@@ -181,7 +181,7 @@ function RankingTable({ title, rows, labelField, onRowClick, emptyMessage, showR
 }
 
 export function Rankings() {
-  const { t, lang } = useI18n();
+  const { t } = useI18n();
   const navigate = useNavigate();
   const isMobile = useIsMobile();
   
@@ -249,7 +249,7 @@ export function Rankings() {
     setMethodologyOpen(true);
   };
 
-  const handleSetMode = (mode: 'data') => {
+  const handleSetMode = () => {
     // Navigate to data page when user clicks the data link in methodology
     navigate('/dados');
   };
