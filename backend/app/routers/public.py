@@ -9,6 +9,8 @@ import math
 import csv
 import json  # For serializing merged_data
 import io
+from typing import Optional
+import time
 
 from app.database import get_session
 from app.models.unique_event import UniqueEvent
@@ -23,6 +25,11 @@ from app.services.public_filters import (
 from app.geography import COUNTRY_NAMES, BRAZILIAN_STATES
 
 router = APIRouter(prefix="/public", tags=["public"])
+
+# Simple cache for rankings endpoint (default 365d payload)
+# Invalidate on ingest or every 1 hour
+_rankings_cache: dict[str, tuple[dict, float]] = {}
+RANKINGS_CACHE_TTL = 3600  # 1 hour in seconds
 
 # Rolling window shared by the map, export, and temporal-scope note.
 PUBLIC_MAP_DAYS = 365
@@ -487,6 +494,17 @@ async def get_rankings(
         calculate_rate_per_100k,
     )
     
+    # Check cache for default 365d unfiltered request (before expensive aggregation)
+    cache_key = f"rankings_{days}_{country}_{city_limit}"
+    if cache_key in _rankings_cache:
+        cached_result, cached_time = _rankings_cache[cache_key]
+        # Check if cache is still valid (TTL)
+        if time.time() - cached_time < RANKINGS_CACHE_TTL:
+            return cached_result
+        else:
+            # Cache expired, remove it
+            del _rankings_cache[cache_key]
+    
     now = datetime.utcnow()
     current_start = now - timedelta(days=days)
     prev_start = now - timedelta(days=days * 2)
@@ -796,6 +814,9 @@ async def get_rankings(
     # Add population vintage if we have population data
     if population_vintage is not None:
         response["population_vintage"] = population_vintage
+    
+    # Cache the result (store current time for TTL check)
+    _rankings_cache[cache_key] = (response, time.time())
     
     return response
 
