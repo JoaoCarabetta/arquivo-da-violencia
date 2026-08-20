@@ -67,6 +67,11 @@ def derive_public_fields(event: ViolentDeathEvent) -> dict[str, Any]:
         if victim.political_role is not None and victim.political_role.is_politician_or_candidate
     ]
 
+    police_operation_force = None
+    if po and po.responsible_force:
+        force_stripped = po.responsible_force.strip()
+        police_operation_force = force_stripped[:100] if force_stripped else None
+
     return {
         "security_force_involved": derive_security_force_involved(event),
         "security_force_victim": derive_security_force_victim(event),
@@ -76,7 +81,7 @@ def derive_public_fields(event: ViolentDeathEvent) -> dict[str, Any]:
         "criminal_groups": _join_nonempty(cg.groups) if cg and cg.groups else None,
         "criminal_group_attacked": cg.group_attacked if cg else None,
         "police_operation_connected": po.connected if po else None,
-        "police_operation_force": po.responsible_force if po else None,
+        "police_operation_force": police_operation_force,
         "police_operation_targeted_armed_groups": po.targeted_armed_groups if po else None,
         "off_duty_police_perpetrator": dynamic.off_duty_police_perpetrator,
         "off_duty_police_context": dynamic.off_duty_police_context,
