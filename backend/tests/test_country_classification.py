@@ -55,3 +55,15 @@ class TestCountryClassificationHeuristics:
         """Chilean femicide is in-scope."""
         headline = "Femicidio en Santiago: mujer asesinada por ex pareja"
         assert not should_force_non_violent_death(headline)
+    
+    def test_guyanese_murder_is_in_scope(self):
+        """Guyana murder (English) is in-scope (not foreign)."""
+        headline = "Murder in Georgetown leaves one dead"
+        # Should NOT be forced to non-violent-death
+        assert not should_force_non_violent_death(headline)
+    
+    def test_suriname_moord_is_in_scope(self):
+        """Suriname moord (Dutch) is in-scope (not foreign)."""
+        headline = "Moord in Paramaribo: man doodgeschoten"
+        # Should NOT be forced to non-violent-death
+        assert not should_force_non_violent_death(headline)

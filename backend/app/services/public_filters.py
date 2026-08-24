@@ -29,7 +29,7 @@ def public_incident_criteria(country: str | None = None) -> tuple[ColumnElement,
                  - When "BR": only BR UFs or null
                  - When "CL": only CL regions or null
                  - When other SA country: no state filtering (regions not yet structured)
-                 - When None (default): allow all known SA regions (BR + CL) or null
+                 - When None (default): no state filtering (allow any state or null)
     """
     base_criteria = (
         UniqueEvent.event_family == "homicidio",
@@ -56,10 +56,9 @@ def public_incident_criteria(country: str | None = None) -> tuple[ColumnElement,
             # Country has no structured regions (AR, BO, CO, etc.): no state filtering
             return base_criteria
     else:
-        # No country filter (None): allow all known SA regions or null
-        return base_criteria + (
-            or_(UniqueEvent.state.in_(ALL_SA_REGIONS), UniqueEvent.state.is_(None)),
-        )
+        # No country filter (None): no state filtering (unfiltered SA view)
+        # Do NOT require state to be in any allowlist - AR/CO/etc. have their own state names
+        return base_criteria
 
 
 def apply_public_incident_filter(statement, country: str | None = None):

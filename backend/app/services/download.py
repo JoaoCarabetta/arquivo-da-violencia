@@ -80,10 +80,20 @@ async def _fetch_html(url: str) -> tuple[int, str]:
     can classify the reason.
     """
     settings = get_settings()
-    # Country-aware Accept-Language header (issue #129)
+    # Country-aware Accept-Language header (issue #129, #164)
+    # Default to Brazilian Portuguese
     accept_language = "pt-BR,pt;q=0.9,en;q=0.8"
-    if ".cl/" in url or url.endswith(".cl"):
-        accept_language = "es-CL,es;q=0.9,pt-BR;q=0.8,pt;q=0.7,en;q=0.6"
+    
+    # Spanish-speaking SA countries (.ar, .cl, .co, .ec, .py, .pe, .uy, .ve, .bo)
+    spanish_cctlds = [".ar", ".cl", ".co", ".ec", ".py", ".pe", ".uy", ".ve", ".bo"]
+    if any(f"{tld}/" in url or url.endswith(tld) for tld in spanish_cctlds):
+        accept_language = "es,es-419;q=0.9,pt-BR;q=0.8,pt;q=0.7,en;q=0.6"
+    # Guyana (.gy) - English
+    elif ".gy/" in url or url.endswith(".gy"):
+        accept_language = "en,en-US;q=0.9,es;q=0.8,pt;q=0.7"
+    # Suriname (.sr) - Dutch
+    elif ".sr/" in url or url.endswith(".sr"):
+        accept_language = "nl,nl-NL;q=0.9,en;q=0.8,pt;q=0.7"
 
     headers = {
         "User-Agent": settings.download_user_agent,

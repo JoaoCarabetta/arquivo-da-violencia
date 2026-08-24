@@ -42,15 +42,14 @@ class TestCountryGeocoding:
                     country="AR"
                 )
         
-        # Verify the API was called with region=ar
+        # Verify the API was called with region=ar literally
         call_args = mock_client.get.call_args
         assert call_args is not None
         params = call_args.kwargs.get("params", {})
         
-        # Check that region and language match Argentina config
-        config = get_country_config("AR")
-        assert params["region"] == config.geocode_region
-        assert params["language"] == config.geocode_language
+        # Assert literal values (not tautological config comparison)
+        assert params["region"] == "ar"
+        assert params["language"] == "es"
         assert "country:AR" in params.get("components", "")
     
     async def test_co_uses_region_co(self):
@@ -85,13 +84,12 @@ class TestCountryGeocoding:
                     country="CO"
                 )
         
-        # Verify the API was called with region=co
+        # Verify the API was called with region=co literally
         call_args = mock_client.get.call_args
         params = call_args.kwargs.get("params", {})
         
-        config = get_country_config("CO")
-        assert params["region"] == config.geocode_region
-        assert params["language"] == config.geocode_language
+        assert params["region"] == "co"
+        assert params["language"] == "es"
     
     async def test_br_still_uses_region_br(self):
         """Brazil geocoding still uses region=br (unchanged)."""
@@ -125,10 +123,9 @@ class TestCountryGeocoding:
                     country="BR"
                 )
         
-        # Verify the API was called with region=br
+        # Verify the API was called with region=br literally
         call_args = mock_client.get.call_args
         params = call_args.kwargs.get("params", {})
         
-        config = get_country_config("BR")
-        assert params["region"] == config.geocode_region
-        assert params["language"] == config.geocode_language
+        assert params["region"] == "br"
+        assert params["language"] == "pt"
