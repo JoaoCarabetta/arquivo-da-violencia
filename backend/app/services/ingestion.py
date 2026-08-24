@@ -14,29 +14,16 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 from app.database import async_session_maker
 from app.models import CityStats, SourceGoogleNews, SourceStatus
 from app.services.cities import (
-    BRAZILIAN_NEWS_SOURCES,
-    CITIES,
     DEFAULT_WHEN,
     REQUEST_INTERVAL_SECONDS,
     REQUESTS_PER_MINUTE,
     SHARDING_THRESHOLD,
 )
-from app.services.cities_chile import (
-    CHILEAN_CITIES,
-    CHILEAN_NEWS_SOURCES,
-    CHILEAN_QUERY_TERMS,
-    CHILE_GOOGLE_NEWS_PARAMS,
-)
 from app.geography import Country
+from app.country_registry import COUNTRY_CONFIGS, ALL_COUNTRIES, get_country_config
 
 # Google News RSS configuration
 GOOGLE_NEWS_BASE_URL = "https://news.google.com/rss/search"
-BRAZIL_PARAMS = {
-    "hl": "pt-BR",
-    "gl": "BR",
-    "ceid": "BR:pt-419",
-}
-CHILE_PARAMS = CHILE_GOOGLE_NEWS_PARAMS
 
 
 async def _resolved_url_exists(session: AsyncSession, resolved_url: str | None) -> bool:
@@ -62,10 +49,12 @@ def build_rss_url(query: str, when: str | None = "7d", country: Country = "BR") 
     if when:
         full_query = f"{query} when:{when}"
     
-    country_params = CHILE_PARAMS if country == "CL" else BRAZIL_PARAMS
+    config = get_country_config(country)
     params = {
         "q": full_query,
-        **country_params,
+        "hl": config.google_news_hl,
+        "gl": config.google_news_gl,
+        "ceid": config.google_news_ceid,
     }
     
     query_string = urllib.parse.urlencode(params, safe=":")
@@ -264,38 +253,34 @@ async def get_queries_for_city(
     """
     Get queries for a city based on its sharding status.
     
-    - Brazil standard mode: Single query "{city} when:{when}"
-    - Brazil sharded mode: One query per source "{city} when:{when} site:{source}"
-    - Chile standard mode: Single query "{city} when:{when} (term1 OR term2 OR ...)"
-    - Chile sharded mode: One query per source "{city} when:{when} site:{source} (term1 OR term2 OR ...)"
+    - Standard mode: Single query "{city} when:{when} (terms...)"
+    - Sharded mode: One query per source "{city} when:{when} site:{source} (terms...)"
     
-    Query cardinality (per hourly cycle):
-    - BR: 52 cities × 19 sources = 988 queries (worst case, all sharded)
-    - CL: 27 cities × 18 sources = 486 queries (worst case, all sharded)
-    - Combined worst case: 1,474 queries (~2 hours at 12 req/min rate limit)
-    - Adding Chilean terms does NOT increase query count (OR'd into existing queries)
+    Query terms:
+    - BR: No explicit terms (Brazilian context implicit)
+    - Other countries: Explicit homicide terms OR'd together from country config
     
     Args:
-        city: City name (with region for Chile, e.g., "Santiago Metropolitana")
+        city: City name (with region/state when helpful)
         session: Database session
         when: Time window
-        country: Country code (BR or CL)
+        country: Country code
     """
     stats = await get_or_create_city_stats(city, session)
     
-    news_sources = CHILEAN_NEWS_SOURCES if country == "CL" else BRAZILIAN_NEWS_SOURCES
+    config = get_country_config(country)
     
-    # Build homicide term filter for Chile
+    # Build homicide term filter (for non-BR countries)
     terms_filter = ""
-    if country == "CL":
+    if config.query_terms:
         # Combine terms with OR to keep query count bounded
         # Format: (term1 OR term2 OR term3)
-        terms_or = " OR ".join(CHILEAN_QUERY_TERMS)
+        terms_or = " OR ".join(config.query_terms)
         terms_filter = f" ({terms_or})"
     
     if stats.needs_sharding:
-        logger.info(f"[{city}] Using sharded mode ({len(news_sources)} sources)")
-        return [f"{city} when:{when} site:{src}{terms_filter}" for src in news_sources]
+        logger.info(f"[{city}] Using sharded mode ({len(config.outlets)} sources)")
+        return [f"{city} when:{when} site:{src}{terms_filter}" for src in config.outlets]
     else:
         logger.info(f"[{city}] Using standard mode")
         return [f"{city} when:{when}{terms_filter}"]
@@ -497,17 +482,18 @@ async def ingest_all_cities(
     Runs cities in PARALLEL with rate limiting.
     
     Args:
-        cities: List of cities to process (uses CITIES or CHILEAN_CITIES if None)
+        cities: List of cities to process (uses country config cities if None)
         when: Time filter (default "1h" for hourly ingestion)
         resolve_urls: Whether to resolve obfuscated URLs
         max_concurrent: Maximum concurrent city ingestions (default 10)
-        country: Country code (BR or CL)
+        country: Country code
     
     Returns:
         Summary dict with statistics
     """
     if cities is None:
-        cities = CHILEAN_CITIES if country == "CL" else CITIES
+        config = get_country_config(country)
+        cities = config.cities
     
     logger.info(f"Starting PARALLEL city ingestion for {len(cities)} cities in {country}")
     logger.info(f"Max concurrent: {max_concurrent}")
@@ -589,7 +575,9 @@ async def ingest_all_countries(
     max_concurrent: int = 10,
 ) -> dict:
     """
-    Ingest news for all configured cities across all countries (BR and CL).
+    Ingest news for all configured cities across all countries in the registry.
+    
+    Iterates the country registry and runs ingestion for all supported countries.
     
     Args:
         when: Time filter (default "1h" for hourly ingestion)
@@ -599,36 +587,40 @@ async def ingest_all_countries(
     Returns:
         Summary dict with statistics per country
     """
-    logger.info("Starting multi-country ingestion (BR + CL)")
+    logger.info(f"Starting multi-country ingestion ({len(ALL_COUNTRIES)} countries)")
     
     import time
     start_time = time.time()
     
-    # Run both countries in parallel
-    br_task = ingest_all_cities(
-        cities=None, 
-        when=when, 
-        resolve_urls=resolve_urls, 
-        max_concurrent=max_concurrent,
-        country="BR"
-    )
-    cl_task = ingest_all_cities(
-        cities=None,
-        when=when,
-        resolve_urls=resolve_urls,
-        max_concurrent=max_concurrent,
-        country="CL"
-    )
+    # Create ingestion tasks for all countries
+    tasks = []
+    for country_code in ALL_COUNTRIES:
+        task = ingest_all_cities(
+            cities=None,  # Use config cities
+            when=when,
+            resolve_urls=resolve_urls,
+            max_concurrent=max_concurrent,
+            country=country_code,
+        )
+        tasks.append(task)
     
-    br_result, cl_result = await asyncio.gather(br_task, cl_task)
+    # Run all countries in parallel
+    results = await asyncio.gather(*tasks)
     
     elapsed = time.time() - start_time
     
-    total_entries = br_result["total_entries"] + cl_result["total_entries"]
-    total_sources = br_result["total_sources_created"] + cl_result["total_sources_created"]
+    # Aggregate results
+    country_results = {}
+    total_entries = 0
+    total_sources = 0
+    
+    for country_code, result in zip(ALL_COUNTRIES, results):
+        country_results[country_code] = result
+        total_entries += result["total_entries"]
+        total_sources += result["total_sources_created"]
     
     logger.info(f"\n{'='*60}")
-    logger.info("MULTI-COUNTRY INGESTION COMPLETE")
+    logger.info(f"MULTI-COUNTRY INGESTION COMPLETE ({len(ALL_COUNTRIES)} countries)")
     logger.info(f"Total entries: {total_entries}")
     logger.info(f"Total sources: {total_sources}")
     logger.info(f"Time: {elapsed:.1f}s")
@@ -638,7 +630,6 @@ async def ingest_all_countries(
         "total_entries": total_entries,
         "total_sources_created": total_sources,
         "elapsed_seconds": elapsed,
-        "br": br_result,
-        "cl": cl_result,
+        "countries": country_results,
     }
 
