@@ -127,6 +127,9 @@ services:
     environment:
       - REDIS_URL=redis://redis:6379
       - DATABASE_URL=postgresql+asyncpg://arquivo:${POSTGRES_PASSWORD}@postgres:5432/arquivo_prod
+      # Pool settings: size 15 + overflow 15 = 30 max connections
+      # Sufficient for concurrent city ingest (max_concurrent=10) since sessions are
+      # released before HTTP fetches (Issue #168 fix)
       - DB_POOL_SIZE=15
       - DB_POOL_OVERFLOW=15
       - OPENROUTER_API_KEY=${OPENROUTER_API_KEY:-}
