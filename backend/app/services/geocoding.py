@@ -29,6 +29,7 @@ from sqlalchemy import text
 
 from app.config import get_settings
 from app.database import async_session_maker
+from app.country_registry import get_country_config, is_valid_country
 
 GEOCODE_URL = "https://maps.googleapis.com/maps/api/geocode/json"
 
@@ -208,23 +209,24 @@ async def geocode_address(
         logger.warning("[Geocode] GOOGLE_MAPS_API_KEY not set; skipping geocoding")
         return None
 
-    # Normalize country: CL, BR, or legacy "Brasil" → BR
+    # Normalize country: use ISO code, default to BR, handle legacy "Brasil"
     normalized_country = "BR"
     if country:
-        if country.upper() == "CL":
-            normalized_country = "CL"
-        elif country.upper() in ("BR", "BRASIL"):
+        country_upper = country.upper()
+        if country_upper == "BRASIL":
             normalized_country = "BR"
-
-    # Set region and language based on country
-    if normalized_country == "CL":
-        region_code = "cl"
-        language_code = "es"
-        country_component = "CL"
-    else:
-        region_code = "br"
-        language_code = "pt-BR"
-        country_component = "BR"
+        elif is_valid_country(country_upper):
+            normalized_country = country_upper
+        else:
+            # Unknown country, default to BR
+            logger.warning(f"[Geocode] Unknown country '{country}', defaulting to BR")
+            normalized_country = "BR"
+    
+    # Get geocoding params from country config
+    config = get_country_config(normalized_country)
+    region_code = config.geocode_region
+    language_code = config.geocode_language
+    country_component = config.code
 
     params = {
         "address": query,
