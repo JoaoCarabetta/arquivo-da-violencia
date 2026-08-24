@@ -1333,3 +1333,116 @@ async def test_matrix_leftover_types_in_outro(app, async_session, population_fix
         assert aug_cell["victims"] == 1  # From tipo não canônico B
 
 
+@pytest.mark.asyncio
+async def test_rankings_country_filter_iso_codes_issue_152(app, async_session):
+    """
+    Test rankings country filter with ISO codes (issue #152).
+    
+    - BR default (omit country field) should store as "BR"
+    - CL should match only CL events
+    - BR filter should include both new "BR" and legacy "Brasil" events
+    """
+    now = datetime.utcnow()
+    
+    # Create BR event with new default (omit country, should default to "BR")
+    br_event_new = UniqueEvent(
+        title="Evento no Brasil (novo default)",
+        event_date=now - timedelta(days=10),
+        # country omitted - should default to "BR"
+        state="SP",
+        city="São Paulo",
+        event_family="homicidio",
+        event_subtype="simples",
+        content_class="incident",
+        homicide_type="Homicídio simples",
+        method_of_death="Arma de fogo",
+        victim_count=2,
+        latitude=Decimal("-23.5505"),
+        longitude=Decimal("-46.6333"),
+        source_count=1,
+    )
+    
+    # Create legacy Brasil event (explicit "Brasil")
+    br_event_legacy = UniqueEvent(
+        title="Evento no Brasil (legado)",
+        event_date=now - timedelta(days=15),
+        country="Brasil",  # Legacy value
+        state="RJ",
+        city="Rio de Janeiro",
+        event_family="homicidio",
+        event_subtype="simples",
+        content_class="incident",
+        homicide_type="Homicídio simples",
+        method_of_death="Arma de fogo",
+        victim_count=3,
+        latitude=Decimal("-22.9068"),
+        longitude=Decimal("-43.1729"),
+        source_count=1,
+    )
+    
+    # Create CL event (explicit "CL")
+    cl_event = UniqueEvent(
+        title="Evento en Chile",
+        event_date=now - timedelta(days=12),
+        country="CL",
+        state="RM",
+        city="Santiago",
+        event_family="homicidio",
+        event_subtype="simples",
+        content_class="incident",
+        homicide_type="Homicídio simples",
+        method_of_death="Arma de fogo",
+        victim_count=1,
+        latitude=Decimal("-33.4489"),
+        longitude=Decimal("-70.6693"),
+        source_count=1,
+    )
+    
+    async_session.add_all([br_event_new, br_event_legacy, cl_event])
+    await async_session.commit()
+    await async_session.refresh(br_event_new)
+    
+    # Verify BR event defaulted to "BR" (not "Brasil")
+    assert br_event_new.country == "BR", f"Expected 'BR', got '{br_event_new.country}'"
+    
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://test"
+    ) as client:
+        # Test 1: Filter by CL should return only CL event
+        response_cl = await client.get("/api/public/stats/rankings?days=30&country=CL")
+        assert response_cl.status_code == 200
+        data_cl = response_cl.json()
+        
+        # Should count only CL event (1 victim)
+        assert data_cl["total_victims"] == 1, f"CL filter should count only CL event, got {data_cl['total_victims']} victims"
+        assert data_cl["total_events"] == 1, f"CL filter should count only CL event, got {data_cl['total_events']} events"
+        
+        # Cities should only include Santiago
+        assert len(data_cl["cities"]) == 1
+        assert data_cl["cities"][0]["city"] == "Santiago"
+        
+        # Test 2: Filter by BR should include both new BR and legacy "Brasil" events
+        response_br = await client.get("/api/public/stats/rankings?days=30&country=BR")
+        assert response_br.status_code == 200
+        data_br = response_br.json()
+        
+        # Should count both BR events (2 + 3 = 5 victims)
+        assert data_br["total_victims"] == 5, f"BR filter should count both BR and legacy Brasil events, got {data_br['total_victims']} victims"
+        assert data_br["total_events"] == 2, f"BR filter should count both BR and legacy Brasil events, got {data_br['total_events']} events"
+        
+        # Cities should include both São Paulo and Rio de Janeiro
+        assert len(data_br["cities"]) == 2
+        city_names = {city["city"] for city in data_br["cities"]}
+        assert city_names == {"São Paulo", "Rio de Janeiro"}
+        
+        # Test 3: No country filter should include all events
+        response_all = await client.get("/api/public/stats/rankings?days=30")
+        assert response_all.status_code == 200
+        data_all = response_all.json()
+        
+        # Should count all events (2 + 3 + 1 = 6 victims)
+        assert data_all["total_victims"] == 6
+        assert data_all["total_events"] == 3
+
+

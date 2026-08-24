@@ -208,7 +208,14 @@ def _build_export_query(
     query = query.where(UniqueEvent.event_date <= end)
 
     if country:
-        query = query.where(UniqueEvent.country == country.upper())
+        country_upper = country.upper()
+        # Treat legacy "Brasil" as "BR" for backward compatibility
+        if country_upper == "BR":
+            query = query.where(
+                (UniqueEvent.country == "BR") | (UniqueEvent.country == "Brasil")
+            )
+        else:
+            query = query.where(UniqueEvent.country == country_upper)
 
     state_filters = list(states or [])
     if state:
@@ -1447,6 +1454,7 @@ async def export_events(
     request: Request,
     session: AsyncSession = Depends(get_session),
     format: str = Query("csv", pattern="^(csv|json)$"),
+    country: str | None = None,
     state: str | None = None,
     states: list[str] | None = Query(None),
     cities: list[str] | None = Query(None),
