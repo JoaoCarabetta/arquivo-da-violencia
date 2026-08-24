@@ -1128,11 +1128,7 @@ async def create_unique_event_from_cluster(cluster: list[RawEvent]) -> UniqueEve
                 "event_date": best.event_date,
                 "date_precision": best.date_precision,
                 "time_of_day": best.time_of_day,
-<<<<<<< HEAD
                 "country": best.country or "BR",  # Use RawEvent country, default to BR
-=======
-                "country": "BR",
->>>>>>> 5fb8c3a (Fix UniqueEvent country default from 'Brasil' to 'BR' (issue #152))
                 "state": best.state,
                 "city": best.city,
                 "neighborhood": best.neighborhood,
