@@ -703,17 +703,20 @@ async def test_stats_with_multiple_fake_events(app, async_session):
             data = response.json()
             
             # Verify basic statistics
-            assert data["total"] == 13  # All 13 events should be counted
+            # Note: 13 events total, but "Tentativa de Homicídio" is excluded (event_family=tentativa, not homicidio)
+            # so we expect 12 homicide-family events
+            assert data["total"] == 12  # 12 homicide events (excludes tentativa)
             
             # Last 7 days should include events from last 7 days
-            # We have: 1 event (10 min ago) + 1 event (12h ago) + 1 event (6h ago) + 1 from 1 day ago + 1 from 3 days ago + 1 security force (2h ago) + 1 massacre (4h ago) = 7
-            assert data["last_7_days"] >= 7
-            assert data["last_7_days"] <= 7  # Exactly 7 events in last 7 days
+            # We have: 1 event (10 min ago) + 1 event (12h ago) + 1 from 1 day ago + 1 from 3 days ago + 1 security force (2h ago) + 1 massacre (4h ago) = 6
+            # (Tentativa event excluded)
+            assert data["last_7_days"] >= 6
+            assert data["last_7_days"] <= 6  # Exactly 6 homicide events in last 7 days
             
             # Last 30 days should include events from last 30 days
-            # We have: 7 from last 7 days + 1 from 8 days ago + 1 from 15 days ago = 9
-            assert data["last_30_days"] >= 9
-            assert data["last_30_days"] <= 9  # Exactly 9 events in last 30 days
+            # We have: 6 from last 7 days + 1 from 8 days ago + 1 from 15 days ago = 8
+            assert data["last_30_days"] >= 8
+            assert data["last_30_days"] <= 8  # Exactly 8 homicide events in last 30 days
             
             # Verify future events are excluded from time-based stats
             assert data["last_7_days"] < data["total"]  # Future events excluded
@@ -726,5 +729,5 @@ async def test_stats_with_multiple_fake_events(app, async_session):
             
             # Verify events outside 30 days are excluded
             # Event from 31 days ago should not be in last_30_days
-            assert data["last_30_days"] == 9  # Should not include the 31-day-old event
+            assert data["last_30_days"] == 8  # Should not include the 31-day-old event
 

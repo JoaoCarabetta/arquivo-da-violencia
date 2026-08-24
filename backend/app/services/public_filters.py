@@ -40,22 +40,41 @@ BR_UFS = frozenset(
     }
 )
 
-# Public archive: homicides only (event_family=homicidio), single incidents, BR scope.
+# Public archive: homicides only (event_family=homicidio), single incidents.
 
 
-def public_incident_criteria() -> tuple[ColumnElement, ...]:
-    """SQLAlchemy criteria for public homicide archive rows."""
-    return (
+def public_incident_criteria(country: str | None = None) -> tuple[ColumnElement, ...]:
+    """SQLAlchemy criteria for public homicide archive rows.
+    
+    Args:
+        country: Optional country filter. When BR or Brasil, applies BR UF allowlist.
+                 When CL or other non-BR countries, no state filtering is applied.
+                 When None, defaults to BR behavior for backward compatibility.
+    """
+    base_criteria = (
         UniqueEvent.event_family == "homicidio",
         UniqueEvent.content_class == "incident",
         UniqueEvent.victim_count <= 10,
-        or_(UniqueEvent.state.in_(BR_UFS), UniqueEvent.state.is_(None)),
     )
+    
+    # Apply Brazilian UF filter only for BR/Brasil or when no country specified (legacy default)
+    if country is None or country.upper() in ("BR", "BRASIL"):
+        return base_criteria + (
+            or_(UniqueEvent.state.in_(BR_UFS), UniqueEvent.state.is_(None)),
+        )
+    
+    # For non-BR countries (e.g. CL), don't filter by state
+    return base_criteria
 
 
-def apply_public_incident_filter(statement):
-    """Apply public homicide archive filters to a Select statement."""
-    for criterion in public_incident_criteria():
+def apply_public_incident_filter(statement, country: str | None = None):
+    """Apply public homicide archive filters to a Select statement.
+    
+    Args:
+        statement: SQLAlchemy Select statement
+        country: Optional country code for country-specific filtering
+    """
+    for criterion in public_incident_criteria(country):
         statement = statement.where(criterion)
     return statement
 

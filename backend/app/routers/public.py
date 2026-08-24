@@ -4,7 +4,7 @@ from datetime import datetime, timedelta
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func
+from sqlalchemy import select, func, or_
 import math
 import csv
 import json  # For serializing merged_data
@@ -222,7 +222,7 @@ def _build_export_query(
     if periods:
         query = query.where(UniqueEvent.time_of_day.in_(_expand_period_filters(periods)))
 
-    query = apply_public_incident_filter(query)
+    query = apply_public_incident_filter(query, country=country)
     return query.order_by(UniqueEvent.event_date.desc().nullslast())
 
 
@@ -342,6 +342,56 @@ async def get_public_stats(session: AsyncSession = Depends(get_session)):
         "last_7_days": last_7_days or 0,
         "last_30_days": last_30_days or 0,
         "since": since_date.isoformat()
+    }
+
+
+@router.get("/stats/rankings")
+async def get_rankings(
+    session: AsyncSession = Depends(get_session),
+    country: str = Query("BR", description="Country code (BR, CL, etc.)"),
+    days: int = Query(30, ge=1, le=3650, description="Time window in days"),
+):
+    """Get event and victim counts by country, with country-specific state filtering.
+    
+    For BR/Brasil: only includes events with valid Brazilian UF codes or null state.
+    For CL: includes all Chilean events regardless of state name.
+    For other countries: no state filtering applied.
+    """
+    now = datetime.utcnow()
+    cutoff = now - timedelta(days=days)
+    
+    # Build base query
+    query = select(UniqueEvent).where(
+        UniqueEvent.event_date >= cutoff,
+        UniqueEvent.event_date <= now,
+        UniqueEvent.event_date.isnot(None),
+    )
+    
+    # Filter by country
+    if country.upper() == "BRASIL":
+        # Legacy Brasil value maps to BR
+        query = query.where(
+            or_(UniqueEvent.country == "Brasil", UniqueEvent.country == "BR")
+        )
+    else:
+        query = query.where(UniqueEvent.country == country.upper())
+    
+    # Apply public incident criteria with country-specific state filtering
+    query = apply_public_incident_filter(query, country=country)
+    
+    # Execute query to get all matching events
+    result = await session.execute(query)
+    events = result.scalars().all()
+    
+    # Calculate totals
+    total_events = len(events)
+    total_victims = sum(e.victim_count or 0 for e in events)
+    
+    return {
+        "country": country.upper(),
+        "days": days,
+        "total_events": total_events,
+        "total_victims": total_victims,
     }
 
 
@@ -862,6 +912,7 @@ async def export_events(
     request: Request,
     session: AsyncSession = Depends(get_session),
     format: str = Query("csv", pattern="^(csv|json)$"),
+    country: str | None = None,
     state: str | None = None,
     states: list[str] | None = Query(None),
     cities: list[str] | None = Query(None),
