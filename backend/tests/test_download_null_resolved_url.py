@@ -54,24 +54,24 @@ async def test_db():
 
 
 @pytest.mark.asyncio
-async def test_download_skips_null_resolved_url(test_db):
+async def test_download_processes_null_resolved_url_with_late_resolution_success(test_db):
     """
-    RED TEST: Verify the bug exists.
+    Test that sources with NULL resolved_url are processed when late resolution succeeds.
     
     When a source has:
     - status = ready_for_download
-    - resolved_url = NULL
+    - resolved_url = NULL (initial decoder failure)
     - google_news_url present
     
-    download_classified_sources should process it, but currently skips it
-    due to the WHERE resolved_url IS NOT NULL filter.
+    And late resolution succeeds, the source should be:
+    - Processed (processed==1)
+    - resolved_url persisted to database
+    - Downloaded from the resolved URL
     """
-    # Create a source that simulates decoder failure:
-    # resolved_url is NULL but google_news_url is present
     source = SourceGoogleNews(
-        google_news_id="test-null-resolved",
+        google_news_id="test-null-resolved-success",
         google_news_url="https://news.google.com/articles/test123",
-        resolved_url=None,  # Decoder returned None
+        resolved_url=None,  # Initial decoder failure
         headline="Homem é morto a tiros em operação policial",
         status=SourceStatus.ready_for_download,
         is_violent_death=True,
@@ -81,14 +81,15 @@ async def test_download_skips_null_resolved_url(test_db):
     await test_db.commit()
     await test_db.refresh(source)
     
-    # Mock the download flow to prevent actual HTTP calls
     maker = _TestSessionMaker(test_db)
     html = "<html><body>Homem foi morto durante operação policial.</body></html>"
     content = "Homem foi morto durante operação policial."
+    resolved_url_result = "https://example.com/article-resolved"
     
     with (
         patch("app.services.download.async_session_maker", maker),
         patch("app.services.diagnostics.async_session_maker", maker),
+        patch("app.services.ingestion.resolve_google_news_url", return_value=resolved_url_result) as mock_resolve,
         patch("app.services.download._fetch_html", new=AsyncMock(return_value=(200, html))),
         patch("app.services.download.extract_content_and_metadata", return_value=(content, None)),
         patch("app.services.download.classify_article_content", new=AsyncMock()),
@@ -97,11 +98,72 @@ async def test_download_skips_null_resolved_url(test_db):
     ):
         result = await download_classified_sources(limit=10)
     
-    # THE BUG: This should process 1 source, but currently processes 0
-    # because the SQL filter excludes rows with resolved_url IS NULL
+    # Should process 1 source
+    assert result["processed"] == 1, f"Expected 1 processed, got {result['processed']}"
+    assert result["successful"] == 1, f"Expected 1 successful, got {result['successful']}"
+    
+    # Verify resolved_url was persisted
+    await test_db.refresh(source)
+    assert source.resolved_url == resolved_url_result, (
+        f"Expected resolved_url to be persisted as {resolved_url_result}, "
+        f"but got {source.resolved_url}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_download_processes_null_resolved_url_with_late_resolution_failure(test_db):
+    """
+    Test that sources with NULL resolved_url are still processed when late resolution fails.
+    
+    When a source has:
+    - status = ready_for_download
+    - resolved_url = NULL (initial decoder failure)
+    - google_news_url present
+    
+    And late resolution ALSO fails (returns None), the source should:
+    - Still be processed (processed==1) via fallback to google_news_url
+    - NOT skip the source
+    """
+    source = SourceGoogleNews(
+        google_news_id="test-null-resolved-failure",
+        google_news_url="https://news.google.com/articles/test456",
+        resolved_url=None,  # Initial decoder failure
+        headline="Tiroteio deixa dois mortos na Zona Norte",
+        status=SourceStatus.ready_for_download,
+        is_violent_death=True,
+    )
+    
+    test_db.add(source)
+    await test_db.commit()
+    await test_db.refresh(source)
+    
+    maker = _TestSessionMaker(test_db)
+    html = "<html><body>Dois mortos em tiroteio.</body></html>"
+    content = "Dois mortos em tiroteio."
+    
+    with (
+        patch("app.services.download.async_session_maker", maker),
+        patch("app.services.diagnostics.async_session_maker", maker),
+        patch("app.services.ingestion.resolve_google_news_url", return_value=None) as mock_resolve,  # Late resolution also fails
+        patch("app.services.download._fetch_html", new=AsyncMock(return_value=(200, html))),
+        patch("app.services.download.extract_content_and_metadata", return_value=(content, None)),
+        patch("app.services.download.classify_article_content", new=AsyncMock()),
+        patch("app.services.download.passes_content_gate", return_value=True),
+        patch("app.services.diagnostics.record_attempt", new=AsyncMock()),
+    ):
+        result = await download_classified_sources(limit=10)
+    
+    # Should still process 1 source (fallback to google_news_url)
     assert result["processed"] == 1, (
-        f"Expected to process 1 source with NULL resolved_url, "
-        f"but got {result['processed']}. This is the bug from issue #171."
+        f"Expected 1 processed via fallback to google_news_url, got {result['processed']}"
+    )
+    assert result["successful"] == 1, f"Expected 1 successful, got {result['successful']}"
+    
+    # Verify resolved_url is still NULL (late resolution failed)
+    await test_db.refresh(source)
+    assert source.resolved_url is None, (
+        f"Expected resolved_url to remain NULL when late resolution fails, "
+        f"but got {source.resolved_url}"
     )
 
 
