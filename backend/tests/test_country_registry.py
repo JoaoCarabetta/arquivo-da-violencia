@@ -87,3 +87,12 @@ class TestCountryRegistry:
         assert is_valid_country("AR")
         assert not is_valid_country("US")
         assert not is_valid_country("MX")
+    
+    def test_ingest_all_countries_includes_all_12_isos(self):
+        """ingest_all_countries iterates all 12 SA country codes."""
+        # Import here to avoid circular dependency issues
+        from app.services.ingestion import ALL_COUNTRIES as INGEST_ALL_COUNTRIES
+        
+        expected = {"AR", "BO", "BR", "CL", "CO", "EC", "GY", "PY", "PE", "SR", "UY", "VE"}
+        assert set(INGEST_ALL_COUNTRIES) == expected, \
+            f"ingest_all_countries should include all 12 ISOs, got: {sorted(INGEST_ALL_COUNTRIES)}"

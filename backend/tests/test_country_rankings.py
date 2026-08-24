@@ -129,14 +129,14 @@ class TestCountryRankings:
         assert cl_entry["victim_count"] >= 1
     
     async def test_rankings_no_country_filter_accepts_all_sa(self, async_session: AsyncSession):
-        """Rankings without country filter accepts all SA countries."""
-        # Create events from multiple SA countries
+        """Rankings without country filter accepts all SA countries, including non-BR/CL states."""
+        # Create events from multiple SA countries with their own state names
         br_event = UniqueEvent(
             event_family="homicidio",
             content_class="incident",
             event_date=datetime.utcnow() - timedelta(days=10),
             country="BR",
-            state="SP",
+            state="SP",  # Valid BR UF
             city="São Paulo",
             victim_count=1,
             latitude=-23.5505,
@@ -147,25 +147,39 @@ class TestCountryRankings:
             content_class="incident",
             event_date=datetime.utcnow() - timedelta(days=10),
             country="AR",
+            state="Buenos Aires",  # Argentine province (NOT a BR UF or CL region)
             city="Buenos Aires",
             victim_count=1,
             latitude=-34.6037,
             longitude=-58.3816,
         )
+        co_event = UniqueEvent(
+            event_family="homicidio",
+            content_class="incident",
+            event_date=datetime.utcnow() - timedelta(days=10),
+            country="CO",
+            state="Cundinamarca",  # Colombian department (NOT a BR UF or CL region)
+            city="Bogotá",
+            victim_count=1,
+            latitude=4.7110,
+            longitude=-74.0721,
+        )
         async_session.add(br_event)
         async_session.add(ar_event)
+        async_session.add(co_event)
         await async_session.commit()
         
-        # Query rankings without country filter
+        # Query rankings without country filter (unfiltered SA view)
         client = TestClient(app)
         response = client.get("/public/stats/rankings?days=30")
         
         assert response.status_code == 200
         data = response.json()
         
-        # Should have both countries in the countries list
+        # Should have all three countries in the countries list
         countries = data["current_period"]["countries"]
         country_names = [c["name"] for c in countries]
         
         assert "Brasil" in country_names
         assert "Argentina" in country_names
+        assert "Colombia" in country_names
