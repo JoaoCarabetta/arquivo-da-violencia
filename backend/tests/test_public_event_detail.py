@@ -17,7 +17,7 @@ def _base_event(**kwargs) -> UniqueEvent:
         event_date=datetime(2026, 4, 20, 12, 0, 0),
         state="PR",
         city="Curitiba",
-        country="Brasil",
+        country="BR",
         street="Rua das Flores",
         neighborhood="Centro",
         latitude=Decimal("-25.4293"),
@@ -50,7 +50,7 @@ async def test_public_event_detail_includes_dictionary_fields(
 
     assert response.status_code == 200
     data = response.json()
-    assert data["country"] == "Brasil"
+    assert data["country"] == "BR"
     assert data["street"] == "Rua das Flores"
     assert data["location_precision"] == "approximate"
     assert data["perpetrator_count"] == 1

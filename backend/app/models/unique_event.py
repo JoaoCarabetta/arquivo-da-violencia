@@ -25,7 +25,7 @@ class UniqueEventBase(SQLModel):
     time_of_day: str | None = Field(default=None, max_length=20)
     
     # === Location (extracted) ===
-    country: str | None = Field(default="Brasil", max_length=100)
+    country: str | None = Field(default="BR", max_length=100)
     state: str | None = Field(default=None, max_length=50, index=True)
     city: str | None = Field(default=None, max_length=100, index=True)
     neighborhood: str | None = Field(default=None, max_length=100)

@@ -102,7 +102,7 @@ async def seed_events(count: int, seed: int) -> int:
                 content_class="incident",
                 event_date=event_date,
                 time_of_day=rng.choice(PERIODS),
-                country="Brasil",
+                country="BR",
                 state=state,
                 city=city,
                 neighborhood=rng.choice(NEIGHBORHOODS),
