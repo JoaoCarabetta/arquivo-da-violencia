@@ -131,7 +131,7 @@ def build_address_query(event) -> str | None:
         getattr(event, "neighborhood", None),
         getattr(event, "city", None),
         getattr(event, "state", None),
-        getattr(event, "country", None) or "Brasil",
+        getattr(event, "country", None) or "BR",
     ]
     return ", ".join(p for p in parts if p)
 
