@@ -12,7 +12,10 @@ class TestCountryGeocoding:
     
     async def test_ar_uses_region_ar(self):
         """Argentina geocoding uses region=ar."""
-        mock_response = AsyncMock()
+        from unittest.mock import Mock
+        
+        # Create mock response (json() is sync in httpx, not async)
+        mock_response = Mock()
         mock_response.json.return_value = {
             "status": "OK",
             "results": [{
@@ -25,12 +28,12 @@ class TestCountryGeocoding:
                 "types": ["locality", "political"],
             }],
         }
-        mock_response.raise_for_status = AsyncMock()
+        mock_response.raise_for_status = Mock()
         
         mock_client = AsyncMock()
-        mock_client.get.return_value = mock_response
-        mock_client.__aenter__.return_value = mock_client
-        mock_client.__aexit__.return_value = AsyncMock()
+        mock_client.get = AsyncMock(return_value=mock_response)
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock()
         
         with patch("app.services.geocoding.httpx.AsyncClient", return_value=mock_client):
             with patch("app.services.geocoding.get_settings") as mock_settings:
@@ -39,7 +42,8 @@ class TestCountryGeocoding:
                 result = await geocode_address(
                     "Buenos Aires, Argentina",
                     input_granularity=PRECISION_CITY,
-                    country="AR"
+                    country="AR",
+                    restrict_country=True  # Must be True to set components
                 )
         
         # Verify the API was called with region=ar literally
@@ -50,11 +54,15 @@ class TestCountryGeocoding:
         # Assert literal values (not tautological config comparison)
         assert params["region"] == "ar"
         assert params["language"] == "es"
-        assert "country:AR" in params.get("components", "")
+        # Only check components when restrict_country=True
+        assert params.get("components") == "country:AR"
     
     async def test_co_uses_region_co(self):
         """Colombia geocoding uses region=co."""
-        mock_response = AsyncMock()
+        from unittest.mock import Mock
+        
+        # Create mock response (json() is sync in httpx)
+        mock_response = Mock()
         mock_response.json.return_value = {
             "status": "OK",
             "results": [{
@@ -67,12 +75,12 @@ class TestCountryGeocoding:
                 "types": ["locality", "political"],
             }],
         }
-        mock_response.raise_for_status = AsyncMock()
+        mock_response.raise_for_status = Mock()
         
         mock_client = AsyncMock()
-        mock_client.get.return_value = mock_response
-        mock_client.__aenter__.return_value = mock_client
-        mock_client.__aexit__.return_value = AsyncMock()
+        mock_client.get = AsyncMock(return_value=mock_response)
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock()
         
         with patch("app.services.geocoding.httpx.AsyncClient", return_value=mock_client):
             with patch("app.services.geocoding.get_settings") as mock_settings:
@@ -93,7 +101,10 @@ class TestCountryGeocoding:
     
     async def test_br_still_uses_region_br(self):
         """Brazil geocoding still uses region=br (unchanged)."""
-        mock_response = AsyncMock()
+        from unittest.mock import Mock
+        
+        # Create mock response (json() is sync in httpx)
+        mock_response = Mock()
         mock_response.json.return_value = {
             "status": "OK",
             "results": [{
@@ -106,12 +117,12 @@ class TestCountryGeocoding:
                 "types": ["locality", "political"],
             }],
         }
-        mock_response.raise_for_status = AsyncMock()
+        mock_response.raise_for_status = Mock()
         
         mock_client = AsyncMock()
-        mock_client.get.return_value = mock_response
-        mock_client.__aenter__.return_value = mock_client
-        mock_client.__aexit__.return_value = AsyncMock()
+        mock_client.get = AsyncMock(return_value=mock_response)
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock()
         
         with patch("app.services.geocoding.httpx.AsyncClient", return_value=mock_client):
             with patch("app.services.geocoding.get_settings") as mock_settings:

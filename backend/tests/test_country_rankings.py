@@ -2,20 +2,19 @@
 
 import pytest
 from datetime import datetime, timedelta
-from fastapi.testclient import TestClient
+from httpx import AsyncClient
 from sqlmodel import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.unique_event import UniqueEvent
-from main import app
 
 
 @pytest.mark.asyncio
 class TestCountryRankings:
     """Test rankings endpoint with multi-country support."""
     
-    async def test_rankings_ar_counts_argentine_event(self, async_session: AsyncSession):
-        """Rankings?country=AR counts an event with non-BR state."""
+    async def test_rankings_ar_counts_argentine_event(self, async_session: AsyncSession, client: AsyncClient):
+        """Rankings?country=AR counts an event with non-BR state (red test first)."""
         # Create an Argentine event with a non-BR state name
         event = UniqueEvent(
             event_family="homicidio",
@@ -31,9 +30,8 @@ class TestCountryRankings:
         async_session.add(event)
         await async_session.commit()
         
-        # Query rankings for Argentina
-        client = TestClient(app)
-        response = client.get("/public/stats/rankings?country=AR&days=30")
+        # Query rankings for Argentina only
+        response = await client.get("/public/stats/rankings?country=AR&days=30")
         
         assert response.status_code == 200
         data = response.json()
@@ -42,13 +40,13 @@ class TestCountryRankings:
         assert "current_period" in data
         assert "countries" in data["current_period"]
         
-        # Argentina should appear in countries list
+        # Argentina should appear in countries list with at least 1 victim
         countries = data["current_period"]["countries"]
         ar_entry = next((c for c in countries if c["name"] == "Argentina"), None)
-        assert ar_entry is not None
-        assert ar_entry["victim_count"] >= 1
+        assert ar_entry is not None, "Argentina not found in rankings"
+        assert ar_entry["victim_count"] >= 1, f"Expected at least 1 victim for AR, got {ar_entry['victim_count']}"
     
-    async def test_rankings_br_excludes_non_br_states(self, async_session: AsyncSession):
+    async def test_rankings_br_excludes_non_br_states(self, async_session: AsyncSession, client: AsyncClient):
         """Rankings?country=BR excludes events with non-BR state names."""
         # Create a BR event with a valid BR state
         br_event = UniqueEvent(
@@ -81,8 +79,7 @@ class TestCountryRankings:
         await async_session.commit()
         
         # Query rankings for Brazil only
-        client = TestClient(app)
-        response = client.get("/public/stats/rankings?country=BR&days=30")
+        response = await client.get("/public/stats/rankings?country=BR&days=30")
         
         assert response.status_code == 200
         data = response.json()
@@ -98,7 +95,7 @@ class TestCountryRankings:
         ba_entry = next((s for s in states if "Buenos Aires" in str(s.get("name", ""))), None)
         assert ba_entry is None
     
-    async def test_rankings_cl_allows_chilean_regions(self, async_session: AsyncSession):
+    async def test_rankings_cl_allows_chilean_regions(self, async_session: AsyncSession, client: AsyncClient):
         """Rankings?country=CL allows Chilean region names."""
         # Create a Chilean event with a Chilean region
         event = UniqueEvent(
@@ -116,8 +113,7 @@ class TestCountryRankings:
         await async_session.commit()
         
         # Query rankings for Chile
-        client = TestClient(app)
-        response = client.get("/public/stats/rankings?country=CL&days=30")
+        response = await client.get("/public/stats/rankings?country=CL&days=30")
         
         assert response.status_code == 200
         data = response.json()
@@ -128,7 +124,7 @@ class TestCountryRankings:
         assert cl_entry is not None
         assert cl_entry["victim_count"] >= 1
     
-    async def test_rankings_no_country_filter_accepts_all_sa(self, async_session: AsyncSession):
+    async def test_rankings_no_country_filter_accepts_all_sa(self, async_session: AsyncSession, client: AsyncClient):
         """Rankings without country filter accepts all SA countries, including non-BR/CL states."""
         # Create events from multiple SA countries with their own state names
         br_event = UniqueEvent(
@@ -170,8 +166,7 @@ class TestCountryRankings:
         await async_session.commit()
         
         # Query rankings without country filter (unfiltered SA view)
-        client = TestClient(app)
-        response = client.get("/public/stats/rankings?days=30")
+        response = await client.get("/public/stats/rankings?days=30")
         
         assert response.status_code == 200
         data = response.json()

@@ -476,7 +476,8 @@ async def get_security_force_stats(session: AsyncSession = Depends(get_session))
 async def get_rankings(
     session: AsyncSession = Depends(get_session),
     days: int = Query(365, ge=1, le=3650, description="Only events in the last N days"),
-    country: str | None = Query(None, description="Filter by country: BR, CL, or omit for both"),
+    country: str | None = Query(None, description="Filter by country ISO (AR, BO, BR, CL, CO, EC, GY, PY, PE, SR, UY, VE) or omit for all SA"),
+    city_limit: int | None = Query(50, ge=1, le=10000, description="Limit number of cities returned (default 50 for fast load)"),
 ):
     """
     Get rankings of cities, states/regions, countries, homicide types, and methods of death
@@ -500,15 +501,20 @@ async def get_rankings(
             country=country  # Pass country for state filtering
         )
         if country:
-            # Match canonical codes (BR, CL) and legacy "Brasil" for BR
-            if country.upper() == "BR":
+            country_upper = country.upper()
+            # Handle legacy "Brasil" → BR
+            if country_upper == "BRASIL":
+                country_upper = "BR"
+            
+            # Filter by country for any registry ISO
+            if country_upper == "BR":
                 # BR matches both canonical "BR" and legacy "Brasil"
                 query = query.where(
                     (UniqueEvent.country == "BR") | (UniqueEvent.country == "Brasil")
                 )
-            elif country.upper() == "CL":
-                # CL matches canonical "CL" stored value
-                query = query.where(UniqueEvent.country == "CL")
+            else:
+                # All other countries: match ISO code exactly
+                query = query.where(UniqueEvent.country == country_upper)
         return query
     
     current_query = build_query(current_start, now)
