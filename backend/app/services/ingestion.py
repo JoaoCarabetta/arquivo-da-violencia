@@ -387,30 +387,30 @@ async def ingest_city(
     Returns:
         Tuple of (new sources created, total entries fetched)
     """
-    all_entries = []
-    
+    # Get queries (short-lived session, no HTTP inside)
     async with async_session_maker() as session:
-        # Get queries based on sharding status
         queries = await get_queries_for_city(city, session, when, country)
+    
+    # Fetch all queries with rate limiting (NO DB connection held during HTTP)
+    all_entries = []
+    for query in queries:
+        # Rate limited fetch (when is already in the query string)
+        entries = await rate_limited_fetch(query, when=None, country=country)
         
-        # Fetch all queries with rate limiting
-        for query in queries:
-            # Rate limited fetch (when is already in the query string)
-            entries = await rate_limited_fetch(query, when=None, country=country)
-            
-            # Tag entries with their query and city
-            for entry in entries:
-                entry["_search_query"] = query
-                entry["_city"] = city
-                entry["_country"] = country
-            
-            all_entries.extend(entries)
-            logger.info(f"  Query '{query[:50]}...' returned {len(entries)} entries")
+        # Tag entries with their query and city
+        for entry in entries:
+            entry["_search_query"] = query
+            entry["_city"] = city
+            entry["_country"] = country
         
-        total_count = len(all_entries)
-        logger.info(f"[{city}] Total entries: {total_count}")
-        
-        # Update city stats (this may enable sharding for next run)
+        all_entries.extend(entries)
+        logger.info(f"  Query '{query[:50]}...' returned {len(entries)} entries")
+    
+    total_count = len(all_entries)
+    logger.info(f"[{city}] Total entries: {total_count}")
+    
+    # Update city stats (short-lived session)
+    async with async_session_maker() as session:
         await update_city_stats(city, total_count, session)
     
     # Now save the entries to database (one savepoint per row so parallel city
