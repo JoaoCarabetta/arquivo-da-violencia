@@ -4,7 +4,7 @@ from sqlalchemy import ColumnElement, or_
 
 from app.models.unique_event import UniqueEvent
 from app.taxonomy import SUBTYPES_BY_FAMILY, parse_legacy_homicide_type
-from app.geography import BRAZILIAN_STATES, CHILEAN_REGIONS
+from app.geography import BRAZILIAN_STATES, CHILEAN_REGIONS, get_regions_for_country
 
 _HOMICIDIO_SUBTYPES = SUBTYPES_BY_FAMILY["homicidio"]
 
@@ -14,6 +14,10 @@ BR_UFS = frozenset(BRAZILIAN_STATES)
 # Chilean regions (regiones)
 CL_REGIONS = frozenset(CHILEAN_REGIONS)
 
+# All South American regions (BR states + CL regions)
+# For other countries without structured regions, no state filtering applies yet
+ALL_SA_REGIONS = BR_UFS.union(CL_REGIONS)
+
 # Public archive: homicides only (event_family=homicidio), single incidents.
 
 
@@ -21,10 +25,11 @@ def public_incident_criteria(country: str | None = None) -> tuple[ColumnElement,
     """SQLAlchemy criteria for public homicide archive rows.
     
     Args:
-        country: Optional country filter for state allowlist.
-                 - When "BR" or "Brasil": only BR UFs or null
-                 - When "CL": no state filtering (all Chilean regions allowed)
-                 - When None (default): allow both BR UFs and CL regions (for unfiltered queries)
+        country: Optional country filter for state/region allowlist.
+                 - When "BR": only BR UFs or null
+                 - When "CL": only CL regions or null
+                 - When other SA country: no state filtering (regions not yet structured)
+                 - When None (default): no state filtering (allow any state or null)
     """
     base_criteria = (
         UniqueEvent.event_family == "homicidio",
@@ -33,20 +38,27 @@ def public_incident_criteria(country: str | None = None) -> tuple[ColumnElement,
     )
     
     # Apply country-specific state filtering
-    if country is not None and country.upper() == "CL":
-        # CL: no state filtering (allow all Chilean regions)
-        return base_criteria
-    elif country is not None and country.upper() in ("BR", "BRASIL"):
-        # BR/Brasil explicit: only allow valid Brazilian UFs or null
-        return base_criteria + (
-            or_(UniqueEvent.state.in_(BR_UFS), UniqueEvent.state.is_(None)),
-        )
+    if country is not None:
+        country_upper = country.upper()
+        # Handle legacy "Brasil" → "BR"
+        if country_upper == "BRASIL":
+            country_upper = "BR"
+        
+        # Get regions for this country
+        country_regions = get_regions_for_country(country_upper)
+        
+        if country_regions:
+            # Country has structured regions (BR or CL): filter by them
+            return base_criteria + (
+                or_(UniqueEvent.state.in_(country_regions), UniqueEvent.state.is_(None)),
+            )
+        else:
+            # Country has no structured regions (AR, BO, CO, etc.): no state filtering
+            return base_criteria
     else:
-        # No country filter (None): allow both BR UFs and CL regions or null (default for mixed queries)
-        valid_states = BR_UFS.union(CL_REGIONS)
-        return base_criteria + (
-            or_(UniqueEvent.state.in_(valid_states), UniqueEvent.state.is_(None)),
-        )
+        # No country filter (None): no state filtering (unfiltered SA view)
+        # Do NOT require state to be in any allowlist - AR/CO/etc. have their own state names
+        return base_criteria
 
 
 def apply_public_incident_filter(statement, country: str | None = None):

@@ -78,18 +78,20 @@ _AGGREGATE_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
 )
 
 # Foreign disasters / clearly out-of-scope geography in the body.
+# Note: South American countries (AR, BO, BR, CL, CO, EC, GY, PY, PE, SR, UY, VE)
+# are NOT foreign - they are in-scope for this pipeline.
 _FOREIGN_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
     (
         "foreign_earthquake",
         re.compile(
-            r"\bterremoto.{0,80}\b(venezuela|turquia|turkey|m[eé]xico|haiti|afeganist[aã]o)\b",
+            r"\bterremoto.{0,80}\b(turquia|turkey|m[eé]xico|haiti|afeganist[aã]o|jap[aã]o|nepal)\b",
             re.IGNORECASE,
         ),
     ),
     (
         "foreign_country_disaster",
         re.compile(
-            r"\b(desastre|terremoto|tsunami|guerra).{0,40}\b(venezuela|ucr[aâ]nia|gaza|s[ií]ria|sud[aã]o)\b",
+            r"\b(desastre|terremoto|tsunami|guerra).{0,40}\b(ucr[aâ]nia|gaza|s[ií]ria|sud[aã]o|iraq|iraque)\b",
             re.IGNORECASE,
         ),
     ),
@@ -97,8 +99,7 @@ _FOREIGN_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
         "foreign_mass_shooting",
         re.compile(
             r"\b(atirador|tiroteio|mass\s+shooting|tiroteo).{0,40}"
-            r"\b(eua|estados\s+unidos|texas|california|paris|londres|"
-            r"m[eé]xico|argentina|per[uú]|colombia|bolivia)\b",
+            r"\b(eua|estados\s+unidos|texas|california|florida|paris|londres|nova\s+zel[aâ]ndia)\b",
             re.IGNORECASE,
         ),
     ),

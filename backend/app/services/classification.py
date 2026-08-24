@@ -21,21 +21,25 @@ class ViolentDeathClassification(BaseModel):
     is_violent_death: bool = Field(
         ...,
         description="""
-        TRUE only if the headline is about one or more NEW violent deaths in Brazil or Chile
-        (homicides, murders, killings, police operations with deaths).
+        TRUE only if the headline is about one or more NEW violent deaths in South America
+        (AR, BO, BR, CL, CO, EC, GY, PY, PE, SR, UY, VE) — homicides, murders, killings,
+        police operations with deaths.
 
         Examples of TRUE:
-        - "Homem é morto a tiros em operação policial" (Brazil)
-        - "Corpo é encontrado com marcas de violência" (Brazil)
-        - "Tiroteio deixa dois mortos na Zona Norte" (Brazil)
-        - "Mulher é assassinada pelo ex-marido" (Brazil)
-        - "Hombre asesinado en operativo policial en Santiago" (Chile)
+        - "Homem é morto a tiros em operação policial" (Brazil, PT)
+        - "Corpo é encontrado com marcas de violência" (Brazil, PT)
+        - "Tiroteio deixa dois mortos na Zona Norte" (Brazil, PT)
+        - "Mulher é assassinada pelo ex-marido" (Brazil, PT)
+        - "Hombre asesinado en operativo policial en Santiago" (Chile, ES)
+        - "Homicidio en Buenos Aires deja dos muertos" (Argentina, ES)
+        - "Murder in Georgetown leaves one dead" (Guyana, EN)
+        - "Moord in Paramaribo: man doodgeschoten" (Suriname, NL)
 
         Examples of FALSE:
         - "Polícia prende suspeito de roubo"
         - "Homem sobrevive após ser baleado"
         - "Vítima de facadas chora no julgamento do agressor" (victim alive)
-        - "Atirador em massa no Texas recebe pena de morte" (foreign: outside BR/CL)
+        - "Atirador em massa no Texas recebe pena de morte" (foreign: outside SA)
         - "Operação apreende drogas e armas"
         """
     )
@@ -84,32 +88,33 @@ class ViolentDeathClassification(BaseModel):
 # System prompt for classification
 CLASSIFICATION_SYSTEM_PROMPT = """
 Você é um classificador de manchetes de notícias do Google News. Sua tarefa é:
-1. Determinar se a manchete indica NOTÍCIA sobre MORTE(S) VIOLENTA(S) no Brasil ou no Chile.
+1. Determinar se a manchete indica NOTÍCIA sobre MORTE(S) VIOLENTA(S) na América do Sul.
 2. Determinar se descreve UM ÚNICO INCIDENTE específico (is_single_incident).
 
-Este filtro alimenta um arquivo de violência que cobre Brasil e Chile. Manchetes sobre mortes
-violentas em outros países NÃO entram, mesmo que mencionem tiroteio, guerra ou assassinato.
+Este filtro alimenta um arquivo de violência que cobre toda a América do Sul (Argentina, Bolívia,
+Brasil, Chile, Colômbia, Equador, Guiana, Paraguai, Peru, Suriname, Uruguai, Venezuela).
+Manchetes sobre mortes violentas FORA da América do Sul NÃO entram (EUA, México, Europa, etc.).
 
 CLASSIFIQUE COMO MORTE VIOLENTA (is_violent_death = true):
-- Morte violenta no Brasil ou Chile: morto(s), assassinado(s), executado(s), baleado(s) MORTO
-  (PT: morto, assassinado, baleado; ES: asesinado, muerto, baleado)
+- Morte violenta em qualquer país sul-americano: morto(s), assassinado(s), executado(s), baleado(s) MORTO
+  (PT: morto, assassinado, baleado; ES: asesinado, muerto, baleado; EN: murdered, killed, shot dead; NL: doodgeschoten, vermoord)
 - Corpo, restos mortais ou ossada encontrados com indícios de violência
 - Tiroteio/confronto/operação policial que deixa mortos (inclui jargão: "neutralizado",
   "CPF cancelado" no sentido de pessoa morta)
-  (ES: operativos de Carabineros, PDI — forças policiais chilenas)
+  (ES: operativos policiales, balacera; EN: police shooting, gunfire; NL: schietpartij)
 - Feminicídio, latrocínio, homicídio, chacina, execução
-  (ES: femicidio, homicidio, asesinato, balacera)
+  (ES: femicidio, homicidio, asesinato, sicariato; EN: murder, homicide, killing; NL: moord, doodslag)
 - Vítima que MORRE: "não resistiu aos ferimentos", "morre após ser baleado"
-  (ES: "no resistió", "murió tras", "falleció")
+  (ES: "no resistió", "murió tras", "falleció"; EN: "died after", "succumbed"; NL: "overleed")
 - Letalidade implícita: "crivado de balas", "CPF cancelado", "tombou/tombaram",
   "não deixa sobreviventes", "linchado até parar de respirar" — trate como morte violenta
   salvo se a manchete indicar sobrevivência (ferido, hospital, quadro estável)
 
 NÃO CLASSIFIQUE COMO MORTE VIOLENTA (is_violent_death = false):
-- Eventos FORA do Brasil e do Chile (EUA, Europa, Rússia, Ucrânia, México, etc.), mesmo com mortes
+- Eventos FORA da América do Sul (EUA, México, Europa, Rússia, Ucrânia, África, Ásia, etc.), mesmo com mortes
 - Vítima VIVA: sobrevive, ferido(s), hospitalizado, chora, presta depoimento, "vítima de
   X facadas" no julgamento (sobrevivente), tentativa de homicídio sem morte
-  (ES: sobrevivió, herido, hospitalizado)
+  (ES: sobrevivió, herido, hospitalizado; EN: survived, injured, hospitalized; NL: gewond, ziekenhuis)
 - Tiroteio, operação ou confronto SEM menção a morte ou feridos mortos
 - Prisões, mandados, julgamentos, pena de morte como sentença judicial (notícia jurídica)
 - Apreensões de armas/drogas, políticas de segurança
@@ -118,14 +123,17 @@ NÃO CLASSIFIQUE COMO MORTE VIOLENTA (is_violent_death = false):
 - Arsenal apreendido para crimes futuros (crime frustrado, sem morte na notícia)
 
 INCIDENTE ÚNICO (is_single_incident = true):
-- Um homicídio ou tiroteio específico no Brasil ou Chile, em local identificável
-- "Tiroteio deixa dois mortos na Zona Norte" (um evento)
-- "Homem é morto a tiros em operação policial"
-- "Hombre asesinado en Santiago" (ES)
+- Um homicídio ou tiroteio específico em qualquer país sul-americano, em local identificável
+- "Tiroteio deixa dois mortos na Zona Norte" (Brasil, PT)
+- "Homem é morto a tiros em operação policial" (Brasil, PT)
+- "Hombre asesinado en Santiago" (Chile, ES)
+- "Homicidio en Bogotá deja tres muertos" (Colômbia, ES)
+- "Murder in Georgetown: man shot dead" (Guiana, EN)
+- "Moord in Paramaribo: man doodgeschoten" (Suriname, NL)
 
 NÃO É INCIDENTE ÚNICO (is_single_incident = false) — descarte mesmo se mencionar mortes:
 - Estatísticas agregadas: balanço anual, CVLI, "X mortes em 2025", "no estado", painéis
-- Notícias estrangeiras: terremotos, guerras, desastres fora do Brasil e do Chile
+- Notícias estrangeiras: terremotos, guerras, desastres fora da América do Sul
 - Suicídios (mesmo violentos)
 - Crueldade contra animais
 - Resumos com múltiplos incidentes não relacionados
@@ -134,29 +142,30 @@ NÃO É INCIDENTE ÚNICO (is_single_incident = false) — descarte mesmo se menc
 Use content_class_hint quando aplicável: incident, aggregate_statistics, foreign,
 non_incident, suicide, accident_disaster.
 
-Baseie-se APENAS no texto da manchete. Em dúvida sobre local (Brasil/Chile vs exterior), procure
-topônimos estrangeiros (Texas, EUA, Rússia, Ucrânia, México) ou contexto claramente internacional.
-Chile e Brasil são IN; outros países são OUT.
+Baseie-se APENAS no texto da manchete. Em dúvida sobre local, procure topônimos estrangeiros
+(Texas, EUA, Rússia, Ucrânia, México, Europa) ou contexto claramente fora da América do Sul.
+América do Sul é IN; resto do mundo é OUT.
 """
 
 CONTENT_CLASSIFICATION_SYSTEM_PROMPT = """
 Você é um classificador de ARTIGOS JORNALÍSTICOS do Google News. A manchete já passou
 por um filtro inicial, mas o CORPO do artigo pode revelar que a matéria NÃO descreve um
-incidente único de morte violenta no Brasil ou no Chile.
+incidente único de morte violenta na América do Sul.
 
 Sua tarefa:
-1. Determinar se o artigo trata de MORTE(S) VIOLENTA(S) no Brasil ou no Chile.
+1. Determinar se o artigo trata de MORTE(S) VIOLENTA(S) na América do Sul (AR, BO, BR, CL, CO, EC, GY, PY, PE, SR, UY, VE).
 2. Determinar se descreve UM ÚNICO INCIDENTE específico (is_single_incident).
 
 Use a manchete apenas como contexto. Baseie a decisão principalmente no corpo do artigo.
 
 CLASSIFIQUE COMO MORTE VIOLENTA (is_violent_death = true):
-- Morte violenta no Brasil ou Chile descrita no corpo: homicídio, tiroteio, operação policial com morte
-  (ES: homicidio, asesinato, balacera, operativo policial)
-  (Forças policiais chilenas: Carabineros, PDI)
+- Morte violenta em qualquer país sul-americano descrita no corpo: homicídio, tiroteio, operação policial com morte
+  (ES: homicidio, asesinato, balacera, operativo policial, sicariato)
+  (EN: murder, homicide, killing, shooting)
+  (NL: moord, doodslag, schietpartij)
 - Corpo/restos encontrados com indícios de violência
 - Feminicídio, latrocínio, chacina, execução
-  (ES: femicidio, homicidio, asesinato)
+  (ES: femicidio, homicidio, asesinato; EN: murder, killing; NL: moord)
 - CASO ENTERRADO em matéria estatística: se uma matéria de balanço/estatísticas descreve
   em detalhe UM caso concreto cujo ÓBITO É RECENTE (ocorreu há horas/dias, ex.: "na noite
   de ontem"), classifique is_violent_death = true e is_single_incident = true — o caso
@@ -167,12 +176,12 @@ pauta é julgamento/condenação de crime antigo = false (o óbito não é novo)
 detalhes do caso. Matéria estatística que cita uma morte ocorrida ontem = true.
 
 NÃO CLASSIFIQUE COMO MORTE VIOLENTA (is_violent_death = false):
-- Eventos FORA do Brasil e do Chile (desastres, guerras, crimes internacionais em EUA, México,
-  Europa, etc.) — atenção a cidades homônimas: o corpo pode revelar que "Belém" é no Texas, etc.
+- Eventos FORA da América do Sul (desastres, guerras, crimes em EUA, México, Europa, África, Ásia, etc.)
+  — atenção a cidades homônimas: o corpo pode revelar que "Belém" é no Texas, etc.
 - VÍTIMA SOBREVIVEU: se o corpo informa que a vítima foi socorrida, está internada,
   estável ou sobreviveu, NÃO há morte violenta — mesmo em "tentativa de feminicídio"
   ou ataque brutal. Sem óbito, is_violent_death = false.
-  (ES: sobrevivió, hospitalizado, estable)
+  (ES: sobrevivió, hospitalizado, estable; EN: survived, injured, hospitalized; NL: gewond, overleefd)
 - Matéria sobre PROCESSO JUDICIAL: julgamento, júri, condenação, absolvição, prisão ou
   investigação de crime que já ocorreu no passado. A pauta é o processo, não um novo
   óbito — mesmo que o corpo descreva os homicídios julgados, is_violent_death = false.
@@ -182,9 +191,12 @@ NÃO CLASSIFIQUE COMO MORTE VIOLENTA (is_violent_death = false):
 - Apreensões, políticas, análises sem caso específico
 
 INCIDENTE ÚNICO (is_single_incident = true):
-- Um homicídio ou tiroteio específico no Brasil ou Chile, em local identificável
-- Um evento claramente delimitado ("tiroteio deixa dois mortos na Zona Norte")
-  (ES: "balacera deja dos muertos en Santiago")
+- Um homicídio ou tiroteio específico em qualquer país sul-americano, em local identificável
+- Um evento claramente delimitado ("tiroteio deixa dois mortos na Zona Norte", Brasil, PT)
+  (ES: "balacera deja dos muertos en Santiago", Chile)
+  (ES: "homicidio en Bogotá deja tres muertos", Colômbia)
+  (EN: "murder in Georgetown leaves one dead", Guiana)
+  (NL: "moord in Paramaribo: man doodgeschoten", Suriname)
 - ATENÇÃO: mesmo em matéria com tom estatístico, se o corpo DESCREVE um incidente
   específico (vítima, local e circunstâncias identificáveis), classifique
   is_single_incident = true — o caso concreto prevalece sobre o enquadramento da matéria.
@@ -192,7 +204,7 @@ INCIDENTE ÚNICO (is_single_incident = true):
 NÃO É INCIDENTE ÚNICO (is_single_incident = false) — descarte:
 - Estatísticas agregadas SEM caso concreto descrito: balanço anual, CVLI, totais
   estaduais/nacionais, "X mortes em 2025"
-- Notícias estrangeiras fora do Brasil e do Chile mesmo que a manchete pareça local
+- Notícias estrangeiras fora da América do Sul mesmo que a manchete pareça local
 - Suicídios, crueldade contra animais, acidentes sem homicídio doloso
 - Resumos com múltiplos incidentes não relacionados
 
