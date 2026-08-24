@@ -20,6 +20,10 @@ Always follow the flow: **local -> develop -> prod**.
 Never deploy straight to production: changes must pass through `develop`/staging
 first.
 
+## Adding a country
+
+To add a new country (e.g., Argentina, Colombia), follow the complete playbook in [docs/adding-a-country.md](docs/adding-a-country.md). Ingest-only PRs are not sufficient—all pipeline layers (geography, ingest, persist, classify, extract, enrich, geocode, public filter) must be modified.
+
 ## IBGE Population Data (for /estatisticas rates)
 
 The `/estatisticas` rankings page shows rates per 100k using IBGE population data.
