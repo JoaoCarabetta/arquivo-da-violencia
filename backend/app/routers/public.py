@@ -19,6 +19,7 @@ from app.services.public_filters import (
     homicide_type_filter,
     homicide_types_filter,
 )
+from app.geography import COUNTRY_NAMES
 
 router = APIRouter(prefix="/public", tags=["public"])
 

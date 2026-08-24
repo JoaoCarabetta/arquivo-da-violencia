@@ -425,6 +425,99 @@ async def test_rankings_victim_vs_event_counts(app, async_session):
 
 
 @pytest.mark.asyncio
+async def test_rankings_http_200_with_br_fixture(app, async_session):
+    """
+    Test that GET /api/public/stats/rankings returns HTTP 200 with BR fixture.
+    
+    Regression test for issue #161: COUNTRY_NAMES import missing caused HTTP 500.
+    """
+    now = datetime.utcnow()
+    
+    br_event = UniqueEvent(
+        title="Evento no Brasil",
+        event_date=now - timedelta(days=10),
+        country="BR",
+        state="SP",
+        city="São Paulo",
+        event_family="homicidio",
+        event_subtype="simples",
+        content_class="incident",
+        homicide_type="Homicídio simples",
+        method_of_death="Arma de fogo",
+        victim_count=1,
+        latitude=Decimal("-23.5505"),
+        longitude=Decimal("-46.6333"),
+        source_count=1,
+    )
+    
+    async_session.add(br_event)
+    await async_session.commit()
+    
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://test"
+    ) as client:
+        response = await client.get("/api/public/stats/rankings?days=30")
+        assert response.status_code == 200, f"Expected 200, got {response.status_code}"
+        
+        data = response.json()
+        assert data["total_events"] >= 1
+        assert len(data["countries"]) >= 1
+        # Verify BR is normalized to "Brasil" display name
+        br_country = next((c for c in data["countries"] if c["country"] == "Brasil"), None)
+        assert br_country is not None, "BR should be normalized to 'Brasil' in display"
+
+
+@pytest.mark.asyncio
+async def test_rankings_http_200_with_cl_fixture(app, async_session):
+    """
+    Test that GET /api/public/stats/rankings returns HTTP 200 with CL fixture.
+    
+    Regression test for issue #161: COUNTRY_NAMES import missing caused HTTP 500.
+    Tests that state=Metropolitana is still counted for CL (issue #157).
+    """
+    now = datetime.utcnow()
+    
+    cl_event = UniqueEvent(
+        title="Evento en Chile",
+        event_date=now - timedelta(days=10),
+        country="CL",
+        state="Metropolitana",
+        city="Santiago",
+        event_family="homicidio",
+        event_subtype="simples",
+        content_class="incident",
+        homicide_type="Homicídio simples",
+        method_of_death="Arma de fogo",
+        victim_count=1,
+        latitude=Decimal("-33.4489"),
+        longitude=Decimal("-70.6693"),
+        source_count=1,
+    )
+    
+    async_session.add(cl_event)
+    await async_session.commit()
+    
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://test"
+    ) as client:
+        response = await client.get("/api/public/stats/rankings?days=30")
+        assert response.status_code == 200, f"Expected 200, got {response.status_code}"
+        
+        data = response.json()
+        assert data["total_events"] >= 1
+        assert len(data["countries"]) >= 1
+        # Verify CL is normalized to "Chile" display name
+        cl_country = next((c for c in data["countries"] if c["country"] == "Chile"), None)
+        assert cl_country is not None, "CL should be normalized to 'Chile' in display"
+        # Verify state=Metropolitana is counted
+        assert len(data["states"]) >= 1
+        metropolitana_state = next((s for s in data["states"] if s["state"] == "Metropolitana"), None)
+        assert metropolitana_state is not None, "state=Metropolitana should be counted for CL"
+
+
+@pytest.mark.asyncio
 async def test_rankings_country_filter_iso_codes_issue_152(app, async_session):
     """
     Test rankings country filter with ISO codes (issue #152).
