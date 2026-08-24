@@ -117,9 +117,12 @@ BRAZILIAN_NEWS_SOURCES = [
 # =============================================================================
 # Google News RSS limit is ~10-20 requests/minute per IP.
 # We use a conservative 12/min to stay safe.
+# Configurable via REQUESTS_PER_MINUTE env var (default: 12).
 
-REQUESTS_PER_MINUTE = 12
-REQUEST_INTERVAL_SECONDS = 60.0 / REQUESTS_PER_MINUTE  # 5 seconds between requests
+import os
+
+REQUESTS_PER_MINUTE = int(os.getenv("REQUESTS_PER_MINUTE", "12"))
+REQUEST_INTERVAL_SECONDS = 60.0 / REQUESTS_PER_MINUTE  # 5 seconds between requests at default
 
 
 # =============================================================================
