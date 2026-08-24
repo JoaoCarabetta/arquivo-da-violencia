@@ -1,5 +1,6 @@
 """Maintenance helpers for recovering the pipeline from stuck states."""
 
+import asyncio
 from datetime import date, datetime, timedelta
 from typing import Any
 
@@ -627,3 +628,98 @@ async def auto_merge_near_duplicates_in_bucket(
         )
 
     return audit
+
+
+async def backfill_null_resolved_urls(
+    *,
+    limit: int | None = None,
+    dry_run: bool = False,
+) -> dict:
+    """Backfill resolved_url for sources stuck at ready_for_download with NULL resolved_url.
+    
+    Issue #171: After ingest decoder failures, sources with resolved_url=NULL but
+    google_news_url present got classified and marked ready_for_download, but the
+    download service filtered them out with WHERE resolved_url IS NOT NULL.
+    
+    This function retries URL resolution for those stuck sources. After the download
+    service fix (#171), newly ingested sources will be handled automatically, but
+    this backfill clears the existing ~500 stuck rows on staging.
+    
+    Args:
+        limit: Max sources to process (default: all stuck sources)
+        dry_run: If True, only report counts without updating the database
+    
+    Returns:
+        Dict with statistics: total, resolved, failed, skipped
+    """
+    from app.services.ingestion import resolve_google_news_url
+    
+    async with async_session_maker() as session:
+        query = """
+            SELECT id, google_news_url 
+            FROM source_google_news 
+            WHERE status = 'ready_for_download' 
+            AND resolved_url IS NULL 
+            AND google_news_url IS NOT NULL
+        """
+        if limit:
+            query += f" LIMIT {limit}"
+        
+        result = await session.execute(text(query))
+        rows = result.fetchall()
+    
+    total = len(rows)
+    logger.info(f"[BACKFILL] Found {total} sources with NULL resolved_url to process")
+    
+    if dry_run:
+        logger.info("[BACKFILL] DRY RUN - no changes will be made")
+        return {
+            "dry_run": True,
+            "total": total,
+            "resolved": 0,
+            "failed": 0,
+            "skipped": 0,
+        }
+    
+    resolved = 0
+    failed = 0
+    
+    for source_id, google_news_url in rows:
+        try:
+            # Try to resolve the URL (blocking call, run off event loop)
+            resolved_url = await asyncio.to_thread(resolve_google_news_url, google_news_url)
+            
+            if resolved_url:
+                # Update the database with the resolved URL
+                async with async_session_maker() as session:
+                    await session.execute(
+                        text("""
+                            UPDATE source_google_news 
+                            SET resolved_url = :resolved_url, updated_at = CURRENT_TIMESTAMP
+                            WHERE id = :id
+                        """),
+                        {"id": source_id, "resolved_url": resolved_url},
+                    )
+                    await session.commit()
+                
+                logger.debug(f"[BACKFILL] Source {source_id}: resolved -> {resolved_url[:60]}...")
+                resolved += 1
+            else:
+                logger.debug(f"[BACKFILL] Source {source_id}: resolution failed (decoder returned None)")
+                failed += 1
+        
+        except Exception as e:
+            logger.error(f"[BACKFILL] Source {source_id}: error during resolution: {e}")
+            failed += 1
+    
+    logger.info(
+        f"[BACKFILL] Complete: {resolved} resolved, {failed} failed (out of {total} total)"
+    )
+    
+    return {
+        "dry_run": False,
+        "total": total,
+        "resolved": resolved,
+        "failed": failed,
+        "skipped": 0,
+    }
