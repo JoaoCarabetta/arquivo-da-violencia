@@ -218,6 +218,104 @@ async def test_rankings_country_filter_chile(app, async_session):
 
 
 @pytest.mark.asyncio
+async def test_rankings_chile_includes_metropolitana_region(app, async_session):
+    """Test that Chilean events with Chilean region names (e.g. Metropolitana) are included (issue #157)."""
+    now = datetime.utcnow()
+    current_start = now - timedelta(days=30)
+    
+    # Create Chilean event with Metropolitana region (was previously excluded due to BR UF filter)
+    events = [
+        create_ranking_event(
+            event_date=current_start + timedelta(days=1),
+            country="CL",
+            city="Conchalí",
+            state="Metropolitana",  # Chilean region name
+            victim_count=1
+        ),
+        create_ranking_event(
+            event_date=current_start + timedelta(days=2),
+            country="CL",
+            city="La Serena",
+            state="Coquimbo",  # Another Chilean region
+            victim_count=2
+        ),
+    ]
+    
+    for event in events:
+        async_session.add(event)
+    await async_session.commit()
+    
+    from app.database import get_session
+    app.dependency_overrides[get_session] = lambda: async_session
+    
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://test"
+    ) as client:
+        response = await client.get("/api/public/stats/rankings?days=30&country=CL")
+        assert response.status_code == 200
+        data = response.json()
+        
+        # Both Chilean events should be included
+        assert data["total_events"] == 2
+        assert data["total_victims"] == 3
+        assert len(data["cities"]) == 2
+        
+        # Check that Metropolitana region events are counted
+        cities = {c["city"]: c for c in data["cities"]}
+        assert "Conchalí" in cities
+        assert cities["Conchalí"]["victim_count"] == 1
+        assert "La Serena" in cities
+        assert cities["La Serena"]["victim_count"] == 2
+
+
+@pytest.mark.asyncio
+async def test_rankings_brazil_excludes_non_uf_states(app, async_session):
+    """Test that Brazilian events with non-UF states (e.g. Chilean regions) are excluded."""
+    now = datetime.utcnow()
+    current_start = now - timedelta(days=30)
+    
+    # Create Brazilian events: one with valid UF, one with invalid state
+    events = [
+        create_ranking_event(
+            event_date=current_start + timedelta(days=1),
+            country="Brasil",
+            city="São Paulo",
+            state="SP",  # Valid BR UF
+            victim_count=1
+        ),
+        create_ranking_event(
+            event_date=current_start + timedelta(days=2),
+            country="Brasil",
+            city="Rio de Janeiro",
+            state="Metropolitana",  # Invalid for Brazil (Chilean region)
+            victim_count=1
+        ),
+    ]
+    
+    for event in events:
+        async_session.add(event)
+    await async_session.commit()
+    
+    from app.database import get_session
+    app.dependency_overrides[get_session] = lambda: async_session
+    
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://test"
+    ) as client:
+        response = await client.get("/api/public/stats/rankings?days=30&country=BR")
+        assert response.status_code == 200
+        data = response.json()
+        
+        # Should only include the valid UF event
+        assert data["total_events"] == 1
+        assert data["total_victims"] == 1
+        assert len(data["cities"]) == 1
+        assert data["cities"][0]["city"] == "São Paulo"
+
+
+@pytest.mark.asyncio
 async def test_rankings_empty_chile_data(app, async_session):
     """Test that empty Chile data doesn't break the page."""
     now = datetime.utcnow()
