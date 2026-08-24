@@ -14,14 +14,19 @@ _SURVIVAL_PATTERNS = (
     re.compile(r"\bsobrevive\b", re.IGNORECASE),
     re.compile(r"\bsobreviveu\b", re.IGNORECASE),
     re.compile(r"\bsobreviveram\b", re.IGNORECASE),
+    re.compile(r"\bsobrevivio\b", re.IGNORECASE),  # ES
+    re.compile(r"\bsobrevivió\b", re.IGNORECASE),  # ES
+    re.compile(r"\bsobrevivieron\b", re.IGNORECASE),  # ES
     re.compile(r"quadro estavel", re.IGNORECASE),
     re.compile(r"quadro estável", re.IGNORECASE),
     re.compile(r"\bhospital\b", re.IGNORECASE),
+    re.compile(r"\bhospitalizado\b", re.IGNORECASE),  # ES/PT
     re.compile(r"centro cirurgico", re.IGNORECASE),
     re.compile(r"centro cirúrgico", re.IGNORECASE),
     re.compile(r"\binternad", re.IGNORECASE),
     re.compile(r"\bsocorrid", re.IGNORECASE),
     re.compile(r"\bferid[oa]s?\b", re.IGNORECASE),
+    re.compile(r"\bherid[oa]s?\b", re.IGNORECASE),  # ES
     re.compile(r"chora ao ver", re.IGNORECASE),
     re.compile(r"banco dos reus", re.IGNORECASE),
     re.compile(r"banco dos réus", re.IGNORECASE),
@@ -43,6 +48,13 @@ _FOREIGN_MARKERS = (
     " mexico",
     " méxico",
     " base militar russa",
+    " argentina",
+    " peru",
+    " colombia",
+    " bolivia",
+    " ecuador",
+    " uruguay",
+    " paraguay",
 )
 
 _METAPHOR_MARKERS = (
@@ -71,9 +83,16 @@ _EXPLICIT_DEATH_MARKERS = (
     "não resistiu",
     "nao resiste",
     "não resiste",
+    "no resistio",  # ES
+    "no resistió",  # ES
     "morre no hospital",
     "morre apos",
     "morre após",
+    "muere en hospital",  # ES
+    "murio tras",  # ES
+    "murió tras",  # ES
+    "fallecio",  # ES
+    "falleció",  # ES
     "veio a obito",
     "veio a óbito",
     "faleceu",
@@ -82,6 +101,8 @@ _EXPLICIT_DEATH_MARKERS = (
     "óbito",
     "encontrado morto",
     "achado morto",
+    "encontrado muerto",  # ES
+    "hallado muerto",  # ES
 )
 
 _NON_DEATH_POLICE_MARKERS = (
@@ -93,6 +114,8 @@ _NON_DEATH_POLICE_MARKERS = (
 _IMPLIED_FATAL_MARKERS = (
     "crivado de balas",
     "crivada de balas",
+    "acribillado",  # ES
+    "acribillada",  # ES
     "restos mortais",
     "carbonizado no porta-malas",
     "carbonizado no portamalas",
@@ -118,11 +141,25 @@ _IMPLIED_FATAL_MARKERS = (
     "não resiste",
     "feminicidio",
     "feminicídio",
+    "femicidio",  # ES
     "homicidio doloso",
     "homicídio doloso",
+    "homicidio",  # ES
+    "asesinato",  # ES
+    "asesinado",  # ES past participle
+    "asesinada",  # ES past participle
     "duplo homicidio",
     "duplo homicídio",
     "chacina",
+    "balacera",  # ES
+    " morto ",  # PT/ES past participle (with spaces to force violent death)
+    " morta ",
+    " mortos ",
+    " mortas ",
+    " muerto ",  # ES past participle
+    " muerta ",
+    " muertos ",
+    " muertas ",
 )
 
 _TROCA_TIROS = re.compile(r"troca tiros", re.IGNORECASE)

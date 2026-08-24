@@ -56,3 +56,27 @@ def test_heuristic_passes_single_incident():
         "do Rio de Janeiro na noite de sábado. A vítima ainda não foi identificada."
     )
     assert apply_content_heuristics(headline, content) is None
+
+
+def test_heuristic_passes_chilean_homicide_not_earthquake():
+    """Chilean homicide should not be rejected by earthquake regex (issue #129)."""
+    headline = "Hombre asesinado en Santiago"
+    content = (
+        "Un hombre fue asesinado a balazos durante un operativo policial "
+        "en Santiago de Chile. Las autoridades investigan el caso."
+    )
+    # Should not match earthquake pattern since Chile was removed from it
+    assert apply_content_heuristics(headline, content) is None
+
+
+def test_heuristic_still_rejects_venezuela_earthquake():
+    """Venezuelan earthquake should still be rejected as foreign."""
+    headline = "Terremoto deixa mortos"
+    content = (
+        "Um terremoto de magnitude 6,5 atingiu a Venezuela e deixou "
+        "dezenas de mortos em várias cidades."
+    )
+    match = apply_content_heuristics(headline, content)
+    assert match is not None
+    assert match.hint == "foreign"
+    assert match.rule == "foreign_earthquake"

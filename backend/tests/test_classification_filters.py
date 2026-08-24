@@ -173,3 +173,117 @@ async def test_classify_source_discards_non_violent_death(classification_db):
     assert result is False
     await classification_db.refresh(source)
     assert source.status == SourceStatus.discarded
+
+
+# Country-aware tests for issue #129
+@pytest.mark.asyncio
+async def test_classify_source_passes_chilean_homicide(classification_db):
+    """ES homicide headline in Santiago should be classified as violent death."""
+    from app.models.source_google_news import SourceStatus
+
+    source = _source(
+        google_news_id="chile-1",
+        headline="Hombre asesinado a balazos en operativo policial en Santiago",
+    )
+    classification_db.add(source)
+    await classification_db.commit()
+    await classification_db.refresh(source)
+
+    with patch(
+        "app.services.classification.classify_headline",
+        return_value=_classification(
+            is_violent_death=True,
+            is_single_incident=True,
+            reasoning="Homicide in Chile",
+        ),
+    ):
+        result = await classify_source(source.id)
+
+    assert result is True
+    await classification_db.refresh(source)
+    assert source.status == SourceStatus.ready_for_download
+
+
+@pytest.mark.asyncio
+async def test_classify_source_discards_us_shooting(classification_db):
+    """US shooting should be discarded as foreign event."""
+    from app.models.source_google_news import SourceStatus
+
+    source = _source(
+        google_news_id="us-1",
+        headline="Mass shooting in Texas leaves 5 dead",
+    )
+    classification_db.add(source)
+    await classification_db.commit()
+    await classification_db.refresh(source)
+
+    with patch(
+        "app.services.classification.classify_headline",
+        return_value=_classification(
+            is_violent_death=False,
+            is_single_incident=False,
+            content_class_hint="foreign",
+            reasoning="Foreign event outside Brazil and Chile",
+        ),
+    ):
+        result = await classify_source(source.id)
+
+    assert result is False
+    await classification_db.refresh(source)
+    assert source.status == SourceStatus.discarded
+
+
+@pytest.mark.asyncio
+async def test_classify_source_passes_brazilian_homicide(classification_db):
+    """PT homicide in São Paulo should still be classified as violent death."""
+    from app.models.source_google_news import SourceStatus
+
+    source = _source(
+        google_news_id="brazil-1",
+        headline="Homem é morto a tiros em operação policial em São Paulo",
+    )
+    classification_db.add(source)
+    await classification_db.commit()
+    await classification_db.refresh(source)
+
+    with patch(
+        "app.services.classification.classify_headline",
+        return_value=_classification(
+            is_violent_death=True,
+            is_single_incident=True,
+            reasoning="Homicide in Brazil",
+        ),
+    ):
+        result = await classify_source(source.id)
+
+    assert result is True
+    await classification_db.refresh(source)
+    assert source.status == SourceStatus.ready_for_download
+
+
+@pytest.mark.asyncio
+async def test_classify_source_discards_survivor_es(classification_db):
+    """ES headline with survivor (sobrevivió) should be discarded."""
+    from app.models.source_google_news import SourceStatus
+
+    source = _source(
+        google_news_id="survivor-es-1",
+        headline="Hombre sobrevivió tras ser baleado en asalto",
+    )
+    classification_db.add(source)
+    await classification_db.commit()
+    await classification_db.refresh(source)
+
+    with patch(
+        "app.services.classification.classify_headline",
+        return_value=_classification(
+            is_violent_death=False,
+            is_single_incident=False,
+            reasoning="Victim survived, no death",
+        ),
+    ):
+        result = await classify_source(source.id)
+
+    assert result is False
+    await classification_db.refresh(source)
+    assert source.status == SourceStatus.discarded

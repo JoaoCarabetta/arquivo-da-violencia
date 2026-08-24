@@ -24,6 +24,7 @@ from app.services.cities import (
 from app.services.cities_chile import (
     CHILEAN_CITIES,
     CHILEAN_NEWS_SOURCES,
+    CHILEAN_QUERY_TERMS,
     CHILE_GOOGLE_NEWS_PARAMS,
 )
 from app.geography import Country
@@ -263,8 +264,16 @@ async def get_queries_for_city(
     """
     Get queries for a city based on its sharding status.
     
-    - Standard mode: Single query "{city} when:{when}"
-    - Sharded mode: One query per source "{city} when:{when} site:{source}"
+    - Brazil standard mode: Single query "{city} when:{when}"
+    - Brazil sharded mode: One query per source "{city} when:{when} site:{source}"
+    - Chile standard mode: Single query "{city} when:{when} (term1 OR term2 OR ...)"
+    - Chile sharded mode: One query per source "{city} when:{when} site:{source} (term1 OR term2 OR ...)"
+    
+    Query cardinality (per hourly cycle):
+    - BR: 52 cities × 19 sources = 988 queries (worst case, all sharded)
+    - CL: 27 cities × 18 sources = 486 queries (worst case, all sharded)
+    - Combined worst case: 1,474 queries (~2 hours at 12 req/min rate limit)
+    - Adding Chilean terms does NOT increase query count (OR'd into existing queries)
     
     Args:
         city: City name (with region for Chile, e.g., "Santiago Metropolitana")
@@ -276,12 +285,20 @@ async def get_queries_for_city(
     
     news_sources = CHILEAN_NEWS_SOURCES if country == "CL" else BRAZILIAN_NEWS_SOURCES
     
+    # Build homicide term filter for Chile
+    terms_filter = ""
+    if country == "CL":
+        # Combine terms with OR to keep query count bounded
+        # Format: (term1 OR term2 OR term3)
+        terms_or = " OR ".join(CHILEAN_QUERY_TERMS)
+        terms_filter = f" ({terms_or})"
+    
     if stats.needs_sharding:
         logger.info(f"[{city}] Using sharded mode ({len(news_sources)} sources)")
-        return [f"{city} when:{when} site:{src}" for src in news_sources]
+        return [f"{city} when:{when} site:{src}{terms_filter}" for src in news_sources]
     else:
         logger.info(f"[{city}] Using standard mode")
-        return [f"{city} when:{when}"]
+        return [f"{city} when:{when}{terms_filter}"]
 
 
 async def update_city_stats(
@@ -446,6 +463,7 @@ async def ingest_city(
                         publisher_url=publisher_url,
                         published_at=published_at,
                         search_query=entry.get("_search_query"),
+                        country=entry.get("_country", country),  # Use tagged country or fallback
                         status=SourceStatus.ready_for_classification,
                         fetched_at=datetime.utcnow(),
                     )
