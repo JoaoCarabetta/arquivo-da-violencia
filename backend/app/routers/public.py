@@ -495,7 +495,8 @@ async def get_rankings(
                 UniqueEvent.event_date.isnot(None),
                 UniqueEvent.event_date >= start,
                 UniqueEvent.event_date <= end,
-            )
+            ),
+            country=country  # Pass country for state filtering
         )
         if country:
             # Match canonical codes (BR, CL) and legacy "Brasil" for BR
