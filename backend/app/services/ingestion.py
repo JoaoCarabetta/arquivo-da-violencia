@@ -20,7 +20,7 @@ from app.services.cities import (
     SHARDING_THRESHOLD,
 )
 from app.geography import Country
-from app.country_registry import COUNTRY_CONFIGS, ALL_COUNTRIES, get_country_config
+from app.country_registry import ALL_COUNTRIES, get_country_config
 
 # Google News RSS configuration
 GOOGLE_NEWS_BASE_URL = "https://news.google.com/rss/search"

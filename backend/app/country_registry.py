@@ -55,9 +55,6 @@ class CountryConfig:
     # Geocoding configuration
     geocode_region: str  # Google Geocoding API region bias (usually same as code)
     geocode_language: str  # Geocoding result language (ISO 639-1)
-    
-    # Accept-Language header for downloads (if different from default)
-    download_accept_language: str | None = None
 
 
 # ============================================================================
