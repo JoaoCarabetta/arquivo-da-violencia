@@ -80,10 +80,20 @@ async def _fetch_html(url: str) -> tuple[int, str]:
     can classify the reason.
     """
     settings = get_settings()
-    # Country-aware Accept-Language header (issue #129)
+    # Country-aware Accept-Language header (issue #129, #164)
+    # Default to Brazilian Portuguese
     accept_language = "pt-BR,pt;q=0.9,en;q=0.8"
-    if ".cl/" in url or url.endswith(".cl"):
-        accept_language = "es-CL,es;q=0.9,pt-BR;q=0.8,pt;q=0.7,en;q=0.6"
+    
+    # Spanish-speaking SA countries (.ar, .cl, .co, .ec, .py, .pe, .uy, .ve, .bo)
+    spanish_cctlds = [".ar", ".cl", ".co", ".ec", ".py", ".pe", ".uy", ".ve", ".bo"]
+    if any(f"{tld}/" in url or url.endswith(tld) for tld in spanish_cctlds):
+        accept_language = "es,es-419;q=0.9,pt-BR;q=0.8,pt;q=0.7,en;q=0.6"
+    # Guyana (.gy) - English
+    elif ".gy/" in url or url.endswith(".gy"):
+        accept_language = "en,en-US;q=0.9,es;q=0.8,pt;q=0.7"
+    # Suriname (.sr) - Dutch
+    elif ".sr/" in url or url.endswith(".sr"):
+        accept_language = "nl,nl-NL;q=0.9,en;q=0.8,pt;q=0.7"
 
     headers = {
         "User-Agent": settings.download_user_agent,
@@ -257,10 +267,58 @@ async def download_source_content(source_id: int) -> DownloadOutcome:
             logger.warning(f"Source {source_id} not found")
             return DownloadOutcome.failed
 
-        # Use resolved URL if available, otherwise the Google News URL
-        target_url = row[0] or row[1]
+        resolved_url = row[0]
+        google_news_url = row[1]
         headline = row[2]
+    
+    # Issue #171: If resolved_url is NULL but google_news_url exists,
+    # try to resolve it now (handles decoder failures during ingest)
+    if not resolved_url and google_news_url:
+        logger.info(f"Source {source_id}: resolved_url is NULL, attempting late resolution")
+        from app.services.ingestion import resolve_google_news_url
+        resolved_url = await asyncio.to_thread(resolve_google_news_url, google_news_url)
+        
+        if resolved_url:
+            logger.info(f"Source {source_id}: late resolution succeeded -> {resolved_url[:60]}...")
+            # Persist the resolved URL so we don't re-resolve next time
+            async with async_session_maker() as session:
+                await session.execute(
+                    text("UPDATE source_google_news SET resolved_url = :url WHERE id = :id"),
+                    {"id": source_id, "url": resolved_url},
+                )
+                await session.commit()
+        else:
+            logger.warning(f"Source {source_id}: late resolution failed, will use google_news_url")
+    
+    # Use resolved URL if available, otherwise fall back to Google News URL
+    target_url = resolved_url or google_news_url
+    
+    if not target_url:
+        async with async_session_maker() as session:
+            await session.execute(
+                text("""
+                    UPDATE source_google_news 
+                    SET status = 'failed_in_download', updated_at = CURRENT_TIMESTAMP
+                    WHERE id = :id
+                """),
+                {"id": source_id}
+            )
+            await session.commit()
+        await diagnostics.record_attempt(
+            stage=diagnostics.STAGE_DOWNLOAD,
+            outcome=diagnostics.OUTCOME_FAILURE,
+            source_google_news_id=source_id,
+            failure_reason=diagnostics.NO_URL,
+            failure_detail="Source has no resolved_url or google_news_url",
+            http_status=None,
+            url_domain=None,
+            duration_ms=0,
+            attempt_number=await diagnostics.count_attempts(source_id, diagnostics.STAGE_DOWNLOAD) + 1,
+        )
+        return DownloadOutcome.failed
 
+    logger.info(f"Downloading content from: {target_url[:80]}...")
+    
     attempt_number = await diagnostics.count_attempts(source_id, diagnostics.STAGE_DOWNLOAD) + 1
     url_domain = diagnostics.domain_of(target_url)
 
@@ -286,12 +344,6 @@ async def download_source_content(source_id: int) -> DownloadOutcome:
             duration_ms=duration_ms,
             attempt_number=attempt_number,
         )
-
-    if not target_url:
-        await _mark_failed(diagnostics.NO_URL, "Source has no resolved or google_news URL", None, 0)
-        return DownloadOutcome.failed
-
-    logger.info(f"Downloading content from: {target_url[:80]}...")
 
     # Step 2: fetch over the network, then extract off the event loop. Neither
     # step holds a DB connection.
@@ -385,11 +437,13 @@ async def download_classified_sources(limit: int = 50, concurrency: int = 10) ->
     async with async_session_maker() as session:
         # Get sources ready for download (passed classification)
         # Use raw SQL to avoid SQLAlchemy enum caching issues
+        # Issue #171: Include sources with NULL resolved_url (decoder failures)
+        # as long as google_news_url is present - we'll try to resolve at download time
         result = await session.execute(
             text("""
                 SELECT id FROM source_google_news 
                 WHERE status = 'ready_for_download' 
-                AND resolved_url IS NOT NULL 
+                AND google_news_url IS NOT NULL 
                 LIMIT :limit
             """),
             {"limit": limit}

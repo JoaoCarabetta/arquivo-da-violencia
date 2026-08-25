@@ -36,6 +36,7 @@ _SURVIVAL_PATTERNS = (
 )
 
 _FOREIGN_MARKERS = (
+    # Non-South American countries (events outside SA are foreign/exterior)
     " texas",
     " eua",
     " nos eua",
@@ -44,17 +45,17 @@ _FOREIGN_MARKERS = (
     " rússia",
     " ucrania",
     " ucrânia",
-    " venezuela",
     " mexico",
     " méxico",
     " base militar russa",
-    " argentina",
-    " peru",
-    " colombia",
-    " bolivia",
-    " ecuador",
-    " uruguay",
-    " paraguay",
+    " israel",
+    " palestina",
+    " africa",
+    " áfrica",
+    " china",
+    " india",
+    # Note: South American countries (AR, BO, CL, CO, EC, GY, PY, PE, SR, UY, VE)
+    # are NOT foreign - they are in-scope for this pipeline
 )
 
 _METAPHOR_MARKERS = (

@@ -1,9 +1,12 @@
 """Country, region, and city definitions for multi-country support.
 
-This module provides geography data for Brazil and Chile, including:
+This module provides geography data for all South American countries, including:
 - ISO country codes
-- Administrative regions (states/UFs for BR, regiones for CL)
+- Administrative regions (states/UFs for BR, regiones for CL, etc.)
 - Major cities for ingestion
+
+For full country configurations (Google News params, outlets, query terms, etc.),
+see country_registry.py.
 """
 
 from typing import Literal
@@ -12,13 +15,23 @@ from typing import Literal
 # Country codes (ISO 3166-1 alpha-2)
 # ============================================================================
 
-Country = Literal["BR", "CL"]
+Country = Literal["AR", "BO", "BR", "CL", "CO", "EC", "GY", "PY", "PE", "SR", "UY", "VE"]
 
-COUNTRIES: list[Country] = ["BR", "CL"]
+COUNTRIES: list[Country] = ["AR", "BO", "BR", "CL", "CO", "EC", "GY", "PY", "PE", "SR", "UY", "VE"]
 
 COUNTRY_NAMES = {
+    "AR": "Argentina",
+    "BO": "Bolivia",
     "BR": "Brasil",
     "CL": "Chile",
+    "CO": "Colombia",
+    "EC": "Ecuador",
+    "GY": "Guyana",
+    "PY": "Paraguay",
+    "PE": "Perú",
+    "SR": "Suriname",
+    "UY": "Uruguay",
+    "VE": "Venezuela",
 }
 
 # ============================================================================
@@ -114,7 +127,11 @@ CHILEAN_REGION_NAMES = {v: k for k, v in CHILEAN_REGION_CODES.items()}
 # ============================================================================
 
 def get_regions_for_country(country: Country) -> list[str]:
-    """Return list of region codes/names for a country."""
+    """Return list of region codes/names for a country.
+    
+    Currently only BR and CL have structured region data.
+    Other countries return empty list (no regional filtering yet).
+    """
     if country == "BR":
         return BRAZILIAN_STATES
     elif country == "CL":
@@ -123,7 +140,11 @@ def get_regions_for_country(country: Country) -> list[str]:
 
 
 def get_region_name(country: Country, code: str) -> str:
-    """Get human-readable region name for a code."""
+    """Get human-readable region name for a code.
+    
+    Currently only BR and CL have structured region data.
+    Other countries return the code as-is.
+    """
     if country == "BR":
         return BRAZILIAN_STATE_NAMES.get(code, code)
     elif country == "CL":
@@ -136,6 +157,7 @@ def normalize_region_identifier(country: Country, value: str) -> str:
     
     For BR: keeps UF codes (SP, RJ, etc.)
     For CL: converts Roman numerals to region names or keeps region names.
+    For other countries: returns value as-is (no normalization yet).
     """
     if country == "BR":
         return value.upper()

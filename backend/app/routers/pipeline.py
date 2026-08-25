@@ -374,6 +374,39 @@ async def run_batch_geocoding(
     }
 
 
+@router.post("/backfill-null-resolved-urls")
+async def run_backfill_null_resolved_urls(
+    limit: int | None = Query(None, description="Maximum sources to process (default: all)"),
+    dry_run: bool = Query(False, description="Only report counts without updating database"),
+):
+    """
+    Backfill resolved_url for sources stuck at ready_for_download with NULL resolved_url.
+    
+    Issue #171: After ingest decoder failures, ~500 sources on staging have:
+    - status = ready_for_download
+    - resolved_url = NULL
+    - google_news_url present
+    
+    Before the fix, download_classified_sources filtered WHERE resolved_url IS NOT NULL,
+    so these rows were never processed. After the fix, new sources are handled automatically,
+    but this backfill clears the existing stuck rows.
+    
+    Use dry_run=true to see how many rows would be affected without making changes.
+    """
+    from app.services.maintenance import backfill_null_resolved_urls
+    
+    result = await backfill_null_resolved_urls(limit=limit, dry_run=dry_run)
+    
+    return {
+        "status": "completed" if not dry_run else "dry_run",
+        "message": (
+            f"Backfill {'completed' if not dry_run else 'dry run'}: "
+            f"{result['resolved']} resolved, {result['failed']} failed (out of {result['total']} total)"
+        ),
+        **result,
+    }
+
+
 # =============================================================================
 # Job Status & Queue Monitoring
 # =============================================================================
