@@ -1608,6 +1608,49 @@ def _format_public_event_detail(event: UniqueEvent, sources: list[dict]) -> dict
     }
 
 
+@router.get("/stats/coverage")
+async def get_coverage_stats(session: AsyncSession = Depends(get_session)):
+    """
+    Get coverage table: Arquivo vs Official violence statistics.
+    
+    Returns union of Brazilian municipalities with official victims > 0 OR Arquivo victims > 0
+    in the overlapping window (complete months from 2025-09 onwards).
+    
+    Official bag: mortes violentas intencionais (homicídio doloso + feminicídio + latrocínio
+    + lesão corporal seguida de morte + morte por intervenção do Estado).
+    
+    Arquivo count: sum of victim_count on unique events that pass the public incident filter
+    (homicidio, incident, victim_count <= 10), country Brazil, event date >= 2025-09-01,
+    grouped by municipality_code.
+    
+    Coverage = Arquivo / official (not capped). When official=0, coverage is None.
+    
+    Returns:
+        List of municipalities with:
+        - code: 7-digit IBGE municipal code
+        - name: Municipality name
+        - uf: State abbreviation
+        - official_victims: Official mortes violentas intencionais count
+        - arquivo_victims: Arquivo victim count
+        - coverage: Arquivo / official ratio (None when official=0)
+        
+        Sorted by official_victims descending.
+    """
+    from app.services.coverage_data import get_coverage_data
+    
+    coverage = await get_coverage_data(session)
+    
+    return {
+        "window_start": "2025-09",
+        "methodology": {
+            "official_bag": "mortes violentas intencionais (homicídio doloso + feminicídio + latrocínio + lesão corporal seguida de morte + morte por intervenção do Estado)",
+            "arquivo_filter": "homicidio, incident, victim_count <= 10, country=BR, date >= 2025-09-01",
+            "coverage_calculation": "Arquivo victims / official victims (not capped, None when official=0)"
+        },
+        "municipalities": coverage
+    }
+
+
 @router.get("/events/{event_id}")
 async def get_public_event_by_id(
     event_id: int,
