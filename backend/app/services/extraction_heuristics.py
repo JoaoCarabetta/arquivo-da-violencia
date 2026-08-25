@@ -338,12 +338,80 @@ def fix_same_day_relative_weekday(
     return fixed
 
 
+def extract_explicit_calendar_date(content: str) -> str | None:
+    """
+    Fallback: extract explicit calendar dates from text when extraction left date NULL.
+    
+    Matches patterns like:
+    - "15 de agosto de 2026" (Spanish/Portuguese long form)
+    - "15/08/2026", "15-08-2026" (numeric)
+    
+    Returns YYYY-MM-DD string or None.
+    """
+    import re
+    from datetime import datetime
+    
+    # Month names (Spanish and Portuguese)
+    months = {
+        # Spanish
+        "enero": 1, "febrero": 2, "marzo": 3, "abril": 4,
+        "mayo": 5, "junio": 6, "julio": 7, "agosto": 8,
+        "septiembre": 9, "setiembre": 9, "octubre": 10, "noviembre": 11, "diciembre": 12,
+        # Portuguese
+        "janeiro": 1, "fevereiro": 2, "março": 3, "abril": 4,
+        "maio": 5, "junho": 6, "julho": 7, "agosto": 8,
+        "setembro": 9, "outubro": 10, "novembro": 11, "dezembro": 12,
+    }
+    
+    content_lower = content.lower()
+    
+    # Pattern 1: "15 de agosto de 2026" (Spanish/Portuguese)
+    # Matches: "el 15 de agosto de 2026", "15 de agosto de 2026"
+    month_names = "|".join(months.keys())
+    pattern_long = re.compile(
+        rf"\b(\d{{1,2}})\s+de\s+({month_names})\s+de\s+(\d{{4}})\b",
+        re.IGNORECASE
+    )
+    match = pattern_long.search(content_lower)
+    if match:
+        day = int(match.group(1))
+        month = months[match.group(2)]
+        year = int(match.group(3))
+        try:
+            date_obj = datetime(year, month, day)
+            return date_obj.strftime("%Y-%m-%d")
+        except ValueError:
+            pass
+    
+    # Pattern 2: "15/08/2026" or "15-08-2026" (numeric)
+    pattern_numeric = re.compile(r"\b(\d{1,2})[/-](\d{1,2})[/-](\d{4})\b")
+    match = pattern_numeric.search(content)
+    if match:
+        day = int(match.group(1))
+        month = int(match.group(2))
+        year = int(match.group(3))
+        try:
+            date_obj = datetime(year, month, day)
+            return date_obj.strftime("%Y-%m-%d")
+        except ValueError:
+            pass
+    
+    return None
+
+
 def infer_date_from_source(
     content: str,
     metadata: dict | None,
     current_date: str | None,
 ) -> str | None:
     """Apply deterministic date fixes from article text + publication metadata."""
+    # If current_date is None, try to extract explicit calendar date from text
+    if current_date is None:
+        extracted = extract_explicit_calendar_date(content)
+        if extracted:
+            return extracted
+    
+    # Otherwise try existing heuristics (only work when current_date exists)
     return fix_weekday_paren_day(content, metadata, current_date) or fix_same_day_relative_weekday(
         content, metadata, current_date
     )
