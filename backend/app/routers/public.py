@@ -9,7 +9,7 @@ import math
 import csv
 import json  # For serializing merged_data
 import io
-from typing import Optional
+from typing import Optional, Dict
 import time
 
 from app.database import get_session
@@ -1681,6 +1681,95 @@ async def get_coverage_stats(session: AsyncSession = Depends(get_session)):
         },
         "municipalities": coverage
     }
+
+
+@router.get("/stats/coverage/download")
+async def download_official_universe(session: AsyncSession = Depends(get_session)):
+    """
+    Download official universe CSV: all Brazilian municipalities with official data.
+    
+    Returns ALL IBGE municipalities (5563+) including those with official=0,
+    labeled as 'Oficial' (Ministry of Justice data).
+    
+    This is the complete official universe for the coverage window,
+    NOT filtered to the union shown in the coverage table.
+    
+    Returns CSV with columns:
+    - code: 7-digit IBGE municipal code
+    - name: Municipality name
+    - uf: State abbreviation
+    - oficial: Official municipal total count (Formulário 1 types only)
+    
+    Sorted by oficial descending.
+    """
+    from app.services.coverage_data import COVERAGE_WINDOW_START
+    from app.models.official_violence_data import OfficialViolenceCount
+    from app.models.ibge_population import IBGEPopulation
+    from io import StringIO
+    import csv
+    
+    # Get all IBGE municipalities
+    ibge_query = select(IBGEPopulation).order_by(IBGEPopulation.name_muni)
+    ibge_result = await session.execute(ibge_query)
+    all_municipalities = ibge_result.scalars().all()
+    
+    # Get official counts (Formulário 1 types only) by municipality
+    formulario_1_types = [
+        "homicidio_doloso",
+        "feminicidio",
+        "latrocinio",
+        "lesao_corporal_seguida_morte",
+    ]
+    
+    # Get min year-month from coverage window
+    min_year_month = COVERAGE_WINDOW_START.strftime("%Y-%m")
+    
+    official_query = select(
+        OfficialViolenceCount.code_muni,
+        func.sum(OfficialViolenceCount.victim_count).label("official_victims")
+    ).where(
+        OfficialViolenceCount.indicator.in_(formulario_1_types),
+        OfficialViolenceCount.year_month >= min_year_month
+    ).group_by(OfficialViolenceCount.code_muni)
+    
+    official_result = await session.execute(official_query)
+    official_rows = official_result.all()
+    
+    official_by_code: Dict[int, int] = {
+        row.code_muni: row.official_victims for row in official_rows
+    }
+    
+    # Build rows for all municipalities
+    rows = []
+    for muni in all_municipalities:
+        official_count = official_by_code.get(muni.code_muni, 0)
+        rows.append({
+            "code": muni.code_muni,
+            "name": muni.name_muni,
+            "uf": muni.abbrev_state,
+            "oficial": official_count,
+        })
+    
+    # Sort by oficial descending
+    rows.sort(key=lambda x: x["oficial"], reverse=True)
+    
+    # Generate CSV
+    output = StringIO()
+    writer = csv.DictWriter(output, fieldnames=["code", "name", "uf", "oficial"])
+    writer.writeheader()
+    writer.writerows(rows)
+    
+    # Return as downloadable CSV
+    from fastapi.responses import Response
+    csv_content = output.getvalue()
+    
+    return Response(
+        content=csv_content,
+        media_type="text/csv; charset=utf-8",
+        headers={
+            "Content-Disposition": "attachment; filename=arquivo_oficial_universe.csv"
+        }
+    )
 
 
 @router.get("/events/{event_id}")

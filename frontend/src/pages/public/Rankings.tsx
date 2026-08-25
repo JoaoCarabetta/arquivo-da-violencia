@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { ChevronDown, ArrowLeft } from 'lucide-react';
+import { ChevronDown, ArrowLeft, Download, Search } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { fetchRankings, fetchCoverageStats } from '@/lib/api';
 import type { RankingRow, CoverageMunicipality } from '@/lib/api';
@@ -22,6 +22,232 @@ type RankingTab = 'municipios' | 'estados' | 'paises';
 // Portuguese number formatting (1.239 instead of 1,239)
 function formatPortugueseNumber(num: number): string {
   return num.toLocaleString('pt-BR');
+}
+
+interface CoverageTableProps {
+  municipalities: CoverageMunicipality[];
+}
+
+function CoverageTable({ municipalities }: CoverageTableProps) {
+  const [searchTerm, setSearchTerm] = useState('');
+  const [showCoverage, setShowCoverage] = useState(false);
+  const [perPage, setPerPage] = useState(25);
+  const [currentPage, setCurrentPage] = useState(1);
+
+  // Helper to render empty marks
+  const renderEmptyMark = (official: number, arquivo: number) => {
+    if (official === 0 && arquivo === 0) {
+      // Should not happen (filtered out by API)
+      return '—';
+    }
+    if (official === 0) {
+      // Official not published or published zero
+      return '∅';
+    }
+    if (arquivo === 0) {
+      // Arquivo found none
+      return '—';
+    }
+    return formatPortugueseNumber(arquivo);
+  };
+
+  const renderOfficialMark = (official: number) => {
+    if (official === 0) {
+      return '∅';
+    }
+    return formatPortugueseNumber(official);
+  };
+
+  // Filter municipalities by search term
+  const filteredMunicipalities = searchTerm
+    ? municipalities.filter(muni =>
+        muni.name.toLowerCase().includes(searchTerm.toLowerCase())
+      )
+    : municipalities;
+
+  // Calculate pagination
+  const totalPages = Math.ceil(filteredMunicipalities.length / perPage);
+  const startIndex = (currentPage - 1) * perPage;
+  const endIndex = startIndex + perPage;
+  const paginatedMunicipalities = filteredMunicipalities.slice(startIndex, endIndex);
+
+  // Check if any municipality has coverage > 1
+  const hasOverCoverage = municipalities.some(m => m.coverage != null && m.coverage > 1.0);
+
+  // Reset to page 1 when search or perPage changes
+  const handleSearchChange = (value: string) => {
+    setSearchTerm(value);
+    setCurrentPage(1);
+  };
+
+  const handlePerPageChange = (value: number) => {
+    setPerPage(value);
+    setCurrentPage(1);
+  };
+
+  return (
+    <div className="rounded-xl border border-stone-200 bg-white overflow-hidden">
+      {/* Header */}
+      <div className="px-6 py-4 border-b border-stone-200">
+        <div className="flex items-center justify-between mb-3">
+          <div>
+            <h2 className="text-lg font-semibold text-stone-900">
+              Cobertura: Arquivo vs Oficial
+            </h2>
+            <p className="text-sm text-stone-500 mt-1">
+              Comparação entre vítimas registradas pelo Arquivo da Violência e dados oficiais do Ministério da Justiça e Segurança Pública. Janela: desde setembro/2025.
+            </p>
+          </div>
+          <a
+            href="/api/public/stats/coverage/download"
+            download
+            className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-blue-600 hover:text-blue-700 border border-blue-600 rounded-lg hover:bg-blue-50 transition-colors"
+          >
+            <Download className="h-4 w-4" />
+            Baixar oficial
+          </a>
+        </div>
+
+        {/* Search and filters */}
+        <div className="flex flex-col sm:flex-row gap-3">
+          <div className="relative flex-1">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-stone-400" />
+            <input
+              type="text"
+              placeholder="Buscar município..."
+              value={searchTerm}
+              onChange={(e) => handleSearchChange(e.target.value)}
+              className="w-full pl-10 pr-4 py-2 border border-stone-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+          <button
+            onClick={() => setShowCoverage(!showCoverage)}
+            className={cn(
+              'px-4 py-2 text-sm font-medium rounded-lg transition-colors whitespace-nowrap',
+              showCoverage
+                ? 'bg-blue-600 text-white'
+                : 'bg-stone-100 text-stone-700 hover:bg-stone-200'
+            )}
+          >
+            {showCoverage ? 'Ocultar cobertura' : 'Mostrar cobertura'}
+          </button>
+          <select
+            value={perPage}
+            onChange={(e) => handlePerPageChange(Number(e.target.value))}
+            className="px-4 py-2 border border-stone-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+          >
+            <option value={25}>25 por página</option>
+            <option value={50}>50 por página</option>
+          </select>
+        </div>
+      </div>
+
+      {/* Table */}
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead className="bg-stone-50 border-b border-stone-200">
+            <tr>
+              <th className="px-4 py-3 text-left text-xs font-medium text-stone-500 uppercase tracking-wider">
+                Município
+              </th>
+              <th className="px-4 py-3 text-center text-xs font-medium text-stone-500 uppercase tracking-wider">
+                UF
+              </th>
+              <th className="px-4 py-3 text-right text-xs font-medium text-stone-500 uppercase tracking-wider">
+                Oficial
+              </th>
+              <th className="px-4 py-3 text-right text-xs font-medium text-stone-500 uppercase tracking-wider">
+                Arquivo
+              </th>
+              {showCoverage && (
+                <th className="px-4 py-3 text-right text-xs font-medium text-stone-500 uppercase tracking-wider">
+                  Cobertura
+                </th>
+              )}
+            </tr>
+          </thead>
+          <tbody className="bg-white divide-y divide-stone-200">
+            {paginatedMunicipalities.length === 0 ? (
+              <tr>
+                <td colSpan={showCoverage ? 5 : 4} className="px-4 py-8 text-center text-stone-500">
+                  Nenhum município encontrado.
+                </td>
+              </tr>
+            ) : (
+              paginatedMunicipalities.map((muni) => {
+                const coveragePercent = muni.coverage != null ? (muni.coverage * 100).toFixed(0) : '—';
+                
+                return (
+                  <tr key={muni.code} className="hover:bg-stone-50">
+                    <td className="px-4 py-3 font-medium text-stone-900">
+                      {muni.name}
+                    </td>
+                    <td className="px-4 py-3 text-center text-stone-700">
+                      {muni.uf}
+                    </td>
+                    <td className="px-4 py-3 text-right text-stone-900">
+                      {renderOfficialMark(muni.official_victims)}
+                    </td>
+                    <td className="px-4 py-3 text-right text-stone-900">
+                      {muni.arquivo_victims === 0 ? (
+                        <span className="text-stone-400" title="Sem registro no Arquivo neste período">—</span>
+                      ) : (
+                        formatPortugueseNumber(muni.arquivo_victims)
+                      )}
+                    </td>
+                    {showCoverage && (
+                      <td className="px-4 py-3 text-right text-stone-700">
+                        {coveragePercent}%
+                      </td>
+                    )}
+                  </tr>
+                );
+              })
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      {/* Pagination */}
+      {filteredMunicipalities.length > 0 && (
+        <div className="px-6 py-4 border-t border-stone-200 flex items-center justify-between">
+          <div className="text-sm text-stone-600">
+            Mostrando {startIndex + 1}-{Math.min(endIndex, filteredMunicipalities.length)} de {filteredMunicipalities.length}
+          </div>
+          <div className="flex gap-2">
+            <button
+              onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+              disabled={currentPage === 1}
+              className="px-3 py-1 text-sm font-medium text-stone-700 border border-stone-300 rounded hover:bg-stone-50 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              Anterior
+            </button>
+            <div className="flex items-center gap-1">
+              <span className="text-sm text-stone-600">
+                Página {currentPage} de {totalPages}
+              </span>
+            </div>
+            <button
+              onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+              disabled={currentPage === totalPages}
+              className="px-3 py-1 text-sm font-medium text-stone-700 border border-stone-300 rounded hover:bg-stone-50 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              Próxima
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Footnote for >100% coverage */}
+      {hasOverCoverage && showCoverage && (
+        <div className="px-6 py-4 border-t border-stone-200 bg-stone-50">
+          <p className="text-xs text-stone-600">
+            <strong>Nota:</strong> Cobertura acima de 100% significa que o Arquivo da Violência contou mais vítimas, naquele município e naquele período, do que o Formulário 1 municipal do Ministério da Justiça e Segurança Pública — não é erro de conta.
+          </p>
+        </div>
+      )}
+    </div>
+  );
 }
 
 interface RankingTableProps {
@@ -395,71 +621,7 @@ export function Rankings() {
 
               {/* Coverage Table */}
               {coverageData && !isCoverageLoading && (
-                <div className="rounded-xl border border-stone-200 bg-white overflow-hidden">
-                  <div className="px-6 py-4 border-b border-stone-200">
-                    <h2 className="text-lg font-semibold text-stone-900">
-                      Cobertura: Arquivo vs Oficial
-                    </h2>
-                    <p className="text-sm text-stone-500 mt-1">
-                      Comparação entre vítimas registradas pelo Arquivo da Violência e dados oficiais do Ministério da Justiça e Segurança Pública. Janela: desde setembro/2025.
-                    </p>
-                  </div>
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-sm">
-                      <thead className="bg-stone-50 border-b border-stone-200">
-                        <tr>
-                          <th className="px-4 py-3 text-left text-xs font-medium text-stone-500 uppercase tracking-wider">
-                            Município
-                          </th>
-                          <th className="px-4 py-3 text-center text-xs font-medium text-stone-500 uppercase tracking-wider">
-                            UF
-                          </th>
-                          <th className="px-4 py-3 text-right text-xs font-medium text-stone-500 uppercase tracking-wider">
-                            Oficial
-                          </th>
-                          <th className="px-4 py-3 text-right text-xs font-medium text-stone-500 uppercase tracking-wider">
-                            Arquivo
-                          </th>
-                          <th className="px-4 py-3 text-right text-xs font-medium text-stone-500 uppercase tracking-wider">
-                            Cobertura
-                          </th>
-                        </tr>
-                      </thead>
-                      <tbody className="bg-white divide-y divide-stone-200">
-                        {coverageData.municipalities.map((muni: CoverageMunicipality) => {
-                          const coveragePercent = muni.coverage != null ? (muni.coverage * 100).toFixed(0) : '—';
-                          const coverageColor = 
-                            muni.coverage == null ? 'text-stone-400' :
-                            muni.coverage < 0.5 ? 'text-red-600' :
-                            muni.coverage < 0.8 ? 'text-orange-600' :
-                            muni.coverage < 1.0 ? 'text-yellow-600' :
-                            muni.coverage >= 1.0 ? 'text-green-600' :
-                            'text-stone-600';
-                          
-                          return (
-                            <tr key={muni.code} className="hover:bg-stone-50">
-                              <td className="px-4 py-3 font-medium text-stone-900">
-                                {muni.name}
-                              </td>
-                              <td className="px-4 py-3 text-center text-stone-700">
-                                {muni.uf}
-                              </td>
-                              <td className="px-4 py-3 text-right text-stone-900">
-                                {formatPortugueseNumber(muni.official_victims)}
-                              </td>
-                              <td className="px-4 py-3 text-right text-stone-900">
-                                {formatPortugueseNumber(muni.arquivo_victims)}
-                              </td>
-                              <td className={cn('px-4 py-3 text-right font-semibold', coverageColor)}>
-                                {coveragePercent}%
-                              </td>
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
+                <CoverageTable municipalities={coverageData.municipalities} />
               )}
             </div>
           )}
