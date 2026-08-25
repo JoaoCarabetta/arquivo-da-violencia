@@ -23,7 +23,6 @@ from app.services.public_filters import (
     homicide_types_filter,
 )
 from app.geography import COUNTRY_NAMES, BRAZILIAN_STATES
-from app.country_registry import COUNTRY_CONFIGS, get_country_config
 
 router = APIRouter(prefix="/public", tags=["public"])
 
@@ -1680,17 +1679,4 @@ async def get_public_event_by_id(
     )
 
     return _format_public_event_detail(event, sources)
-
-
-@router.get("/country-metadata")
-async def get_country_metadata():
-    """Return metadata about supported countries, including city counts for testing methodology copy."""
-    metadata = {}
-    for code, config in COUNTRY_CONFIGS.items():
-        metadata[code] = {
-            "code": code,
-            "name": config.name,
-            "city_count": len(config.cities),
-        }
-    return metadata
 
