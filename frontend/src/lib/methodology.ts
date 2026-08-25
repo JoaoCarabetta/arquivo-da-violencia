@@ -44,7 +44,7 @@ const PT: MethodologyContent = {
       id: 'cities',
       title: 'Cidades monitoradas',
       paragraphs: [
-        'O monitoramento cobre 63 municípios: todas as 27 capitais estaduais mais cidades com população acima de 500 mil habitantes (IBGE 2022). A busca padrão por cidade usa a janela temporal when:1h (última hora).',
+        'O monitoramento cobre 52 municípios brasileiros: todas as 27 capitais estaduais, grandes regiões metropolitanas e cidades de médio porte. A lista inclui metrópoles de 2 milhões ou mais habitantes (São Paulo, Rio de Janeiro, Brasília, Salvador, Fortaleza, Belo Horizonte, Manaus), grandes cidades entre 1 e 2 milhões (Curitiba, Recife, Goiânia, Belém, Porto Alegre, e outras), cidades médio-grandes de 500 mil a 1 milhão de habitantes, e as capitais menores (Florianópolis, Vitória, Macapá, Boa Vista, Rio Branco, Palmas). A busca padrão por cidade usa a janela temporal when:1h (última hora).',
       ],
       bullets: [
         'Execução paralela de até 10 cidades simultâneas',
@@ -155,13 +155,25 @@ const PT: MethodologyContent = {
       ],
     },
     {
+      id: 'coverage',
+      title: 'Cobertura: Arquivo vs Oficial',
+      paragraphs: [
+        'Esta tabela compara, município a município, duas contas de vítimas no mesmo período.',
+        'O que o Ministério da Justiça e Segurança Pública conta. No sistema Violência e Delitos Estaduais, Formulário 1, cada município envia todo mês o número de vítimas de quatro crimes, contados à parte: homicídio doloso, feminicídio, roubo seguido de morte (latrocínio) e lesão corporal seguida de morte. Homens e mulheres entram juntos. A coluna oficial desta tabela é a soma dessas quatro linhas. Mortes por intervenção de agente do Estado existem no mesmo ministério, mas só no Formulário 3 e só por Unidade da Federação — por isso não entram nesta tabela municipal.',
+        'O que o Arquivo da Violência conta. Vítimas de mortes violentas noticiadas na imprensa, no mapa público do Brasil, no mesmo recorte de tempo, somadas pelo código de sete dígitos do Instituto Brasileiro de Geografia e Estatística. Evento sem esse código não entra.',
+        'Período. Todo mês oficial completo desde setembro de 2025 (primeiro mês cheio depois de 26 de agosto de 2025) até o último mês que o ministério já publicou.',
+        'Cobertura. Vítimas do Arquivo divididas pelas vítimas oficiais. Acima de 100% significa que o Arquivo achou mais vítimas do que o ministério registrou naquele município. Se o oficial é zero e o Arquivo tem vítimas, a linha existe e a cobertura fica em branco. Município sem código de sete dígitos não aparece. Município com zero oficial e zero no Arquivo não aparece.',
+        'Esta tabela não usa o Sistema de Informações sobre Mortalidade, do Ministério da Saúde. Também não usa a categoria Mortes Violentas Intencionais do Fórum Brasileiro de Segurança Pública: lá o feminicídio já está dentro do homicídio doloso, e as mortes por intervenção policial entram na soma.',
+      ],
+    },
+    {
       id: 'limitations',
       title: 'Limitações',
       paragraphs: [
         'O Arquivo da Violência deve ser utilizado como fonte de referência, não como substituto de registros oficiais (DATASUS, ISP/polícias estaduais).',
       ],
       bullets: [
-        'Cobertura limitada a 63 cidades pré-configuradas, não todo o território nacional',
+        'Cobertura limitada a 52 cidades pré-configuradas, não todo o território nacional',
         'Só captura eventos reportados pela mídia indexada pelo Google News',
         'Classificação inicial usa apenas a manchete — títulos ambíguos podem ser descartados ou aceitos incorretamente',
         'Extração depende do conteúdo da matéria; informações ausentes no texto não são inferidas',
@@ -204,7 +216,7 @@ const EN: MethodologyContent = {
     id: 'cities',
     title: 'Monitored cities',
     paragraphs: [
-      'Monitoring covers 63 municipalities: all 27 state capitals plus cities with populations above 500,000 (2022 IBGE census). The default city search uses the when:1h time window (last hour).',
+      'Monitoring covers 52 Brazilian municipalities: all 27 state capitals, major metropolitan regions, and mid-sized cities. The list includes major metros of 2 million or more inhabitants (São Paulo, Rio de Janeiro, Brasília, Salvador, Fortaleza, Belo Horizonte, Manaus), large cities between 1 and 2 million (Curitiba, Recife, Goiânia, Belém, Porto Alegre, and others), medium-large cities with 500 thousand to 1 million inhabitants, and smaller capitals (Florianópolis, Vitória, Macapá, Boa Vista, Rio Branco, Palmas). The default city search uses the when:1h time window (last hour).',
     ],
     bullets: [
       'Parallel execution of up to 10 cities simultaneously',
@@ -315,13 +327,25 @@ const EN: MethodologyContent = {
     ],
   },
   {
+    id: 'coverage',
+    title: 'Coverage: Archive vs Official',
+    paragraphs: [
+      'This table compares, municipality by municipality, two victim counts over the same period.',
+      'What the Ministry of Justice and Public Security counts. In the Violence and State Offenses system, Form 1, each municipality sends the monthly number of victims of four crimes, counted separately: intentional homicide, femicide, robbery followed by death (robbery-homicide), and bodily injury followed by death. Men and women are counted together. The official column in this table is the sum of these four lines. Deaths by intervention of state agents exist in the same ministry, but only in Form 3 and only by Federation Unit — therefore they do not enter this municipal table.',
+      'What Arquivo da Violência counts. Victims of violent deaths reported in the press, on the public map of Brazil, in the same time frame, aggregated by the seven-digit code of the Brazilian Institute of Geography and Statistics. Events without this code do not enter.',
+      'Period. Every complete official month since September 2025 (first full month after August 26, 2025) until the last month the ministry has published.',
+      'Coverage. Archive victims divided by official victims. Above 100% means the Archive found more victims than the ministry recorded in that municipality. If the official count is zero and the Archive has victims, the row exists and coverage is blank. Municipalities without a seven-digit code do not appear. Municipalities with zero official and zero Archive do not appear.',
+      'This table does not use the Mortality Information System of the Ministry of Health. It also does not use the Intentional Violent Deaths category of the Brazilian Public Security Forum: there, femicide is already included in intentional homicide, and deaths by police intervention enter the sum.',
+    ],
+  },
+  {
     id: 'limitations',
     title: 'Limitations',
     paragraphs: [
       'Arquivo da Violência should be used as a reference source, not as a substitute for official records (DATASUS, state police/ISP).',
     ],
     bullets: [
-      'Coverage limited to 63 pre-configured cities, not the entire national territory',
+      'Coverage limited to 52 pre-configured cities, not the entire national territory',
       'Only captures events reported by media indexed by Google News',
       'Initial classification uses only the headline — ambiguous titles may be discarded or accepted incorrectly',
       'Extraction depends on article content; information absent from the text is not inferred',
