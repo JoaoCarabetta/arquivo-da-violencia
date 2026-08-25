@@ -52,7 +52,7 @@ async def backfill_municipality_codes(
         SELECT id, city, state, country
         FROM unique_event
         WHERE municipality_code IS NULL
-          AND country IN ('BR', 'Brasil') OR country IS NULL
+          AND (country IN ('BR', 'Brasil') OR country IS NULL)
           AND city IS NOT NULL
           AND state IS NOT NULL
         ORDER BY id
@@ -148,8 +148,8 @@ async def backfill_municipality_codes(
         text("""
             SELECT COUNT(*) FROM unique_event
             WHERE municipality_code IS NULL
-              AND country NOT IN ('BR', 'Brasil')
               AND country IS NOT NULL
+              AND country NOT IN ('BR', 'Brasil')
         """)
     )
     skipped_non_brazil = result.scalar()

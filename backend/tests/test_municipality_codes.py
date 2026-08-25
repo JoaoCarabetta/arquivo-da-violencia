@@ -263,6 +263,69 @@ async def test_backfill_municipality_codes_for_existing_events(async_session):
 
 
 @pytest.mark.asyncio
+async def test_backfill_does_not_update_non_brazil_events(async_session):
+    """
+    Test that backfill does NOT update events from other countries (CL, CO, etc).
+    
+    Regression test for SQL operator precedence bug where OR/AND without
+    parentheses could pick up non-Brazil rows.
+    """
+    # Load IBGE fixture (Brazil codes only)
+    await load_ibge_population_fixture(async_session)
+    
+    # Create a Chilean event with city+state
+    event_cl = UniqueEvent(
+        city="Santiago",
+        state="Metropolitana",
+        country="CL",
+        event_family="homicidio",
+        municipality_code=None
+    )
+    
+    # Create a Colombian event with city+state
+    event_co = UniqueEvent(
+        city="Bogotá",
+        state="Cundinamarca",
+        country="CO",
+        event_family="homicidio",
+        municipality_code=None
+    )
+    
+    # Create a Brazilian event with city+state (should get code)
+    event_br = UniqueEvent(
+        city="Rio de Janeiro",
+        state="RJ",
+        country="BR",
+        event_family="homicidio",
+        municipality_code=None
+    )
+    
+    async_session.add_all([event_cl, event_co, event_br])
+    await async_session.commit()
+    
+    from app.services.municipality_codes import backfill_municipality_codes
+    
+    # Run backfill
+    result = await backfill_municipality_codes(async_session)
+    
+    # Refresh events
+    await async_session.refresh(event_cl)
+    await async_session.refresh(event_co)
+    await async_session.refresh(event_br)
+    
+    # Non-Brazil events should NOT get codes
+    assert event_cl.municipality_code is None, "Chilean event should not get IBGE code"
+    assert event_co.municipality_code is None, "Colombian event should not get IBGE code"
+    
+    # Brazilian event SHOULD get the official code
+    assert event_br.municipality_code == 3304557, "Rio de Janeiro should get code 3304557"
+    
+    # Verify counts
+    assert result["updated"] == 1, "Only the Brazilian event should be updated"
+    assert result["skipped_non_brazil"] >= 2, "Should skip at least CL and CO events"
+
+
+@pytest.mark.asyncio
 async def test_backfill_handles_ambiguous_city_names(async_session):
     """
     Test that backfill does NOT invent codes for ambiguous city names.
