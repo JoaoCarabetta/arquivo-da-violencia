@@ -44,11 +44,11 @@ async def test_ingest_official_violence_data_single_municipality(async_session, 
     Test ingesting official violence data for one municipality and one month.
 
     This is the core seam: given fixture VDE data for one municipality/month,
-    persist per-indicator counts and the summed mortes_violentas_intencionais total.
+    persist per-indicator counts and the summed official municipal total (Formulário 1 types only).
 
-    Acceptance criteria from issue #175:
+    Acceptance criteria from issue #175 and #183:
     - Store by municipality code + year-month + indicator
-    - Sum the 5 indicators into mortes_violentas_intencionais total
+    - Sum the 4 Formulário 1 indicators into the official municipal total (no intervenção)
 
     Fixture uses real bancovde-2025.xlsx column structure (14 columns).
     Excel serial date 45901 = 2025-09-01.
@@ -191,9 +191,9 @@ async def test_ingest_official_violence_data_single_municipality(async_session, 
     intervencao = next(c for c in counts if c.indicator == "morte_intervencao_policial")
     assert intervencao.victim_count == 13
 
-    # Check summed total (mortes violentas intencionais)
+    # Check summed total (Formulário 1 types only, no intervenção)
     total = next(c for c in counts if c.indicator == "mortes_violentas_intencionais")
-    assert total.victim_count == 77  # 53 + 3 + 6 + 2 + 13
+    assert total.victim_count == 64  # 53 + 3 + 6 + 2 (NOT including 13 from intervenção)
     assert total.is_total is True
 
 @pytest.mark.asyncio

@@ -33,14 +33,15 @@ INDICATOR_MAPPING = {
     "Morte por intervenção de Agente do Estado": "morte_intervencao_policial",
 }
 
-# Indicators that comprise "mortes violentas intencionais"
-# Spec: homicídio doloso + feminicídio + latrocínio + lesão corporal seguida de morte + morte por intervenção do Estado
+# Indicators that comprise the official municipal total (Formulário 1 types only)
+# Spec (issue #183): homicídio doloso + feminicídio + latrocínio (roubo seguido de morte)
+# + lesão corporal seguida de morte ONLY.
+# Do NOT include morte por intervenção de agente do Estado in the municipal bag.
 MVI_INDICATORS = [
     "homicidio_doloso",
     "feminicidio",
     "latrocinio",
     "lesao_corporal_seguida_morte",
-    "morte_intervencao_policial",
 ]
 
 
@@ -94,7 +95,7 @@ async def ingest_official_violence_data(
     1. Resolves municipality names to IBGE codes
     2. Groups and sums by (code_muni, year_month, indicator)
     3. Stores per-indicator counts
-    4. Calculates and stores summed "mortes violentas intencionais" total
+    4. Calculates and stores summed official municipal total (Formulário 1 types only)
     5. Is idempotent: re-ingesting the same month updates existing rows
 
     Args:
@@ -220,7 +221,7 @@ async def ingest_official_violence_data(
                 )
                 session.add(count_row)
 
-        # Calculate and store summed "mortes violentas intencionais" total
+        # Calculate and store summed official municipal total (Formulário 1 types only)
         mvi_total = sum(indicators.get(ind, 0) for ind in MVI_INDICATORS)
 
         query_existing_total = select(OfficialViolenceCount).where(
@@ -257,7 +258,7 @@ async def get_official_violence_totals(
     min_year_month: str = "2025-09"
 ) -> List[Dict[str, Any]]:
     """
-    Get official "mortes violentas intencionais" totals for municipalities.
+    Get official municipal totals (Formulário 1 types only) for municipalities.
 
     Args:
         session: Database session

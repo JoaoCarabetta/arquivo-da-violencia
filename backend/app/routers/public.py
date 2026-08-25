@@ -1616,21 +1616,22 @@ async def get_coverage_stats(session: AsyncSession = Depends(get_session)):
     Returns union of Brazilian municipalities with official victims > 0 OR Arquivo victims > 0
     in the overlapping window (complete months from 2025-09 onwards).
     
-    Official bag: mortes violentas intencionais (homicídio doloso + feminicídio + latrocínio
-    + lesão corporal seguida de morte + morte por intervenção do Estado).
+    Official bag: Formulário 1 types only (homicídio doloso + feminicídio + latrocínio
+    + lesão corporal seguida de morte). Does NOT include morte por intervenção de agente do Estado.
     
     Arquivo count: sum of victim_count on unique events that pass the public incident filter
     (homicidio, incident, victim_count <= 10), country Brazil, event date >= 2025-09-01,
     grouped by municipality_code.
     
     Coverage = Arquivo / official (not capped). When official=0, coverage is None.
+    Municipalities with official=0 and Arquivo=0 are hidden.
     
     Returns:
         List of municipalities with:
         - code: 7-digit IBGE municipal code
         - name: Municipality name
         - uf: State abbreviation
-        - official_victims: Official mortes violentas intencionais count
+        - official_victims: Official municipal total count (Formulário 1 types only)
         - arquivo_victims: Arquivo victim count
         - coverage: Arquivo / official ratio (None when official=0)
         
@@ -1643,9 +1644,10 @@ async def get_coverage_stats(session: AsyncSession = Depends(get_session)):
     return {
         "window_start": "2025-09",
         "methodology": {
-            "official_bag": "mortes violentas intencionais (homicídio doloso + feminicídio + latrocínio + lesão corporal seguida de morte + morte por intervenção do Estado)",
+            "official_bag": "homicídio doloso + feminicídio + roubo seguido de morte (latrocínio) + lesão corporal seguida de morte",
             "arquivo_filter": "homicidio, incident, victim_count <= 10, country=BR, date >= 2025-09-01",
-            "coverage_calculation": "Arquivo victims / official victims (not capped, None when official=0)"
+            "coverage_calculation": "Arquivo victims / official victims (not capped, None when official=0)",
+            "note": "Municipalities with official=0 and Arquivo=0 are hidden"
         },
         "municipalities": coverage
     }
