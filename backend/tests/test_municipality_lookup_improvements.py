@@ -1,7 +1,7 @@
 """Tests for issue #179: Improved municipality code lookup with point-in-polygon and name folding."""
 
 import pytest
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, patch, MagicMock
 from decimal import Decimal
 
 from app.models.unique_event import UniqueEvent
@@ -18,6 +18,55 @@ def use_test_fixture():
     set_test_mode(True)
     yield
     set_test_mode(False)  # Reset after tests
+
+
+@pytest.mark.asyncio
+async def test_geobr_never_called_in_unit_tests(async_session):
+    """
+    TEST SPEC RULE: Unit tests must NEVER call live geobr API.
+    
+    Patch geobr.read_municipality at source and assert it's never called during tests.
+    The Rio geocode test should still get 3304557 from the bundled fixture.
+    """
+    await load_ibge_population_fixture(async_session)
+    
+    # Import and patch geobr directly at source to prevent any download
+    import sys
+    import types
+    
+    # Create a mock geobr module if it doesn't exist
+    if 'geobr' not in sys.modules:
+        sys.modules['geobr'] = types.ModuleType('geobr')
+    
+    # Patch read_municipality to raise if called
+    with patch('geobr.read_municipality', create=True) as mock_geobr:
+        mock_geobr.side_effect = AssertionError("geobr.read_municipality was called in unit tests!")
+        
+        # Create event with Rio coordinates
+        event = UniqueEvent(
+            city="Rio de Janeiro",
+            state="RJ",
+            country="BR",
+            event_family="homicidio",
+            latitude=Decimal("-22.9519"),
+            longitude=Decimal("-43.2105"),
+            municipality_code=None
+        )
+        async_session.add(event)
+        await async_session.commit()
+        
+        # Run backfill - should use fixture, not call geobr
+        result = await backfill_municipality_codes(async_session)
+        
+        await async_session.refresh(event)
+        
+        # Should get Rio code from fixture
+        assert event.municipality_code == 3304557, \
+            "Should get Rio code from fixture without calling geobr"
+        assert result["updated"] == 1
+        
+        # Verify geobr was NEVER called
+        mock_geobr.assert_not_called()
 
 
 class _TestSessionMaker:
