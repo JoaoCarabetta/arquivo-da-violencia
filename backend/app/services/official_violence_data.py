@@ -2,33 +2,39 @@
 Official violence data service (Ministry of Justice VDE data).
 
 This module provides functions to:
-1. Ingest VDE Formulário 1 data (victim counts by municipality and month)
-2. Calculate summed "mortes violentas intencionais" totals
-3. Query official statistics with window filtering
+1. Ingest bancovde-YYYY.xlsx data (victim counts by municipality and month)
+2. Resolve municipality names to 7-digit IBGE codes via ibge_population table
+3. Calculate summed "mortes violentas intencionais" totals
+4. Query official statistics with window filtering
 
 Data source: SINESP VDE (Validador de Dados Estatísticos)
-URL: https://dados.mj.gov.br/dataset/sistema-nacional-de-estatisticas-de-seguranca-publica
+URL pattern: https://www.gov.br/mj/pt-br/assuntos/sua-seguranca/seguranca-publica/estatistica/download/dnsp-base-de-dados/bancovde-YYYY.xlsx/@@download/file
+
+File format: bancovde-2025.xlsx, sheet "2025", 14 columns
+Headers: ["uf","municipio","evento","data_referencia","agente","arma","faixa_etaria","feminino","masculino","nao_informado","total_vitima","total","total_peso","abrangencia"]
 """
 
 from typing import Dict, List, Any
-from datetime import datetime
+from datetime import datetime, timedelta
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 from loguru import logger
 
 from app.models.official_violence_data import OfficialViolenceCount
 
-# Mapping from VDE crime type names to our indicator slugs
-# These strings must match the exact names in the Ministry of Justice VDE dump
+
+# Mapping from VDE evento names to our indicator slugs
+# These strings must match the exact casing in bancovde-YYYY.xlsx
 INDICATOR_MAPPING = {
-    "Homicídio Doloso": "homicidio_doloso",
+    "Homicídio doloso": "homicidio_doloso",
     "Feminicídio": "feminicidio",
-    "Roubo Seguido de Morte (Latrocínio)": "latrocinio",
-    "Lesão Corporal Seguida de Morte": "lesao_corporal_seguida_morte",
-    "Morte por Intervenção de Agente do Estado": "morte_intervencao_policial",
+    "Roubo seguido de morte (latrocínio)": "latrocinio",
+    "Lesão corporal seguida de morte": "lesao_corporal_seguida_morte",
+    "Morte por intervenção de Agente do Estado": "morte_intervencao_policial",
 }
 
 # Indicators that comprise "mortes violentas intencionais"
+# Spec: homicídio doloso + feminicídio + latrocínio + lesão corporal seguida de morte + morte por intervenção do Estado
 MVI_INDICATORS = [
     "homicidio_doloso",
     "feminicidio",
@@ -37,35 +43,25 @@ MVI_INDICATORS = [
     "morte_intervencao_policial",
 ]
 
-def _parse_year_month(mes: str, ano: str) -> str:
-    """
-    Convert VDE date fields to YYYY-MM.
 
-    VDE format: separate mes (month as string or number) and ano (year) columns
-    Our format: "YYYY-MM" (e.g. "2025-09")
+def _excel_serial_to_year_month(serial_date: float) -> str:
+    """
+    Convert Excel serial date to YYYY-MM.
+
+    Excel serial date: days since 1899-12-30 (Excel epoch)
+    Examples: 45658 = 2025-01-01, 45689 = 2025-02-01
 
     Args:
-        mes: Month (can be "Janeiro", "janeiro", "1", "01", etc.)
-        ano: Year (e.g. "2025")
+        serial_date: Excel serial date number
 
     Returns:
-        String in YYYY-MM format
+        String in YYYY-MM format (e.g. "2025-09")
     """
-    # Handle month names (Portuguese)
-    month_map = {
-        "janeiro": "01", "fevereiro": "02", "março": "03", "abril": "04",
-        "maio": "05", "junho": "06", "julho": "07", "agosto": "08",
-        "setembro": "09", "outubro": "10", "novembro": "11", "dezembro": "12"
-    }
+    # Excel epoch is 1899-12-30
+    excel_epoch = datetime(1899, 12, 30)
+    date = excel_epoch + timedelta(days=int(serial_date))
+    return date.strftime("%Y-%m")
 
-    mes_lower = str(mes).lower().strip()
-    if mes_lower in month_map:
-        month = month_map[mes_lower]
-    else:
-        # Try as numeric
-        month = str(int(mes)).zfill(2)
-
-    return f"{ano}-{month}"
 
 async def ingest_official_violence_data(
     session: AsyncSession,
@@ -73,90 +69,120 @@ async def ingest_official_violence_data(
     source: str = "SINESP VDE"
 ) -> None:
     """
-    Ingest VDE data (victim counts by municipality and month).
+    Ingest bancovde-YYYY.xlsx data (victim counts by municipality and month).
 
-    Expected VDE data format (based on Ministry of Justice open data structure):
-    - ano: Year (e.g. "2025")
-    - mes: Month (e.g. "9", "09", or "Setembro")
+    Expected bancovde format (14 columns):
     - uf: State abbreviation (e.g. "SP")
-    - municipio: Municipality name (e.g. "São Paulo")
-    - cod_municipio or municipio_codigo: 7-digit IBGE code (e.g. "3550308")
-    - tipo_crime or indicador: Crime type indicator name
-    - vitimas or total_vitimas: Total victim count (or separate by sex)
+    - municipio: Municipality name (e.g. "SÃO PAULO")
+    - evento: Crime type (must match INDICATOR_MAPPING keys)
+    - data_referencia: Excel serial date for first of month (e.g. 45901 = 2025-09-01)
+    - agente, arma, faixa_etaria: Disaggregation dimensions (ignored for our totals)
+    - feminino, masculino, nao_informado: Sex-disaggregated counts (unused - we use total_vitima)
+    - total_vitima: Total victim count (sex-combined) - THIS IS WHAT WE USE
+    - total, total_peso, abrangencia: Other columns (unused)
+
+    Municipality resolution:
+    - No 7-digit IBGE code in the file
+    - Resolve (uf, municipio) → code_muni via ibge_population table
+    - Drop rows that don't match an IBGE code
+
+    Aggregation:
+    - Rows are sliced by agente/arma/faixa_etaria
+    - SUM total_vitima for same (uf, municipio, year_month, evento) before storing
 
     This function:
-    1. Parses VDE data rows
-    2. Stores per-indicator counts
-    3. Calculates and stores summed "mortes violentas intencionais" total
-    4. Is idempotent: re-ingesting the same month overwrites (via unique constraint)
+    1. Resolves municipality names to IBGE codes
+    2. Groups and sums by (code_muni, year_month, indicator)
+    3. Stores per-indicator counts
+    4. Calculates and stores summed "mortes violentas intencionais" total
+    5. Is idempotent: re-ingesting the same month updates existing rows
 
     Args:
         session: Database session
-        vde_data: List of VDE data rows (dicts)
+        vde_data: List of bancovde data rows (dicts with 14 columns)
         source: Data source description
     """
     if not vde_data:
         return
 
-    # Group by (code_muni, year_month) for batch processing
-    grouped: Dict[tuple, Dict[str, int]] = {}
+    # Import here to avoid circular dependency
+    from app.services.ibge_population import lookup_city_codes
+
+    # First pass: collect all unique (uf, municipio) pairs for batch lookup
+    unique_municipalities = set()
+    for row in vde_data:
+        uf = row.get("uf", "").strip()
+        municipio = row.get("municipio", "").strip()
+        if uf and municipio:
+            unique_municipalities.add((municipio, uf))
+
+    # Batch lookup IBGE codes
+    cities = [m[0] for m in unique_municipalities]
+    states = [m[1] for m in unique_municipalities]
+    code_lookup = await lookup_city_codes(session, cities, states)
+
+    # Second pass: group and sum by (code_muni, year_month, indicator)
+    grouped: Dict[tuple, int] = {}
 
     for row in vde_data:
-        # Parse municipality code (try multiple common column names)
-        code_muni_str = row.get("cod_municipio") or row.get("municipio_codigo") or row.get("codigo_municipio")
-        if not code_muni_str:
-            logger.warning(f"Missing municipality code in VDE row, skipping: {row}")
-            continue
-        code_muni = int(code_muni_str)
+        uf = row.get("uf", "").strip()
+        municipio = row.get("municipio", "").strip()
 
-        # Parse year-month
-        ano = str(row.get("ano", ""))
-        mes = str(row.get("mes", ""))
-        if not ano or not mes:
-            logger.warning(f"Missing ano/mes in VDE row, skipping: {row}")
-            continue
-        year_month = _parse_year_month(mes, ano)
-
-        # Parse crime type (try multiple common column names)
-        tipo_crime = row.get("tipo_crime") or row.get("indicador") or row.get("evento")
-        if not tipo_crime:
-            logger.warning(f"Missing crime type in VDE row, skipping: {row}")
+        if not uf or not municipio:
+            logger.debug(f"Missing uf/municipio in row, skipping")
             continue
 
-        # Skip unknown crime types
-        if tipo_crime not in INDICATOR_MAPPING:
-            logger.debug(f"Unknown crime type in VDE data (not in MVI bag): {tipo_crime}")
+        # Resolve to IBGE code
+        code_muni = code_lookup.get((municipio, uf))
+        if not code_muni:
+            logger.debug(f"Could not resolve IBGE code for {municipio}/{uf}, skipping")
             continue
 
-        indicator = INDICATOR_MAPPING[tipo_crime]
+        # Parse evento
+        evento = row.get("evento", "").strip()
+        if evento not in INDICATOR_MAPPING:
+            # Ignore other eventos
+            continue
 
-        # Parse victim count (try multiple common patterns)
-        if "vitimas" in row:
-            victim_count = int(row["vitimas"])
-        elif "total_vitimas" in row:
-            victim_count = int(row["total_vitimas"])
-        elif all(k in row for k in ["vitimas_masculinas", "vitimas_femininas"]):
-            # Sum by sex if separate columns
-            victim_count = (
-                int(row.get("vitimas_masculinas", 0)) +
-                int(row.get("vitimas_femininas", 0)) +
-                int(row.get("vitimas_nao_identificadas", 0))
-            )
-        elif "ocorrencias" in row:
-            # Some VDE files use "ocorrencias" instead of "vitimas"
-            victim_count = int(row["ocorrencias"])
+        indicator = INDICATOR_MAPPING[evento]
+
+        # Parse date
+        data_ref = row.get("data_referencia")
+        if not data_ref:
+            logger.debug(f"Missing data_referencia in row, skipping")
+            continue
+
+        try:
+            year_month = _excel_serial_to_year_month(float(data_ref))
+        except (ValueError, TypeError) as e:
+            logger.warning(f"Invalid data_referencia {data_ref}: {e}")
+            continue
+
+        # Parse victim count
+        total_vitima = row.get("total_vitima")
+        if total_vitima is None or total_vitima == "":
+            victim_count = 0
         else:
-            logger.warning(f"Missing victim count in VDE row, skipping: {row}")
-            continue
+            try:
+                victim_count = int(float(total_vitima))
+            except (ValueError, TypeError):
+                logger.warning(f"Invalid total_vitima value: {total_vitima}")
+                continue
 
+        # Group key
+        key = (code_muni, year_month, indicator)
+        grouped[key] = grouped.get(key, 0) + victim_count
+
+    # Convert to nested dict for storage
+    storage_grouped: Dict[tuple, Dict[str, int]] = {}
+    for (code_muni, year_month, indicator), victim_count in grouped.items():
         key = (code_muni, year_month)
-        if key not in grouped:
-            grouped[key] = {}
+        if key not in storage_grouped:
+            storage_grouped[key] = {}
+        storage_grouped[key][indicator] = victim_count
 
-        grouped[key][indicator] = victim_count
-
-    # Insert/update rows (unique constraint handles idempotence)
-    for (code_muni, year_month), indicators in grouped.items():
+    # Insert/update rows (explicit upsert for idempotence)
+    for (code_muni, year_month), indicators in storage_grouped.items():
         # Store individual indicators
         for indicator, victim_count in indicators.items():
             # Check if row exists
@@ -212,7 +238,8 @@ async def ingest_official_violence_data(
             session.add(total_row)
 
     await session.commit()
-    logger.info(f"Ingested official violence data for {len(grouped)} municipality-months")
+    logger.info(f"Ingested official violence data for {len(storage_grouped)} municipality-months")
+
 
 async def get_official_violence_totals(
     session: AsyncSession,

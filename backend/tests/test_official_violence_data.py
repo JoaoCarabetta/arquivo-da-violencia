@@ -4,13 +4,41 @@ import pytest
 from sqlmodel import select
 
 from app.models.official_violence_data import OfficialViolenceCount
+from app.models.ibge_population import IBGEPopulation
 from app.services.official_violence_data import (
     ingest_official_violence_data,
     get_official_violence_totals,
 )
 
+# dump headers from bancovde-2025.xlsx:
+# ["uf","municipio","evento","data_referencia","agente","arma","faixa_etaria","feminino","masculino","nao_informado","total_vitima","total","total_peso","abrangencia"]
+
+@pytest.fixture
+async def setup_ibge_data(async_session):
+    """Load IBGE population data for municipality name resolution."""
+    # Add test municipalities
+    municipalities = [
+        IBGEPopulation(
+            code_muni=3550308,
+            name_muni="SÃO PAULO",
+            abbrev_state="SP",
+            population=12396372,
+            year=2022
+        ),
+        IBGEPopulation(
+            code_muni=3304557,
+            name_muni="RIO DE JANEIRO",
+            abbrev_state="RJ",
+            population=6775561,
+            year=2022
+        ),
+    ]
+    for muni in municipalities:
+        async_session.add(muni)
+    await async_session.commit()
+
 @pytest.mark.asyncio
-async def test_ingest_official_violence_data_single_municipality(async_session):
+async def test_ingest_official_violence_data_single_municipality(async_session, setup_ibge_data):
     """
     Test ingesting official violence data for one municipality and one month.
 
@@ -20,54 +48,114 @@ async def test_ingest_official_violence_data_single_municipality(async_session):
     Acceptance criteria from issue #175:
     - Store by municipality code + year-month + indicator
     - Sum the 5 indicators into mortes_violentas_intencionais total
+
+    Fixture uses real bancovde-2025.xlsx column structure (14 columns).
+    Excel serial date 45901 = 2025-09-01.
+    Rows are sliced by agente/arma/faixa_etaria - we sum total_vitima.
     """
-    # Fixture: VDE data for São Paulo (3550308) in Sep 2025
-    # Realistic column structure from Ministry of Justice VDE municipal data
+    # Fixture: bancovde data for São Paulo (SP) in Sep 2025
+    # Multiple rows per evento (disaggregated by agente/arma/faixa_etaria) - should be summed
     vde_fixture = [
+        # Homicídio doloso: 2 rows, sum = 53
         {
-            "ano": "2025",
-            "mes": "9",
             "uf": "SP",
-            "municipio": "São Paulo",
-            "cod_municipio": "3550308",
-            "tipo_crime": "Homicídio Doloso",
-            "vitimas": "53",
+            "municipio": "SÃO PAULO",
+            "evento": "Homicídio doloso",
+            "data_referencia": 45901,  # 2025-09-01
+            "agente": "",
+            "arma": "Arma de fogo",
+            "faixa_etaria": "18 a 24",
+            "feminino": 0,
+            "masculino": 30,
+            "nao_informado": 0,
+            "total_vitima": 30,
+            "total": 0,
+            "total_peso": 0,
+            "abrangencia": ""
         },
         {
-            "ano": "2025",
-            "mes": "9",
             "uf": "SP",
-            "municipio": "São Paulo",
-            "cod_municipio": "3550308",
-            "tipo_crime": "Feminicídio",
-            "vitimas": "3",
+            "municipio": "SÃO PAULO",
+            "evento": "Homicídio doloso",
+            "data_referencia": 45901,
+            "agente": "",
+            "arma": "Arma branca",
+            "faixa_etaria": "25 a 29",
+            "feminino": 0,
+            "masculino": 23,
+            "nao_informado": 0,
+            "total_vitima": 23,
+            "total": 0,
+            "total_peso": 0,
+            "abrangencia": ""
         },
+        # Feminicídio: 1 row
         {
-            "ano": "2025",
-            "mes": "9",
             "uf": "SP",
-            "municipio": "São Paulo",
-            "cod_municipio": "3550308",
-            "tipo_crime": "Roubo Seguido de Morte (Latrocínio)",
-            "vitimas": "6",
+            "municipio": "SÃO PAULO",
+            "evento": "Feminicídio",
+            "data_referencia": 45901,
+            "agente": "",
+            "arma": "",
+            "faixa_etaria": "",
+            "feminino": 3,
+            "masculino": 0,
+            "nao_informado": 0,
+            "total_vitima": 3,
+            "total": 0,
+            "total_peso": 0,
+            "abrangencia": ""
         },
+        # Roubo seguido de morte (latrocínio): 1 row
         {
-            "ano": "2025",
-            "mes": "9",
             "uf": "SP",
-            "municipio": "São Paulo",
-            "cod_municipio": "3550308",
-            "tipo_crime": "Lesão Corporal Seguida de Morte",
-            "vitimas": "2",
+            "municipio": "SÃO PAULO",
+            "evento": "Roubo seguido de morte (latrocínio)",
+            "data_referencia": 45901,
+            "agente": "",
+            "arma": "",
+            "faixa_etaria": "",
+            "feminino": 0,
+            "masculino": 6,
+            "nao_informado": 0,
+            "total_vitima": 6,
+            "total": 0,
+            "total_peso": 0,
+            "abrangencia": ""
         },
+        # Lesão corporal seguida de morte: 1 row
         {
-            "ano": "2025",
-            "mes": "9",
             "uf": "SP",
-            "municipio": "São Paulo",
-            "cod_municipio": "3550308",
-            "tipo_crime": "Morte por Intervenção de Agente do Estado",
-            "vitimas": "13",
+            "municipio": "SÃO PAULO",
+            "evento": "Lesão corporal seguida de morte",
+            "data_referencia": 45901,
+            "agente": "",
+            "arma": "",
+            "faixa_etaria": "",
+            "feminino": 0,
+            "masculino": 2,
+            "nao_informado": 0,
+            "total_vitima": 2,
+            "total": 0,
+            "total_peso": 0,
+            "abrangencia": ""
+        },
+        # Morte por intervenção de Agente do Estado: 1 row
+        {
+            "uf": "SP",
+            "municipio": "SÃO PAULO",
+            "evento": "Morte por intervenção de Agente do Estado",
+            "data_referencia": 45901,
+            "agente": "Polícia Militar",
+            "arma": "",
+            "faixa_etaria": "",
+            "feminino": 0,
+            "masculino": 13,
+            "nao_informado": 0,
+            "total_vitima": 13,
+            "total": 0,
+            "total_peso": 0,
+            "abrangencia": ""
         },
     ]
 
@@ -88,7 +176,7 @@ async def test_ingest_official_violence_data_single_municipality(async_session):
 
     # Check individual indicators
     homicidio = next(c for c in counts if c.indicator == "homicidio_doloso")
-    assert homicidio.victim_count == 53
+    assert homicidio.victim_count == 53  # 30 + 23 from disaggregated rows
 
     feminicidio = next(c for c in counts if c.indicator == "feminicidio")
     assert feminicidio.victim_count == 3
@@ -108,7 +196,7 @@ async def test_ingest_official_violence_data_single_municipality(async_session):
     assert total.is_total is True
 
 @pytest.mark.asyncio
-async def test_ingest_idempotence(async_session):
+async def test_ingest_idempotence(async_session, setup_ibge_data):
     """
     Test that re-ingesting the same month overwrites (does not duplicate).
 
@@ -117,25 +205,39 @@ async def test_ingest_idempotence(async_session):
     """
     vde_fixture_v1 = [
         {
-            "ano": "2025",
-            "mes": "9",
             "uf": "RJ",
-            "municipio": "Rio de Janeiro",
-            "cod_municipio": "3304557",
-            "tipo_crime": "Homicídio Doloso",
-            "vitimas": "23",
+            "municipio": "RIO DE JANEIRO",
+            "evento": "Homicídio doloso",
+            "data_referencia": 45901,  # 2025-09-01
+            "agente": "",
+            "arma": "",
+            "faixa_etaria": "",
+            "feminino": 0,
+            "masculino": 23,
+            "nao_informado": 0,
+            "total_vitima": 23,
+            "total": 0,
+            "total_peso": 0,
+            "abrangencia": ""
         },
     ]
 
     vde_fixture_v2 = [
         {
-            "ano": "2025",
-            "mes": "9",
             "uf": "RJ",
-            "municipio": "Rio de Janeiro",
-            "cod_municipio": "3304557",
-            "tipo_crime": "Homicídio Doloso",
-            "vitimas": "30",  # Updated count
+            "municipio": "RIO DE JANEIRO",
+            "evento": "Homicídio doloso",
+            "data_referencia": 45901,
+            "agente": "",
+            "arma": "",
+            "faixa_etaria": "",
+            "feminino": 0,
+            "masculino": 30,
+            "nao_informado": 0,
+            "total_vitima": 30,  # Updated count
+            "total": 0,
+            "total_peso": 0,
+            "abrangencia": ""
         },
     ]
 
@@ -160,7 +262,7 @@ async def test_ingest_idempotence(async_session):
     assert counts[0].victim_count == 30
 
 @pytest.mark.asyncio
-async def test_get_official_violence_totals_window_filter(async_session):
+async def test_get_official_violence_totals_window_filter(async_session, setup_ibge_data):
     """
     Test that querying official totals respects the v1 window (>= 2025-09).
 
@@ -171,25 +273,39 @@ async def test_get_official_violence_totals_window_filter(async_session):
     # Fixture: data before and after the window cutoff
     fixture_before_window = [
         {
-            "ano": "2025",
-            "mes": "8",  # Before window
             "uf": "SP",
-            "municipio": "São Paulo",
-            "cod_municipio": "3550308",
-            "tipo_crime": "Homicídio Doloso",
-            "vitimas": "60",
+            "municipio": "SÃO PAULO",
+            "evento": "Homicídio doloso",
+            "data_referencia": 45870,  # 2025-08-01 (before window)
+            "agente": "",
+            "arma": "",
+            "faixa_etaria": "",
+            "feminino": 0,
+            "masculino": 60,
+            "nao_informado": 0,
+            "total_vitima": 60,
+            "total": 0,
+            "total_peso": 0,
+            "abrangencia": ""
         },
     ]
 
     fixture_in_window = [
         {
-            "ano": "2025",
-            "mes": "9",  # In window
             "uf": "SP",
-            "municipio": "São Paulo",
-            "cod_municipio": "3550308",
-            "tipo_crime": "Homicídio Doloso",
-            "vitimas": "53",
+            "municipio": "SÃO PAULO",
+            "evento": "Homicídio doloso",
+            "data_referencia": 45901,  # 2025-09-01 (in window)
+            "agente": "",
+            "arma": "",
+            "faixa_etaria": "",
+            "feminino": 0,
+            "masculino": 53,
+            "nao_informado": 0,
+            "total_vitima": 53,
+            "total": 0,
+            "total_peso": 0,
+            "abrangencia": ""
         },
     ]
 

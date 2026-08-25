@@ -3,25 +3,28 @@
 from datetime import datetime
 from typing import Optional
 
-from sqlmodel import Field, SQLModel
+from sqlmodel import Field, SQLModel, UniqueConstraint
 
 class OfficialViolenceCount(SQLModel, table=True):
     """
     Official monthly victim counts from Ministry of Justice VDE (Validador de Dados Estatísticos).
 
     This table stores violence statistics at municipality granularity from the
-    SINESP VDE system (Formulário 1: Vítimas por sexo e municípios).
+    SINESP VDE system (bancovde-YYYY.xlsx files).
 
-    Data source: https://dados.mj.gov.br/dataset/sistema-nacional-de-estatisticas-de-seguranca-publica
+    Data source: https://www.gov.br/mj/pt-br/assuntos/sua-seguranca/seguranca-publica/estatistica/download/dnsp-base-de-dados/
 
     The five indicators summed into "mortes violentas intencionais":
     1. Homicídio doloso
     2. Feminicídio
     3. Latrocínio (roubo seguido de morte)
     4. Lesão corporal seguida de morte
-    5. Morte por intervenção policial
+    5. Morte por intervenção do Estado
     """
     __tablename__ = "official_violence_count"
+    __table_args__ = (
+        UniqueConstraint("code_muni", "year_month", "indicator", name="uq_official_violence_key"),
+    )
 
     id: Optional[int] = Field(default=None, primary_key=True)
 

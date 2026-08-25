@@ -1,25 +1,23 @@
 #!/usr/bin/env python3
 """
-Load official violence data from Ministry of Justice VDE dump into the database.
+Load official violence data from Ministry of Justice bancovde-YYYY.xlsx into the database.
 
-This script downloads and ingests VDE municipal data (victim counts by
-municipality and month) from the SINESP open data portal.
+This script downloads and ingests municipal victim counts by month from the
+SINESP VDE (Validador de Dados Estatísticos) open data portal.
 
-Data sources on https://dados.mj.gov.br/dataset/sistema-nacional-de-estatisticas-de-seguranca-publica :
-- XLSX: "Dados Nacionais de Segurança Pública - Municípios" (recommended)
-- ZIP: "Base de Dados VDE" (raw VDE dump, multiple formulários)
+Data source: https://www.gov.br/mj/pt-br/assuntos/sua-seguranca/seguranca-publica/estatistica/download/dnsp-base-de-dados/
+URL pattern: bancovde-YYYY.xlsx
 
 Usage:
-    python scripts/load_official_violence_data.py [--since YYYY-MM] [--source XLSX|ZIP]
+    python scripts/load_official_violence_data.py [--year YYYY] [--since YYYY-MM]
 
 Options:
+    --year YYYY      Year to download (default: 2025)
     --since YYYY-MM  Only load data from this month onwards (default: 2025-09)
-    --source TYPE    Data source: XLSX (municipal aggregated) or ZIP (raw VDE)
 """
 
 import asyncio
 import sys
-import zipfile
 from pathlib import Path
 from io import BytesIO
 
@@ -33,158 +31,149 @@ from loguru import logger
 from app.database import get_engine, init_db
 from app.services.official_violence_data import ingest_official_violence_data
 
-# Official data URLs from dados.mj.gov.br
-VDE_ZIP_URL = "https://dados.mj.gov.br/dataset/210b9ae2-21fc-4986-89c6-2006eb4db247/resource/e9d6cc2b-33f1-468d-ab09-9aa8303c2eba/download/basededadosvde.zip"
-VDE_XLSX_URL = "https://dados.mj.gov.br/dataset/210b9ae2-21fc-4986-89c6-2006eb4db247/resource/03af7ce2-174e-4ebd-b085-384503cfb40f/download/dados-nacionais-seguranca-publica-municipios.xlsx"
+# bancovde URL pattern (gov.br portal)
+BANCOVDE_URL_TEMPLATE = "https://www.gov.br/mj/pt-br/assuntos/sua-seguranca/seguranca-publica/estatistica/download/dnsp-base-de-dados/bancovde-{year}.xlsx/@@download/file"
 
-async def download_and_parse_vde_xlsx(since_year_month: str = "2025-09") -> list:
+# Expected bancovde-2025.xlsx headers (14 columns)
+EXPECTED_HEADERS = [
+    "uf", "municipio", "evento", "data_referencia", "agente", "arma",
+    "faixa_etaria", "feminino", "masculino", "nao_informado",
+    "total_vitima", "total", "total_peso", "abrangencia"
+]
+
+async def download_and_parse_bancovde(year: int = 2025, since_year_month: str = "2025-09") -> list:
     """
-    Download and parse municipal XLSX file (recommended).
+    Download and parse bancovde-YYYY.xlsx file.
 
-    This file contains aggregated municipal-level indicators.
-    Expected columns (based on common Brazilian government data patterns):
-    - ano, mes, uf, municipio, cod_municipio (or similar)
-    - One column per indicator, or tipo_crime/indicador column (long format)
+    Expected structure:
+    - Sheet name: "{year}" (e.g. "2025")
+    - 14 columns (see EXPECTED_HEADERS)
+    - ~832k rows per year
+    - Excel serial dates in data_referencia column
+
+    Municipality resolution:
+    - No 7-digit IBGE code in file
+    - Resolve (uf, municipio) → code_muni via ibge_population table
+    - Drop rows that don't match
 
     Args:
+        year: Year to download (e.g. 2025)
         since_year_month: Only return data >= this month (YYYY-MM format)
 
     Returns:
-        List of parsed VDE data rows (dicts)
+        List of parsed bancovde data rows (dicts with 14 columns)
     """
-    logger.info(f"Downloading VDE municipal XLSX from {VDE_XLSX_URL}...")
+    url = BANCOVDE_URL_TEMPLATE.format(year=year)
+    logger.info(f"Downloading bancovde-{year}.xlsx from {url}...")
 
     try:
         import httpx
-        import pandas as pd
+        from openpyxl import load_workbook
+        from openpyxl.utils import get_column_letter
+        from datetime import datetime, timedelta
 
         # Download XLSX
         async with httpx.AsyncClient(timeout=120.0) as client:
-            response = await client.get(VDE_XLSX_URL)
+            response = await client.get(url)
             response.raise_for_status()
 
         logger.info(f"Downloaded {len(response.content)} bytes")
 
-        # Parse XLSX
-        df = pd.read_excel(BytesIO(response.content), dtype=str)
-        logger.info(f"Loaded {len(df)} rows from XLSX")
-        logger.info(f"Columns: {list(df.columns)}")
+        # Load workbook
+        wb = load_workbook(BytesIO(response.content), read_only=True, data_only=True)
+        sheet_name = str(year)
 
-        # Normalize column names (lowercase, strip spaces)
-        df.columns = df.columns.str.strip().str.lower()
-
-        # Filter by date
-        # Try to construct year-month from ano + mes columns
-        if 'ano' in df.columns and 'mes' in df.columns:
-            df['year_month_parsed'] = df.apply(
-                lambda row: f"{row['ano']}-{str(int(row['mes'])).zfill(2)}"
-                if row['mes'].isdigit() else None,
-                axis=1
+        if sheet_name not in wb.sheetnames:
+            raise ValueError(
+                f"Sheet '{sheet_name}' not found in workbook. "
+                f"Available sheets: {wb.sheetnames}"
             )
-            df_filtered = df[df['year_month_parsed'] >= since_year_month]
-        else:
-            logger.warning("Could not find ano/mes columns, returning all rows")
-            df_filtered = df
 
-        logger.info(f"Filtered to {len(df_filtered)} rows >= {since_year_month}")
+        ws = wb[sheet_name]
+        logger.info(f"Loaded sheet '{sheet_name}' with {ws.max_row} rows")
 
-        # Convert to list of dicts
-        records = df_filtered.to_dict('records')
+        # Read header row (row 1)
+        headers = []
+        for col_idx in range(1, 15):  # 14 columns (A-N)
+            cell = ws.cell(row=1, column=col_idx)
+            header_value = cell.value
+            if header_value is None:
+                # Empty header - use positional fallback
+                headers.append(f"col_{col_idx}")
+            else:
+                headers.append(str(header_value).strip())
+
+        logger.info(f"Headers: {headers}")
+
+        # Verify headers match expected structure
+        if headers != EXPECTED_HEADERS:
+            logger.warning(
+                f"Header mismatch! Expected: {EXPECTED_HEADERS}, "
+                f"Got: {headers}"
+            )
+
+        # Parse data rows (skip header row)
+        records = []
+        row_count = 0
+        skipped_count = 0
+
+        for row_idx, row in enumerate(ws.iter_rows(min_row=2, values_only=True), start=2):
+            row_count += 1
+
+            # Parse row into dict (14 columns)
+            record = {}
+            for col_idx, value in enumerate(row):
+                if col_idx >= len(headers):
+                    break
+                header = headers[col_idx]
+                record[header] = value
+
+            # Filter by date
+            data_ref = record.get("data_referencia")
+            if data_ref is not None:
+                try:
+                    # Convert Excel serial date to YYYY-MM
+                    excel_epoch = datetime(1899, 12, 30)
+                    date = excel_epoch + timedelta(days=int(data_ref))
+                    year_month = date.strftime("%Y-%m")
+
+                    # Skip rows before cutoff
+                    if year_month < since_year_month:
+                        skipped_count += 1
+                        continue
+                except (ValueError, TypeError):
+                    # Invalid date - skip
+                    skipped_count += 1
+                    continue
+            else:
+                # Missing date - skip
+                skipped_count += 1
+                continue
+
+            records.append(record)
+
+            # Progress log every 100k rows
+            if row_count % 100000 == 0:
+                logger.info(f"Processed {row_count} rows, kept {len(records)}")
+
+        wb.close()
+
+        logger.info(f"Loaded {len(records)} rows from bancovde-{year}.xlsx (skipped {skipped_count} rows)")
+        logger.info(f"Filtered to {len(records)} rows >= {since_year_month}")
+
         return records
 
     except ImportError as e:
-        logger.error(f"Missing required package: {e}. Install with: pip install httpx pandas openpyxl")
+        logger.error(f"Missing required package: {e}. Install with: pip install httpx openpyxl")
         raise
     except Exception as e:
-        logger.error(f"Failed to download/parse VDE XLSX: {e}")
+        logger.error(f"Failed to download/parse bancovde-{year}.xlsx: {e}")
         raise
 
-async def download_and_parse_vde_zip(since_year_month: str = "2025-09") -> list:
-    """
-    Download and parse VDE ZIP file (raw VDE dump, multiple formulários).
-
-    This is the comprehensive VDE export. We need to identify and parse
-    Formulário 1 and Formulário 3 for the 5 MVI indicators.
-
-    Args:
-        since_year_month: Only return data >= this month (YYYY-MM format)
-
-    Returns:
-        List of parsed VDE data rows (dicts)
-    """
-    logger.info(f"Downloading VDE zip from {VDE_ZIP_URL}...")
-
-    try:
-        import httpx
-        import pandas as pd
-
-        # Download zip
-        async with httpx.AsyncClient(timeout=120.0) as client:
-            response = await client.get(VDE_ZIP_URL)
-            response.raise_for_status()
-
-        logger.info(f"Downloaded {len(response.content)} bytes")
-
-        # Extract and identify relevant files
-        with zipfile.ZipFile(BytesIO(response.content)) as zf:
-            logger.info(f"Files in VDE zip: {zf.namelist()}")
-
-            # Find Formulário 1 and Formulário 3 CSV files
-            # Expected patterns: "formulario_1", "form1", "formulario1", etc.
-            form1_file = None
-            form3_file = None
-
-            for filename in zf.namelist():
-                if not filename.endswith('.csv'):
-                    continue
-                lower_name = filename.lower()
-                if 'formulario' in lower_name or 'form' in lower_name:
-                    if '1' in lower_name and not form1_file:
-                        form1_file = filename
-                    elif '3' in lower_name and not form3_file:
-                        form3_file = filename
-
-            if not form1_file:
-                raise ValueError(
-                    f"Could not identify Formulário 1 file in VDE zip. "
-                    f"Files found: {zf.namelist()}"
-                )
-
-            logger.info(f"Reading Formulário 1: {form1_file}")
-            with zf.open(form1_file) as csvfile:
-                df1 = pd.read_csv(csvfile, encoding='utf-8', dtype=str)
-
-            all_rows = []
-            all_rows.extend(df1.to_dict('records'))
-
-            # Also read Formulário 3 if found (for "Morte por Intervenção de Agente do Estado")
-            if form3_file:
-                logger.info(f"Reading Formulário 3: {form3_file}")
-                with zf.open(form3_file) as csvfile:
-                    df3 = pd.read_csv(csvfile, encoding='utf-8', dtype=str)
-                all_rows.extend(df3.to_dict('records'))
-            else:
-                logger.warning("Formulário 3 not found; 'Morte por Intervenção de Agente do Estado' will be missing")
-
-            logger.info(f"Loaded {len(all_rows)} total rows from VDE")
-
-            # Filter by date
-            # TODO: Implement date filtering based on actual column structure
-            # This depends on the real VDE file format
-
-            return all_rows
-
-    except ImportError as e:
-        logger.error(f"Missing required package: {e}. Install with: pip install httpx pandas")
-        raise
-    except Exception as e:
-        logger.error(f"Failed to download/parse VDE ZIP: {e}")
-        raise
-
-async def main(since: str = "2025-09", source: str = "XLSX"):
+async def main(year: int = 2025, since: str = "2025-09"):
     """Load official violence data into database."""
     logger.info("=" * 80)
-    logger.info(f"Loading official violence data (source={source}, since={since})")
+    logger.info(f"Loading official violence data (bancovde-{year}.xlsx, since={since})")
     logger.info("=" * 80)
 
     # Initialize database tables
@@ -194,15 +183,12 @@ async def main(since: str = "2025-09", source: str = "XLSX"):
     # Get engine
     engine = get_engine()
 
-    # Download and parse VDE data
+    # Download and parse bancovde data
     try:
-        if source.upper() == "XLSX":
-            vde_data = await download_and_parse_vde_xlsx(since_year_month=since)
-        else:
-            vde_data = await download_and_parse_vde_zip(since_year_month=since)
+        vde_data = await download_and_parse_bancovde(year=year, since_year_month=since)
     except Exception as e:
-        logger.error(f"✗ Failed to download VDE data: {e}")
-        logger.info("Manual alternative: Download the file from dados.mj.gov.br and adapt this script")
+        logger.error(f"✗ Failed to download bancovde data: {e}")
+        logger.info("Manual alternative: Download the file from www.gov.br and adapt this script")
         return
 
     # Ingest data
@@ -226,7 +212,13 @@ if __name__ == "__main__":
     import argparse
 
     parser = argparse.ArgumentParser(
-        description="Load official violence data from Ministry of Justice VDE"
+        description="Load official violence data from Ministry of Justice bancovde-YYYY.xlsx"
+    )
+    parser.add_argument(
+        "--year",
+        type=int,
+        default=2025,
+        help="Year to download (default: 2025)"
     )
     parser.add_argument(
         "--since",
@@ -234,14 +226,7 @@ if __name__ == "__main__":
         default="2025-09",
         help="Only load data from this month onwards (YYYY-MM format, default: 2025-09)"
     )
-    parser.add_argument(
-        "--source",
-        type=str,
-        default="XLSX",
-        choices=["XLSX", "ZIP"],
-        help="Data source: XLSX (municipal aggregated, recommended) or ZIP (raw VDE)"
-    )
 
     args = parser.parse_args()
 
-    asyncio.run(main(since=args.since, source=args.source))
+    asyncio.run(main(year=args.year, since=args.since))
