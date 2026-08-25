@@ -4,12 +4,12 @@ from datetime import datetime, timedelta
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func
+from sqlalchemy import select, func, and_
 import math
 import csv
 import json  # For serializing merged_data
 import io
-from typing import Optional
+from typing import Optional, Dict
 import time
 
 from app.database import get_session
@@ -1639,7 +1639,10 @@ def _format_public_event_detail(event: UniqueEvent, sources: list[dict]) -> dict
 
 
 @router.get("/stats/coverage")
-async def get_coverage_stats(session: AsyncSession = Depends(get_session)):
+async def get_coverage_stats(
+    session: AsyncSession = Depends(get_session),
+    q: Optional[str] = Query(None, description="Search municipality name (case-insensitive)")
+):
     """
     Get coverage table: Arquivo vs Official violence statistics.
     
@@ -1656,12 +1659,16 @@ async def get_coverage_stats(session: AsyncSession = Depends(get_session)):
     Coverage = Arquivo / official (not capped). When official=0, coverage is None.
     Municipalities with official=0 and Arquivo=0 are hidden.
     
+    Query parameters:
+        - q: Search term to filter municipality names (case-insensitive)
+    
     Returns:
         List of municipalities with:
         - code: 7-digit IBGE municipal code
         - name: Municipality name
         - uf: State abbreviation
         - official_victims: Official municipal total count (Formulário 1 types only)
+        - official_published: Boolean - True if official data exists (even if sum=0)
         - arquivo_victims: Arquivo victim count
         - coverage: Arquivo / official ratio (None when official=0)
         
@@ -1669,7 +1676,7 @@ async def get_coverage_stats(session: AsyncSession = Depends(get_session)):
     """
     from app.services.coverage_data import get_coverage_data
     
-    coverage = await get_coverage_data(session)
+    coverage = await get_coverage_data(session, search=q)
     
     return {
         "window_start": "2025-09",
@@ -1681,6 +1688,112 @@ async def get_coverage_stats(session: AsyncSession = Depends(get_session)):
         },
         "municipalities": coverage
     }
+
+
+@router.get("/stats/coverage/download")
+async def download_official_universe(session: AsyncSession = Depends(get_session)):
+    """
+    Download official universe CSV: all Brazilian municipalities with official data.
+    
+    Returns ALL IBGE municipalities (5563+) including those with official=0,
+    labeled as 'Oficial' (Ministry of Justice data).
+    
+    This is the complete official universe for the coverage window,
+    NOT filtered to the union shown in the coverage table.
+    
+    Returns CSV with columns:
+    - code: 7-digit IBGE municipal code
+    - name: Municipality name
+    - uf: State abbreviation
+    - oficial: Official municipal total count (Formulário 1 types only)
+    
+    Sorted by oficial descending.
+    """
+    from app.services.coverage_data import COVERAGE_WINDOW_START, get_formulario_1_types
+    from app.models.official_violence_data import OfficialViolenceCount
+    from app.models.ibge_population import IBGEPopulation
+    from io import StringIO
+    import csv
+    from sqlalchemy import distinct
+    
+    # Get all IBGE municipalities (one row per municipality - handle duplicate years)
+    # Use subquery to get max year per municipality
+    subq = (
+        select(
+            IBGEPopulation.code_muni,
+            func.max(IBGEPopulation.year).label("max_year")
+        )
+        .group_by(IBGEPopulation.code_muni)
+        .subquery()
+    )
+    
+    ibge_query = (
+        select(IBGEPopulation)
+        .join(
+            subq,
+            and_(
+                IBGEPopulation.code_muni == subq.c.code_muni,
+                IBGEPopulation.year == subq.c.max_year
+            )
+        )
+        .order_by(IBGEPopulation.name_muni)
+    )
+    
+    ibge_result = await session.execute(ibge_query)
+    all_municipalities = ibge_result.scalars().all()
+    
+    # Get official counts using helper function
+    formulario_1_types = get_formulario_1_types()
+    
+    # Get min year-month from coverage window
+    min_year_month = COVERAGE_WINDOW_START.strftime("%Y-%m")
+    
+    official_query = select(
+        OfficialViolenceCount.code_muni,
+        func.sum(OfficialViolenceCount.victim_count).label("official_victims")
+    ).where(
+        OfficialViolenceCount.indicator.in_(formulario_1_types),
+        OfficialViolenceCount.year_month >= min_year_month
+    ).group_by(OfficialViolenceCount.code_muni)
+    
+    official_result = await session.execute(official_query)
+    official_rows = official_result.all()
+    
+    official_by_code: Dict[int, int] = {
+        row.code_muni: row.official_victims for row in official_rows
+    }
+    
+    # Build rows for all municipalities
+    rows = []
+    for muni in all_municipalities:
+        official_count = official_by_code.get(muni.code_muni, 0)
+        rows.append({
+            "code": muni.code_muni,
+            "name": muni.name_muni,
+            "uf": muni.abbrev_state,
+            "oficial": official_count,
+        })
+    
+    # Sort by oficial descending
+    rows.sort(key=lambda x: x["oficial"], reverse=True)
+    
+    # Generate CSV
+    output = StringIO()
+    writer = csv.DictWriter(output, fieldnames=["code", "name", "uf", "oficial"])
+    writer.writeheader()
+    writer.writerows(rows)
+    
+    # Return as downloadable CSV
+    from fastapi.responses import Response
+    csv_content = output.getvalue()
+    
+    return Response(
+        content=csv_content,
+        media_type="text/csv; charset=utf-8",
+        headers={
+            "Content-Disposition": "attachment; filename=arquivo_oficial_universe.csv"
+        }
+    )
 
 
 @router.get("/events/{event_id}")
