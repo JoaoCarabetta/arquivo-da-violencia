@@ -52,10 +52,12 @@ class WorkerLogs:
         """
         Check if logs show recent progress for multi-country ingestion.
         
-        Progress indicators:
-        - Country-specific ingest completion logs
-        - Source creation logs
-        - Per-country statistics
+        Progress indicators (actual patterns from ingestion.py):
+        - Starting multi-country ingestion (N countries)
+        - Starting PARALLEL city ingestion for N cities in COUNTRY
+        - [CityName] Starting...
+        - [CityName] Done: N entries, M new
+        - INGESTION COMPLETE (COUNTRY)
         
         Args:
             lookback_minutes: How far back to look for progress (unused, for future timestamp parsing)
@@ -63,19 +65,22 @@ class WorkerLogs:
         Returns:
             True if there's evidence of progress in multi-country ingestion
         """
-        # Look for country-level completion markers
-        # Format: "Country X complete: Y sources in Zs"
-        country_completion_pattern = r"Country \w{2} complete:|Brasil complete:|Chile complete:"
-        if re.search(country_completion_pattern, self.logs):
+        # Look for multi-country ingest start
+        if "Starting multi-country ingestion" in self.logs:
             return True
         
-        # Look for country ingestion start markers
-        country_start_pattern = r"Starting ingestion for country \w{2}|Ingesting \d+ cities for \w{2}"
-        if re.search(country_start_pattern, self.logs):
+        # Look for parallel city ingestion start (per-country)
+        if "Starting PARALLEL city ingestion" in self.logs:
             return True
         
-        # Look for per-country source creation
-        if "total_sources_created" in self.logs and "country" in self.logs.lower():
+        # Look for individual city progress
+        # Format: [CityName] Done: 40 entries, 12 new
+        if re.search(r"\[.+?\] Done: \d+ entries, \d+ new", self.logs):
+            return True
+        
+        # Look for country-level completion
+        # Format: INGESTION COMPLETE (BR)
+        if re.search(r"INGESTION COMPLETE \(\w{2}\)", self.logs):
             return True
         
         return False

@@ -43,30 +43,36 @@ class TestInProgressJob:
 
 
 class TestWorkerLogs:
-    """Tests for WorkerLogs progress detection."""
+    """Tests for WorkerLogs progress detection using ACTUAL log patterns."""
+    
+    def test_detects_multi_country_start(self):
+        """Detect multi-country ingestion start (actual pattern)."""
+        logs = WorkerLogs("""
+        [2026-08-25 15:05:00] Starting multi-country ingestion (12 countries)
+        """)
+        
+        assert logs.has_multi_country_ingest_progress()
+    
+    def test_detects_parallel_city_ingestion(self):
+        """Detect parallel city ingestion start (actual pattern)."""
+        logs = WorkerLogs("""
+        [2026-08-25 15:06:00] Starting PARALLEL city ingestion for 150 cities in BR
+        """)
+        
+        assert logs.has_multi_country_ingest_progress()
+    
+    def test_detects_city_done(self):
+        """Detect individual city completion (actual pattern)."""
+        logs = WorkerLogs("""
+        [2026-08-25 15:10:00] [São Paulo] Done: 40 entries, 12 new
+        """)
+        
+        assert logs.has_multi_country_ingest_progress()
     
     def test_detects_country_completion(self):
-        """Detect country-level completion logs."""
+        """Detect country-level completion (actual pattern)."""
         logs = WorkerLogs("""
-        [2026-08-25 15:10:00] Country BR complete: 150 sources in 180s
-        [2026-08-25 15:12:00] Processing continues...
-        """)
-        
-        assert logs.has_multi_country_ingest_progress()
-    
-    def test_detects_country_start(self):
-        """Detect country ingestion start logs."""
-        logs = WorkerLogs("""
-        [2026-08-25 15:08:00] Starting ingestion for country CL
-        [2026-08-25 15:09:00] Ingesting 45 cities for CL
-        """)
-        
-        assert logs.has_multi_country_ingest_progress()
-    
-    def test_detects_per_country_source_creation(self):
-        """Detect per-country source creation logs."""
-        logs = WorkerLogs("""
-        [2026-08-25 15:10:00] {"country": "BR", "total_sources_created": 150}
+        [2026-08-25 15:12:00] INGESTION COMPLETE (BR)
         """)
         
         assert logs.has_multi_country_ingest_progress()
@@ -123,10 +129,14 @@ class TestShouldTreatLockAsStale:
         job = InProgressJob.from_redis_key(
             "arq:in-progress:cron:ingest_cities_hourly:1724594700"
         )
+        # REAL patterns from actual logs
         logs = WorkerLogs("""
-        [2026-08-25 15:10:00] Country BR complete: 150 sources in 180s
-        [2026-08-25 15:12:00] Country CL complete: 45 sources in 120s
-        [2026-08-25 15:14:00] Starting ingestion for country AR
+        [2026-08-25 15:05:00] Starting multi-country ingestion (12 countries)
+        [2026-08-25 15:06:00] Starting PARALLEL city ingestion for 150 cities in BR
+        [2026-08-25 15:10:00] [São Paulo] Done: 40 entries, 12 new
+        [2026-08-25 15:12:00] INGESTION COMPLETE (BR)
+        [2026-08-25 15:13:00] Starting PARALLEL city ingestion for 45 cities in CL
+        [2026-08-25 15:14:00] [Santiago] Done: 22 entries, 6 new
         """)
         
         is_stale, reason = should_treat_lock_as_stale(
@@ -166,7 +176,8 @@ class TestShouldTreatLockAsStale:
         job = InProgressJob.from_redis_key(
             "arq:in-progress:cron:ingest_cities_full_pipeline:1724594700"
         )
-        logs = WorkerLogs("Country BR complete: 150 sources in 180s")
+        # REAL pattern: city completion
+        logs = WorkerLogs("[Porto Alegre] Done: 18 entries, 4 new")
         
         is_stale, reason = should_treat_lock_as_stale(
             in_progress_jobs=[job],
@@ -182,7 +193,8 @@ class TestShouldTreatLockAsStale:
         job = InProgressJob.from_redis_key(
             "arq:in-progress:cron:process_cities_backlog:1724594700"
         )
-        logs = WorkerLogs("Starting ingestion for country CL")
+        # REAL pattern: multi-country start
+        logs = WorkerLogs("Starting multi-country ingestion (12 countries)")
         
         is_stale, reason = should_treat_lock_as_stale(
             in_progress_jobs=[job],
@@ -206,12 +218,13 @@ class TestShouldEnqueueClassifyDuringRemediation:
         CRITICAL: Do NOT enqueue classify when ingest is active and making progress.
         
         This prevents the issue where remediate enqueued classify_pending while
-        ingest_all_countries was still the active hourly task.
+        ingest_cities_hourly was still the active hourly task.
         """
         job = InProgressJob.from_redis_key(
             "arq:in-progress:cron:ingest_cities_hourly:1724594700"
         )
-        logs = WorkerLogs("Country BR complete: 150 sources in 180s")
+        # REAL pattern: parallel city ingestion
+        logs = WorkerLogs("Starting PARALLEL city ingestion for 150 cities in BR")
         
         should_enqueue, reason = should_enqueue_classify_during_remediation(
             had_queue_jam=True,  # Even with queue jam
@@ -290,7 +303,8 @@ class TestShouldEnqueueClassifyDuringRemediation:
         job = InProgressJob.from_redis_key(
             "arq:in-progress:cron:ingest_cities_full_pipeline:1724594700"
         )
-        logs = WorkerLogs("Starting ingestion for country AR")
+        # REAL pattern: country completion
+        logs = WorkerLogs("INGESTION COMPLETE (AR)")
         
         should_enqueue, reason = should_enqueue_classify_during_remediation(
             had_queue_jam=True,
