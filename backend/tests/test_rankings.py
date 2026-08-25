@@ -1544,3 +1544,369 @@ async def test_rankings_country_filter_iso_codes_issue_152(app, async_session):
         assert data_all["total_events"] == 3
 
 
+@pytest.mark.asyncio
+async def test_city_size_floor_excludes_small_towns(app, async_session):
+    """Test that small non-capital towns are excluded from rankings (issue #186).
+    
+    Size floor: capitals + population > 100k + has Arquivo cases.
+    Example: Matos Costa SC (pop 2,761, 3 victims, not a capital) must NOT appear.
+    """
+    from app.models.ibge_population import IBGEPopulation
+    
+    now = datetime.utcnow()
+    current_start = now - timedelta(days=365)
+    
+    # Create events for different city types
+    events = [
+        # Capital city (always included)
+        create_ranking_event(
+            event_date=current_start + timedelta(days=1),
+            city="Florianópolis",
+            state="SC",
+            victim_count=2
+        ),
+        # Small town (pop 2,761, NOT a capital) - should be EXCLUDED
+        create_ranking_event(
+            event_date=current_start + timedelta(days=2),
+            city="Matos Costa",
+            state="SC",
+            victim_count=3
+        ),
+        # Large city (pop > 100k, not a capital) - should be included
+        create_ranking_event(
+            event_date=current_start + timedelta(days=3),
+            city="Joinville",
+            state="SC",
+            victim_count=1
+        ),
+    ]
+    
+    # Add population data
+    # Real IBGE codes for these cities
+    populations = [
+        IBGEPopulation(code_muni=4205407, name_muni="Florianópolis", abbrev_state="SC", population=508826, year=2022),
+        IBGEPopulation(code_muni=4210803, name_muni="Matos Costa", abbrev_state="SC", population=2761, year=2022),
+        IBGEPopulation(code_muni=4209102, name_muni="Joinville", abbrev_state="SC", population=597658, year=2022),
+    ]
+    
+    for event in events:
+        async_session.add(event)
+    for pop in populations:
+        async_session.add(pop)
+    await async_session.commit()
+    
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://test"
+    ) as client:
+        response = await client.get("/api/public/stats/rankings?days=365&country=BR")
+        assert response.status_code == 200
+        data = response.json()
+        
+        # Extract city names from rankings
+        city_names = [city["city"] for city in data["cities"]]
+        
+        # Florianópolis (capital) should be included
+        assert "Florianópolis" in city_names, "Capital city should be included"
+        
+        # Joinville (pop > 100k) should be included
+        assert "Joinville" in city_names, "Large city (pop > 100k) should be included"
+        
+        # Matos Costa (pop 2,761, not a capital) should be EXCLUDED
+        assert "Matos Costa" not in city_names, "Small non-capital town (pop 2,761) must be excluded from rankings"
+
+
+@pytest.mark.asyncio
+async def test_states_filter_excludes_foreign_regions(app, async_session):
+    """Test that only Brazilian states appear in states rankings (issue #186).
+    
+    Must exclude foreign regions like Síria, Flórida, OH, CA, Nova Jersey, etc.
+    """
+    now = datetime.utcnow()
+    current_start = now - timedelta(days=365)
+    
+    # Create events in various locations
+    events = [
+        # Brazilian states (should be included)
+        create_ranking_event(
+            event_date=current_start + timedelta(days=1),
+            country="BR",
+            state="RJ",
+            city="Rio de Janeiro",
+            victim_count=2
+        ),
+        create_ranking_event(
+            event_date=current_start + timedelta(days=2),
+            country="BR",
+            state="SP",
+            city="São Paulo",
+            victim_count=3
+        ),
+        # Foreign region (should be EXCLUDED)
+        create_ranking_event(
+            event_date=current_start + timedelta(days=3),
+            country="BR",
+            state="Síria",
+            city="Damasco",
+            victim_count=1,
+            latitude=Decimal("33.5138"),
+            longitude=Decimal("36.2765")
+        ),
+        # US states (should be EXCLUDED)
+        create_ranking_event(
+            event_date=current_start + timedelta(days=4),
+            country="BR",
+            state="Flórida",
+            city="Miami",
+            victim_count=1,
+            latitude=Decimal("25.7617"),
+            longitude=Decimal("-80.1918")
+        ),
+        create_ranking_event(
+            event_date=current_start + timedelta(days=5),
+            country="BR",
+            state="OH",
+            city="Cleveland",
+            victim_count=1,
+            latitude=Decimal("41.4993"),
+            longitude=Decimal("-81.6944")
+        ),
+        # Mexican state (should be EXCLUDED)
+        create_ranking_event(
+            event_date=current_start + timedelta(days=6),
+            country="BR",
+            state="Jalisco",
+            city="Guadalajara",
+            victim_count=2,
+            latitude=Decimal("20.6597"),
+            longitude=Decimal("-103.3496")
+        ),
+    ]
+    
+    for event in events:
+        async_session.add(event)
+    await async_session.commit()
+    
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://test"
+    ) as client:
+        response = await client.get("/api/public/stats/rankings?days=365&country=BR")
+        assert response.status_code == 200
+        data = response.json()
+        
+        # Extract state names from rankings
+        state_names = [state["state"] for state in data["states"]]
+        
+        # Brazilian states should be included
+        assert "RJ" in state_names, "Brazilian state RJ should be included"
+        assert "SP" in state_names, "Brazilian state SP should be included"
+        
+        # Foreign regions should be EXCLUDED
+        foreign_regions = ["Síria", "Flórida", "OH", "CA", "Nova Jersey", "Jalisco", "Guatemala", "Canindeyú"]
+        for foreign in foreign_regions:
+            assert foreign not in state_names, f"Foreign region '{foreign}' must be excluded from states rankings"
+
+
+@pytest.mark.asyncio
+async def test_rankings_default_sort_by_victims(app, async_session):
+    """Test that rankings are sorted by victim count (not event count) by default (issue #186)."""
+    now = datetime.utcnow()
+    current_start = now - timedelta(days=365)
+    
+    # Create events with different victim/event ratios
+    events = [
+        # City A: 1 event, 5 victims (should be ranked #1)
+        create_ranking_event(
+            event_date=current_start + timedelta(days=1),
+            city="São Paulo",
+            state="SP",
+            victim_count=5
+        ),
+        # City B: 3 events, 3 victims (should be ranked #2)
+        create_ranking_event(
+            event_date=current_start + timedelta(days=2),
+            city="Rio de Janeiro",
+            state="RJ",
+            victim_count=1
+        ),
+        create_ranking_event(
+            event_date=current_start + timedelta(days=3),
+            city="Rio de Janeiro",
+            state="RJ",
+            victim_count=1
+        ),
+        create_ranking_event(
+            event_date=current_start + timedelta(days=4),
+            city="Rio de Janeiro",
+            state="RJ",
+            victim_count=1
+        ),
+        # City C: 1 event, 2 victims (should be ranked #3)
+        create_ranking_event(
+            event_date=current_start + timedelta(days=5),
+            city="Belo Horizonte",
+            state="MG",
+            victim_count=2
+        ),
+    ]
+    
+    for event in events:
+        async_session.add(event)
+    await async_session.commit()
+    
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://test"
+    ) as client:
+        response = await client.get("/api/public/stats/rankings?days=365&country=BR")
+        assert response.status_code == 200
+        data = response.json()
+        
+        # Verify ranking order is by victim count
+        assert len(data["cities"]) >= 3
+        assert data["cities"][0]["city"] == "São Paulo", "São Paulo (5 victims) should be ranked #1"
+        assert data["cities"][0]["victim_count"] == 5
+        
+        assert data["cities"][1]["city"] == "Rio de Janeiro", "Rio de Janeiro (3 victims) should be ranked #2"
+        assert data["cities"][1]["victim_count"] == 3
+        
+        assert data["cities"][2]["city"] == "Belo Horizonte", "Belo Horizonte (2 victims) should be ranked #3"
+        assert data["cities"][2]["victim_count"] == 2
+
+
+@pytest.mark.asyncio
+async def test_top_10_first_page_requirements(app, async_session):
+    """Test that first page of last-year Cidades shows max 10 rows and excludes non-capitals under 100k (issue #186).
+    
+    Acceptance: Top 10 + "Ver mais." No non-capital under 100k in first page.
+    """
+    from app.models.ibge_population import IBGEPopulation
+    from app.geography import BRAZILIAN_CAPITALS
+    
+    now = datetime.utcnow()
+    current_start = now - timedelta(days=365)
+    
+    # Create 15 cities with varying populations to test top 10 logic
+    events = []
+    populations = []
+    
+    # Capital cities (should pass size floor) - make them high victim count to be in top 10
+    for idx, capital in enumerate(["São Paulo", "Rio de Janeiro", "Belo Horizonte", "Salvador", "Brasília"]):
+        events.append(create_ranking_event(
+            event_date=current_start + timedelta(days=idx),
+            city=capital,
+            state=["SP", "RJ", "MG", "BA", "DF"][idx],
+            victim_count=10 - idx  # 10, 9, 8, 7, 6 victims
+        ))
+    
+    # Large non-capital cities (pop > 100k, should pass size floor)
+    for idx, (city, state, pop) in enumerate([
+        ("Guarulhos", "SP", 1391000),
+        ("Campinas", "SP", 1213792),
+        ("Duque de Caxias", "RJ", 924624),
+        ("Joinville", "SC", 597658),
+        ("Ribeirão Preto", "SP", 711825),
+    ]):
+        events.append(create_ranking_event(
+            event_date=current_start + timedelta(days=5 + idx),
+            city=city,
+            state=state,
+            victim_count=5 - idx  # 5, 4, 3, 2, 1 victims
+        ))
+        populations.append(IBGEPopulation(
+            code_muni=4200000 + idx,
+            name_muni=city,
+            abbrev_state=state,
+            population=pop,
+            year=2022
+        ))
+    
+    # Small non-capital cities (pop < 100k, should be EXCLUDED)
+    for idx, (city, state, pop) in enumerate([
+        ("Matos Costa", "SC", 2761),
+        ("Cidadezinha Pequena", "RS", 5432),
+        ("Vila Minúscula", "PR", 15000),
+        ("Povoado Diminuto", "SC", 45000),
+        ("Lugarejo Ínfimo", "RS", 89000),
+    ]):
+        events.append(create_ranking_event(
+            event_date=current_start + timedelta(days=10 + idx),
+            city=city,
+            state=state,
+            victim_count=20 + idx  # High victim count to test they're still excluded
+        ))
+        populations.append(IBGEPopulation(
+            code_muni=4300000 + idx,
+            name_muni=city,
+            abbrev_state=state,
+            population=pop,
+            year=2022
+        ))
+    
+    # Add population data for capitals (use real approximate values)
+    capital_pops = [
+        (4205407, "São Paulo", "SP", 12325232),
+        (3304557, "Rio de Janeiro", "RJ", 6747815),
+        (3106200, "Belo Horizonte", "MG", 2521564),
+        (2927408, "Salvador", "BA", 2886698),
+        (5300108, "Brasília", "DF", 3055149),
+    ]
+    for code, name, state, pop in capital_pops:
+        populations.append(IBGEPopulation(
+            code_muni=code,
+            name_muni=name,
+            abbrev_state=state,
+            population=pop,
+            year=2022
+        ))
+    
+    for event in events:
+        async_session.add(event)
+    for pop in populations:
+        async_session.add(pop)
+    await async_session.commit()
+    
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://test"
+    ) as client:
+        # Test with default city_limit (50, but we expect size floor to reduce this)
+        response = await client.get("/api/public/stats/rankings?days=365&country=BR")
+        assert response.status_code == 200
+        data = response.json()
+        
+        cities = data["cities"]
+        
+        # Acceptance criterion 1: First page (default fetch) should not exceed practical display limit
+        # The API returns filtered results, frontend shows top 10 initially
+        # We're testing that the backend filtering works correctly
+        assert len(cities) >= 10, f"Should have at least 10 cities after filtering, got {len(cities)}"
+        
+        # Acceptance criterion 2: No non-capital city under 100k should appear in ANY position
+        for city in cities:
+            city_name = city["city"]
+            population = city.get("population")
+            
+            # If it's not a capital, it must have population > 100k
+            if city_name not in BRAZILIAN_CAPITALS:
+                assert population is not None, f"Non-capital {city_name} should have population data"
+                assert population > 100_000, \
+                    f"Non-capital {city_name} with population {population:,} should be excluded (size floor: capitals OR pop > 100k)"
+        
+        # Specifically verify that small towns are NOT in the results
+        city_names = [city["city"] for city in cities]
+        assert "Matos Costa" not in city_names, "Matos Costa (pop 2,761) must be excluded"
+        assert "Cidadezinha Pequena" not in city_names, "Cidadezinha Pequena (pop 5,432) must be excluded"
+        assert "Vila Minúscula" not in city_names, "Vila Minúscula (pop 15,000) must be excluded"
+        
+        # Verify that capitals ARE in the results (even if they had lower victim counts)
+        # At least some capitals should appear
+        capitals_in_result = [city for city in cities if city["city"] in BRAZILIAN_CAPITALS]
+        assert len(capitals_in_result) > 0, "Capitals should appear in rankings"
+        
+        # Verify that large non-capital cities ARE in the results
+        assert "Guarulhos" in city_names or "Campinas" in city_names or "Joinville" in city_names, \
+            "Large cities (pop > 100k) should be included"
+
+

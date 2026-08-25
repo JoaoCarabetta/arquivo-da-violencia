@@ -13,9 +13,16 @@ import { useIsMobile } from '@/hooks/useMediaQuery';
 import { cn } from '@/lib/utils';
 import { formatTypeStatLabel } from '@/lib/taxonomy';
 import { translateMethod } from '@/lib/i18n';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 
 type PeriodOption = 7 | 30 | 365;
 type CountryOption = '' | 'BR' | 'CL';
+type RankingTab = 'municipios' | 'estados' | 'paises';
+
+// Portuguese number formatting (1.239 instead of 1,239)
+function formatPortugueseNumber(num: number): string {
+  return num.toLocaleString('pt-BR');
+}
 
 interface RankingTableProps {
   title: string;
@@ -28,7 +35,8 @@ interface RankingTableProps {
 
 function RankingTable({ title, rows, labelField, onRowClick, emptyMessage, showRateColumns = false }: RankingTableProps) {
   const { t, lang } = useI18n();
-  const [expanded, setExpanded] = useState(true);
+  // Issue #186: Default to collapsed (showing top 10), not expanded
+  const [expanded, setExpanded] = useState(false);
   
   if (rows.length === 0) {
     return (
@@ -39,24 +47,21 @@ function RankingTable({ title, rows, labelField, onRowClick, emptyMessage, showR
     );
   }
 
+  // Show top 10 when collapsed, all when expanded
   const displayRows = expanded ? rows : rows.slice(0, 10);
   const hasRateData = showRateColumns && rows.some(r => r.rate_per_100k != null);
+  
+  // Helper to format numbers in Portuguese style (1.239 instead of 1,239)
+  const formatNum = (num: number) => formatPortugueseNumber(num);
 
   return (
     <div className="rounded-xl border border-stone-200 bg-white overflow-hidden">
-      <button
-        onClick={() => setExpanded(!expanded)}
-        className="w-full flex items-center justify-between px-6 py-4 hover:bg-stone-50 transition-colors"
-      >
+      <div className="px-6 py-4 border-b border-stone-200">
         <h2 className="text-lg font-semibold text-stone-900">{title}</h2>
-        <div className="flex items-center gap-2">
-          <span className="text-sm text-stone-500">{rows.length} {rows.length === 1 ? 'item' : 'itens'}</span>
-          <ChevronDown className={cn('h-4 w-4 text-stone-400 transition-transform', expanded && 'rotate-180')} />
-        </div>
-      </button>
+        <p className="text-sm text-stone-500 mt-1">{rows.length} {rows.length === 1 ? 'item' : 'itens'}</p>
+      </div>
       
-      {expanded && (
-        <div className="overflow-x-auto">
+      <div className="overflow-x-auto">
           <table className="w-full">
             <thead className="bg-stone-50 border-t border-stone-200">
               <tr>
@@ -112,39 +117,51 @@ function RankingTable({ title, rows, labelField, onRowClick, emptyMessage, showR
                       {displayLabel}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-right text-stone-900">
-                      {row.victim_count.toLocaleString()}
+                      {formatNum(row.victim_count)}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-right text-stone-700">
-                      {row.event_count.toLocaleString()}
+                      {formatNum(row.event_count)}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-right text-stone-700">
-                      {row.victim_share.toFixed(1)}%
+                      {row.victim_share.toFixed(1).replace('.', ',')}%
                     </td>
                     {hasRateData && (
                       <>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-right text-stone-900 font-semibold">
-                          {row.rate_per_100k != null ? row.rate_per_100k.toFixed(2) : '—'}
+                          {row.rate_per_100k != null ? row.rate_per_100k.toFixed(2).replace('.', ',') : '—'}
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-right text-stone-700">
-                          {row.population != null ? row.population.toLocaleString() : '—'}
+                          {row.population != null ? formatNum(row.population) : '—'}
                         </td>
                       </>
-                    )}
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      )}
+                  )}
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
       
+      {/* Ver mais button - show when collapsed and there are more than 10 rows */}
       {!expanded && rows.length > 10 && (
-        <div className="px-6 py-3 bg-stone-50 text-center">
+        <div className="px-6 py-3 bg-stone-50 border-t border-stone-200 text-center">
           <button
             onClick={() => setExpanded(true)}
             className="text-sm text-blue-600 hover:text-blue-700 font-medium"
           >
-            Ver mais {rows.length - 10} itens...
+            Ver mais ({rows.length - 10} itens)
+          </button>
+        </div>
+      )}
+      
+      {/* Collapse button - show when expanded */}
+      {expanded && rows.length > 10 && (
+        <div className="px-6 py-3 bg-stone-50 border-t border-stone-200 text-center">
+          <button
+            onClick={() => setExpanded(false)}
+            className="text-sm text-blue-600 hover:text-blue-700 font-medium"
+          >
+            Ver menos
           </button>
         </div>
       )}
@@ -157,8 +174,10 @@ export function Rankings() {
   const navigate = useNavigate();
   const isMobile = useIsMobile();
   
+  // Issue #186: Default to Brasil, last year (365 days), Municípios tab
   const [period, setPeriod] = useState<PeriodOption>(365);
-  const [country, setCountry] = useState<CountryOption>('');
+  const [country, setCountry] = useState<CountryOption>('BR');
+  const [rankingTab, setRankingTab] = useState<RankingTab>('municipios');
   const [cityLimit, setCityLimit] = useState<number>(50);
   const [aboutOpen, setAboutOpen] = useState(false);
   const [methodologyOpen, setMethodologyOpen] = useState(false);
@@ -306,45 +325,73 @@ export function Rankings() {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="rounded-xl border border-stone-200 bg-white p-6">
                   <div className="text-sm text-stone-500 mb-1">{t.rankingsVictimCount}</div>
-                  <div className="text-3xl font-bold text-stone-900">{data.total_victims.toLocaleString()}</div>
+                  <div className="text-3xl font-bold text-stone-900">{formatPortugueseNumber(data.total_victims)}</div>
                 </div>
                 <div className="rounded-xl border border-stone-200 bg-white p-6">
                   <div className="text-sm text-stone-500 mb-1">{t.rankingsEventCount}</div>
-                  <div className="text-3xl font-bold text-stone-900">{data.total_events.toLocaleString()}</div>
+                  <div className="text-3xl font-bold text-stone-900">{formatPortugueseNumber(data.total_events)}</div>
                 </div>
               </div>
 
-              {/* Cities */}
-              <RankingTable
-                title={t.rankingsCities}
-                rows={data.cities}
-                labelField="city"
-                onRowClick={handleCityClick}
-                emptyMessage="Nenhuma cidade com eventos no período selecionado."
-                showRateColumns={true}
-              />
-              
-              {/* Show More Cities button */}
-              {data.cities.length === cityLimit && cityLimit < 500 && (
-                <div className="rounded-xl border border-stone-200 bg-white p-4 text-center">
-                  <button
-                    onClick={() => setCityLimit(prev => Math.min(prev + 100, 500))}
-                    className="text-sm text-blue-600 hover:text-blue-700 font-medium"
-                  >
-                    Mostrar mais cidades ({cityLimit} de ~{cityLimit + 100}+)
-                  </button>
-                </div>
-              )}
+              {/* Rankings Tabs - Issue #186: Municípios | Estados | Países */}
+              <Tabs value={rankingTab} onValueChange={(v) => setRankingTab(v as RankingTab)} className="w-full">
+                <TabsList className="grid w-full grid-cols-3">
+                  <TabsTrigger value="municipios">Municípios</TabsTrigger>
+                  <TabsTrigger value="estados">Estados</TabsTrigger>
+                  <TabsTrigger value="paises">Países</TabsTrigger>
+                </TabsList>
 
-              {/* States/Regions */}
-              <RankingTable
-                title={t.rankingsStates}
-                rows={data.states}
-                labelField="state"
-                onRowClick={handleStateClick}
-                emptyMessage="Nenhum estado/região com eventos no período selecionado."
-                showRateColumns={true}
-              />
+                <TabsContent value="municipios" className="mt-6">
+                  <RankingTable
+                    title={t.rankingsCities}
+                    rows={data.cities}
+                    labelField="city"
+                    onRowClick={handleCityClick}
+                    emptyMessage="Nenhuma cidade com eventos no período selecionado."
+                    showRateColumns={true}
+                  />
+                  
+                  {/* Show More Cities button */}
+                  {data.cities.length === cityLimit && cityLimit < 500 && (
+                    <div className="rounded-xl border border-stone-200 bg-white p-4 text-center mt-4">
+                      <button
+                        onClick={() => setCityLimit(prev => Math.min(prev + 100, 500))}
+                        className="text-sm text-blue-600 hover:text-blue-700 font-medium"
+                      >
+                        Mostrar mais cidades ({cityLimit} de ~{cityLimit + 100}+)
+                      </button>
+                    </div>
+                  )}
+                </TabsContent>
+
+                <TabsContent value="estados" className="mt-6">
+                  <RankingTable
+                    title={t.rankingsStates}
+                    rows={data.states}
+                    labelField="state"
+                    onRowClick={handleStateClick}
+                    emptyMessage="Nenhum estado/região com eventos no período selecionado."
+                    showRateColumns={true}
+                  />
+                </TabsContent>
+
+                <TabsContent value="paises" className="mt-6">
+                  {/* Countries - only show when not filtering by country */}
+                  {!country && data.countries.length > 0 && (
+                    <RankingTable
+                      title={t.rankingsCountries}
+                      rows={data.countries}
+                      labelField="country"
+                      emptyMessage="Nenhum país com eventos no período selecionado."
+                    />
+                  )}
+                  {country && (
+                    <div className="rounded-xl border border-stone-200 bg-white p-6">
+                      <p className="text-sm text-stone-500">Filtrando por país específico. Remova o filtro para ver todos os países.</p>
+                    </div>
+                  )}
+                </TabsContent>
+              </Tabs>
 
               {/* Coverage Table */}
               {coverageData && !isCoverageLoading && (
@@ -398,10 +445,10 @@ export function Rankings() {
                                 {muni.uf}
                               </td>
                               <td className="px-4 py-3 text-right text-stone-900">
-                                {muni.official_victims.toLocaleString()}
+                                {formatPortugueseNumber(muni.official_victims)}
                               </td>
                               <td className="px-4 py-3 text-right text-stone-900">
-                                {muni.arquivo_victims.toLocaleString()}
+                                {formatPortugueseNumber(muni.arquivo_victims)}
                               </td>
                               <td className={cn('px-4 py-3 text-right font-semibold', coverageColor)}>
                                 {coveragePercent}%
@@ -413,16 +460,6 @@ export function Rankings() {
                     </table>
                   </div>
                 </div>
-              )}
-
-              {/* Countries */}
-              {!country && data.countries.length > 0 && (
-                <RankingTable
-                  title={t.rankingsCountries}
-                  rows={data.countries}
-                  labelField="country"
-                  emptyMessage="Nenhum país com eventos no período selecionado."
-                />
               )}
             </div>
           )}
