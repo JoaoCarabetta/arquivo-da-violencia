@@ -28,6 +28,7 @@ class UniqueEventBase(SQLModel):
     country: str | None = Field(default="BR", max_length=100)
     state: str | None = Field(default=None, max_length=50, index=True)
     city: str | None = Field(default=None, max_length=100, index=True)
+    municipality_code: int | None = Field(default=None, index=True, description="7-digit IBGE municipal code for Brazilian municipalities")
     neighborhood: str | None = Field(default=None, max_length=100)
     street: str | None = Field(default=None, max_length=256)
     establishment: str | None = Field(default=None, max_length=256)
