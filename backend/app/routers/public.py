@@ -4,7 +4,7 @@ from datetime import datetime, timedelta
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func
+from sqlalchemy import select, func, and_
 import math
 import csv
 import json  # For serializing merged_data
@@ -1702,24 +1702,41 @@ async def download_official_universe(session: AsyncSession = Depends(get_session
     
     Sorted by oficial descending.
     """
-    from app.services.coverage_data import COVERAGE_WINDOW_START
+    from app.services.coverage_data import COVERAGE_WINDOW_START, get_formulario_1_types
     from app.models.official_violence_data import OfficialViolenceCount
     from app.models.ibge_population import IBGEPopulation
     from io import StringIO
     import csv
+    from sqlalchemy import distinct
     
-    # Get all IBGE municipalities
-    ibge_query = select(IBGEPopulation).order_by(IBGEPopulation.name_muni)
+    # Get all IBGE municipalities (one row per municipality - handle duplicate years)
+    # Use subquery to get max year per municipality
+    subq = (
+        select(
+            IBGEPopulation.code_muni,
+            func.max(IBGEPopulation.year).label("max_year")
+        )
+        .group_by(IBGEPopulation.code_muni)
+        .subquery()
+    )
+    
+    ibge_query = (
+        select(IBGEPopulation)
+        .join(
+            subq,
+            and_(
+                IBGEPopulation.code_muni == subq.c.code_muni,
+                IBGEPopulation.year == subq.c.max_year
+            )
+        )
+        .order_by(IBGEPopulation.name_muni)
+    )
+    
     ibge_result = await session.execute(ibge_query)
     all_municipalities = ibge_result.scalars().all()
     
-    # Get official counts (Formulário 1 types only) by municipality
-    formulario_1_types = [
-        "homicidio_doloso",
-        "feminicidio",
-        "latrocinio",
-        "lesao_corporal_seguida_morte",
-    ]
+    # Get official counts using helper function
+    formulario_1_types = get_formulario_1_types()
     
     # Get min year-month from coverage window
     min_year_month = COVERAGE_WINDOW_START.strftime("%Y-%m")

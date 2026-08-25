@@ -34,6 +34,26 @@ from app.services.public_filters import public_incident_criteria
 COVERAGE_WINDOW_START = datetime(2025, 9, 1)
 
 
+def get_formulario_1_types() -> list[str]:
+    """
+    Return the four Formulário 1 indicator types used in official municipal totals.
+    
+    These are the exclusive types summed for coverage calculation:
+    - homicidio_doloso
+    - feminicidio
+    - latrocinio
+    - lesao_corporal_seguida_morte
+    
+    NOTE: morte_intervencao_policial is NOT included in this list.
+    """
+    return [
+        "homicidio_doloso",
+        "feminicidio",
+        "latrocinio",
+        "lesao_corporal_seguida_morte",
+    ]
+
+
 async def get_coverage_data(
     session: AsyncSession,
     min_year_month: str = "2025-09"
@@ -56,28 +76,27 @@ async def get_coverage_data(
         - name: Municipality name
         - uf: State abbreviation (e.g. "SP", "RJ")
         - official_victims: Official municipal total count (Formulário 1 types only)
+        - official_published: Boolean - True if official data exists (even if sum=0), False if no data
         - arquivo_victims: Arquivo victim count (public filter)
         - coverage: Arquivo / official ratio (None when official=0)
         
         Sorted by official_victims descending.
     
     Acceptance criteria:
-    - Official 0 + Arquivo > 0 → row exists, coverage=None
+    - Official 0 + Arquivo > 0 → row exists, coverage=None, official_published can be True or False
     - Official 0 + Arquivo 0 → row absent (hidden)
     - Official 10 + Arquivo 12 → coverage=1.2 (not capped)
     - Event without municipality_code → absent
     - Non-Brazil event → absent
     - Event before 2025-09-01 → absent from Arquivo count
+    
+    Issue #187: Three distinct empty marks require official_published flag to distinguish
+    "not published" (official_published=False) from "published zero" (official_published=True, official_victims=0).
     """
     
     # 1. Get official counts (Formulário 1 types only) by municipality
     # Sum the four exclusive Formulário 1 types at query time
-    formulario_1_types = [
-        "homicidio_doloso",
-        "feminicidio",
-        "latrocinio",
-        "lesao_corporal_seguida_morte",
-    ]
+    formulario_1_types = get_formulario_1_types()
     
     official_query = select(
         OfficialViolenceCount.code_muni,
@@ -90,9 +109,13 @@ async def get_coverage_data(
     official_result = await session.execute(official_query)
     official_rows = official_result.all()
     
-    official_by_code: Dict[int, int] = {
-        row.code_muni: row.official_victims for row in official_rows
-    }
+    # Track which municipalities have official data (even if sum=0)
+    official_by_code: Dict[int, int] = {}
+    official_published_codes: set[int] = set()
+    
+    for row in official_rows:
+        official_by_code[row.code_muni] = row.official_victims
+        official_published_codes.add(row.code_muni)
     
     logger.info(f"Loaded official counts for {len(official_by_code)} municipalities")
     
@@ -152,6 +175,7 @@ async def get_coverage_data(
     for code in all_codes:
         official_count = official_by_code.get(code, 0)
         arquivo_count = arquivo_by_code.get(code, 0)
+        official_published = code in official_published_codes
         
         # Hide official 0 + Arquivo 0 (issue #183)
         if official_count == 0 and arquivo_count == 0:
@@ -174,6 +198,7 @@ async def get_coverage_data(
             "name": ibge.name_muni,
             "uf": ibge.abbrev_state,
             "official_victims": official_count,
+            "official_published": official_published,
             "arquivo_victims": arquivo_count,
             "coverage": coverage,
         })

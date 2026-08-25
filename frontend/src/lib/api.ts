@@ -605,6 +605,7 @@ export interface CoverageMunicipality {
   name: string;
   uf: string;
   official_victims: number;
+  official_published: boolean;
   arquivo_victims: number;
   coverage: number | null;
 }

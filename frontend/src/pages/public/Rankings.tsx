@@ -34,28 +34,28 @@ function CoverageTable({ municipalities }: CoverageTableProps) {
   const [perPage, setPerPage] = useState(25);
   const [currentPage, setCurrentPage] = useState(1);
 
-  // Helper to render empty marks
-  const renderEmptyMark = (official: number, arquivo: number) => {
-    if (official === 0 && arquivo === 0) {
-      // Should not happen (filtered out by API)
-      return '—';
+  // Three distinct empty marks (issue #187):
+  // 1. Official not published (no official data) → "N/P" (not published)
+  // 2. Official published zero (has official data, sum=0) → "0"
+  // 3. Arquivo found none → "—" with tooltip
+  const renderOfficialMark = (official: number, published: boolean) => {
+    if (!published) {
+      // Official not published (no data in OfficialViolenceCount)
+      return <span className="text-stone-400" title="Dados oficiais não publicados">N/P</span>;
     }
     if (official === 0) {
-      // Official not published or published zero
-      return '∅';
-    }
-    if (arquivo === 0) {
-      // Arquivo found none
-      return '—';
-    }
-    return formatPortugueseNumber(arquivo);
-  };
-
-  const renderOfficialMark = (official: number) => {
-    if (official === 0) {
-      return '∅';
+      // Official published zero (has data, sum=0)
+      return <span className="text-stone-700">0</span>;
     }
     return formatPortugueseNumber(official);
+  };
+
+  const renderArquivoMark = (arquivo: number) => {
+    if (arquivo === 0) {
+      // Arquivo found none
+      return <span className="text-stone-400" title="Sem registro no Arquivo neste período">—</span>;
+    }
+    return formatPortugueseNumber(arquivo);
   };
 
   // Filter municipalities by search term
@@ -175,7 +175,10 @@ function CoverageTable({ municipalities }: CoverageTableProps) {
               </tr>
             ) : (
               paginatedMunicipalities.map((muni) => {
-                const coveragePercent = muni.coverage != null ? (muni.coverage * 100).toFixed(0) : '—';
+                // Fix: Don't append % to null coverage
+                const coveragePercent = muni.coverage != null 
+                  ? `${(muni.coverage * 100).toFixed(0)}%` 
+                  : '—';
                 
                 return (
                   <tr key={muni.code} className="hover:bg-stone-50">
@@ -186,18 +189,14 @@ function CoverageTable({ municipalities }: CoverageTableProps) {
                       {muni.uf}
                     </td>
                     <td className="px-4 py-3 text-right text-stone-900">
-                      {renderOfficialMark(muni.official_victims)}
+                      {renderOfficialMark(muni.official_victims, muni.official_published)}
                     </td>
                     <td className="px-4 py-3 text-right text-stone-900">
-                      {muni.arquivo_victims === 0 ? (
-                        <span className="text-stone-400" title="Sem registro no Arquivo neste período">—</span>
-                      ) : (
-                        formatPortugueseNumber(muni.arquivo_victims)
-                      )}
+                      {renderArquivoMark(muni.arquivo_victims)}
                     </td>
                     {showCoverage && (
                       <td className="px-4 py-3 text-right text-stone-700">
-                        {coveragePercent}%
+                        {coveragePercent}
                       </td>
                     )}
                   </tr>
@@ -238,8 +237,8 @@ function CoverageTable({ municipalities }: CoverageTableProps) {
         </div>
       )}
 
-      {/* Footnote for >100% coverage */}
-      {hasOverCoverage && showCoverage && (
+      {/* Footnote for >100% coverage - show whenever coverage > 1.0 exists, not only when showCoverage is on */}
+      {hasOverCoverage && (
         <div className="px-6 py-4 border-t border-stone-200 bg-stone-50">
           <p className="text-xs text-stone-600">
             <strong>Nota:</strong> Cobertura acima de 100% significa que o Arquivo da Violência contou mais vítimas, naquele município e naquele período, do que o Formulário 1 municipal do Ministério da Justiça e Segurança Pública — não é erro de conta.
