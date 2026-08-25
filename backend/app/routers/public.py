@@ -1639,7 +1639,10 @@ def _format_public_event_detail(event: UniqueEvent, sources: list[dict]) -> dict
 
 
 @router.get("/stats/coverage")
-async def get_coverage_stats(session: AsyncSession = Depends(get_session)):
+async def get_coverage_stats(
+    session: AsyncSession = Depends(get_session),
+    q: Optional[str] = Query(None, description="Search municipality name (case-insensitive)")
+):
     """
     Get coverage table: Arquivo vs Official violence statistics.
     
@@ -1656,12 +1659,16 @@ async def get_coverage_stats(session: AsyncSession = Depends(get_session)):
     Coverage = Arquivo / official (not capped). When official=0, coverage is None.
     Municipalities with official=0 and Arquivo=0 are hidden.
     
+    Query parameters:
+        - q: Search term to filter municipality names (case-insensitive)
+    
     Returns:
         List of municipalities with:
         - code: 7-digit IBGE municipal code
         - name: Municipality name
         - uf: State abbreviation
         - official_victims: Official municipal total count (Formulário 1 types only)
+        - official_published: Boolean - True if official data exists (even if sum=0)
         - arquivo_victims: Arquivo victim count
         - coverage: Arquivo / official ratio (None when official=0)
         
@@ -1669,7 +1676,7 @@ async def get_coverage_stats(session: AsyncSession = Depends(get_session)):
     """
     from app.services.coverage_data import get_coverage_data
     
-    coverage = await get_coverage_data(session)
+    coverage = await get_coverage_data(session, search=q)
     
     return {
         "window_start": "2025-09",

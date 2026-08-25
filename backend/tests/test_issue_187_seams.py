@@ -134,38 +134,12 @@ async def test_official_only_gap_rows_must_be_present(async_session):
 
 
 @pytest.mark.asyncio
-async def test_first_page_must_not_dump_thousands_of_rows(async_session):
-    """
-    Issue #187 TDD seam: First page must not render thousands of rows.
-    
-    This is a frontend pagination test. We verify that the API returns
-    a manageable dataset (not 5563 rows) that the frontend can paginate.
-    
-    The frontend should paginate to 25 or 50 rows per page.
-    """
-    # This test validates the frontend behavior conceptually.
-    # The API returns all rows (union of official>0 OR Arquivo>0),
-    # but the frontend MUST paginate to 25 or 50 rows.
-    
-    # Get coverage data (simulates what frontend receives)
-    coverage = await get_coverage_data(async_session)
-    
-    # The coverage list may have hundreds of rows (union set)
-    # Frontend must show only 25 or 50 on first page, not all at once.
-    # This test documents the requirement; frontend implementation is in Rankings.tsx
-    # with perPage state set to 25 by default.
-    
-    # Pass if we document the requirement
-    assert True, "Frontend must paginate to 25 or 50 rows per page (default 25)"
-
-
-@pytest.mark.asyncio
 async def test_search_rio_de_janeiro_must_match(async_session):
     """
     Issue #187 TDD seam: Search for "Rio de Janeiro" must match that municipality.
     
-    If this test fails, it means the search functionality is broken or
-    "Rio de Janeiro" is not findable by name search.
+    Uses the coverage API's q= parameter to test actual search path.
+    If this test fails, the API search is broken or Rio de Janeiro is not findable.
     """
     # Setup IBGE data
     municipalities = [
@@ -187,12 +161,21 @@ async def test_search_rio_de_janeiro_must_match(async_session):
             population=6775561,
             year=2022
         ),
+        IBGEPopulation(
+            code_muni=3505708,
+            code_state="35",
+            name_muni="Bauru",
+            name_state="São Paulo",
+            abbrev_state="SP",
+            population=379297,
+            year=2022
+        ),
     ]
     for muni in municipalities:
         async_session.add(muni)
     
-    # Add data for both municipalities
-    for code in [3550308, 3304557]:
+    # Add data for all municipalities so they appear in coverage
+    for code in [3550308, 3304557, 3505708]:
         async_session.add(OfficialViolenceCount(
             code_muni=code,
             year_month="2025-09",
@@ -204,19 +187,23 @@ async def test_search_rio_de_janeiro_must_match(async_session):
     
     await async_session.commit()
     
-    # Get coverage data
-    coverage = await get_coverage_data(async_session)
+    # Test the actual API search path with q= parameter
+    coverage_all = await get_coverage_data(async_session)
+    coverage_filtered = await get_coverage_data(async_session, search="Rio de Janeiro")
     
-    # Simulate frontend search filter
-    search_term = "rio de janeiro"
-    filtered = [
-        r for r in coverage 
-        if search_term in r["name"].lower()
-    ]
+    # Verify unfiltered returns all 3 municipalities
+    assert len(coverage_all) == 3, "Should have 3 municipalities without search"
     
-    # Check that Rio de Janeiro is found
-    assert len(filtered) > 0, \
-        "FAIL: Search for 'Rio de Janeiro' must match that municipality"
-    rio_row = filtered[0]
-    assert rio_row["name"] == "Rio de Janeiro"
+    # Verify filtered returns only Rio de Janeiro
+    assert len(coverage_filtered) == 1, \
+        "FAIL: Search for 'Rio de Janeiro' must return exactly 1 match"
+    
+    rio_row = coverage_filtered[0]
+    assert rio_row["name"] == "Rio de Janeiro", \
+        "FAIL: Search result must be Rio de Janeiro"
     assert rio_row["code"] == 3304557
+    
+    # Verify case-insensitive search works
+    coverage_lower = await get_coverage_data(async_session, search="rio de janeiro")
+    assert len(coverage_lower) == 1, "Search must be case-insensitive"
+    assert coverage_lower[0]["code"] == 3304557

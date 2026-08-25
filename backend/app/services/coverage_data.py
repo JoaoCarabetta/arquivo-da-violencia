@@ -56,7 +56,8 @@ def get_formulario_1_types() -> list[str]:
 
 async def get_coverage_data(
     session: AsyncSession,
-    min_year_month: str = "2025-09"
+    min_year_month: str = "2025-09",
+    search: Optional[str] = None
 ) -> List[Dict[str, Any]]:
     """
     Get coverage data: union of municipalities with official > 0 OR Arquivo > 0.
@@ -69,6 +70,7 @@ async def get_coverage_data(
     Args:
         session: Database session
         min_year_month: Minimum year-month (YYYY-MM) for window start
+        search: Optional search term to filter municipality names (case-insensitive)
     
     Returns:
         List of dicts with keys:
@@ -205,6 +207,14 @@ async def get_coverage_data(
     
     # 6. Sort by official_victims descending (spec requirement)
     coverage_rows.sort(key=lambda x: x["official_victims"], reverse=True)
+    
+    # 7. Apply search filter if provided (case-insensitive)
+    if search:
+        search_lower = search.lower()
+        coverage_rows = [
+            row for row in coverage_rows
+            if search_lower in row["name"].lower()
+        ]
     
     logger.info(f"Generated coverage table with {len(coverage_rows)} municipalities")
     
