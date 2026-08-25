@@ -172,8 +172,8 @@ async def test_ingest_official_violence_data_single_municipality(async_session, 
     result = await async_session.execute(query)
     counts = result.scalars().all()
 
-    # Should have 5 indicator rows + 1 summed total row
-    assert len(counts) == 6, f"Expected 6 rows (5 indicators + 1 total), got {len(counts)}"
+    # Should have 5 indicator rows (no convenience total)
+    assert len(counts) == 5, f"Expected 5 rows (4 Formulário 1 types + intervenção), got {len(counts)}"
 
     # Check individual indicators
     homicidio = next(c for c in counts if c.indicator == "homicidio_doloso")

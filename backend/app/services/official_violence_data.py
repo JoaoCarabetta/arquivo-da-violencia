@@ -16,7 +16,7 @@ Headers: ["uf","municipio","evento","data_referencia","agente","arma","faixa_eta
 
 from typing import Dict, List, Any
 from datetime import datetime, timedelta
-from sqlmodel import select
+from sqlmodel import select, func
 from sqlmodel.ext.asyncio.session import AsyncSession
 from loguru import logger
 
