@@ -35,7 +35,8 @@ interface RankingTableProps {
 
 function RankingTable({ title, rows, labelField, onRowClick, emptyMessage, showRateColumns = false }: RankingTableProps) {
   const { t, lang } = useI18n();
-  const [expanded, setExpanded] = useState(true);
+  // Issue #186: Default to collapsed (showing top 10), not expanded
+  const [expanded, setExpanded] = useState(false);
   
   if (rows.length === 0) {
     return (
@@ -46,6 +47,7 @@ function RankingTable({ title, rows, labelField, onRowClick, emptyMessage, showR
     );
   }
 
+  // Show top 10 when collapsed, all when expanded
   const displayRows = expanded ? rows : rows.slice(0, 10);
   const hasRateData = showRateColumns && rows.some(r => r.rate_per_100k != null);
   
@@ -54,19 +56,12 @@ function RankingTable({ title, rows, labelField, onRowClick, emptyMessage, showR
 
   return (
     <div className="rounded-xl border border-stone-200 bg-white overflow-hidden">
-      <button
-        onClick={() => setExpanded(!expanded)}
-        className="w-full flex items-center justify-between px-6 py-4 hover:bg-stone-50 transition-colors"
-      >
+      <div className="px-6 py-4 border-b border-stone-200">
         <h2 className="text-lg font-semibold text-stone-900">{title}</h2>
-        <div className="flex items-center gap-2">
-          <span className="text-sm text-stone-500">{rows.length} {rows.length === 1 ? 'item' : 'itens'}</span>
-          <ChevronDown className={cn('h-4 w-4 text-stone-400 transition-transform', expanded && 'rotate-180')} />
-        </div>
-      </button>
+        <p className="text-sm text-stone-500 mt-1">{rows.length} {rows.length === 1 ? 'item' : 'itens'}</p>
+      </div>
       
-      {expanded && (
-        <div className="overflow-x-auto">
+      <div className="overflow-x-auto">
           <table className="w-full">
             <thead className="bg-stone-50 border-t border-stone-200">
               <tr>
@@ -139,22 +134,34 @@ function RankingTable({ title, rows, labelField, onRowClick, emptyMessage, showR
                           {row.population != null ? formatNum(row.population) : '—'}
                         </td>
                       </>
-                    )}
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      )}
+                  )}
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
       
+      {/* Ver mais button - show when collapsed and there are more than 10 rows */}
       {!expanded && rows.length > 10 && (
-        <div className="px-6 py-3 bg-stone-50 text-center">
+        <div className="px-6 py-3 bg-stone-50 border-t border-stone-200 text-center">
           <button
             onClick={() => setExpanded(true)}
             className="text-sm text-blue-600 hover:text-blue-700 font-medium"
           >
-            Ver mais {rows.length - 10} itens...
+            Ver mais ({rows.length - 10} itens)
+          </button>
+        </div>
+      )}
+      
+      {/* Collapse button - show when expanded */}
+      {expanded && rows.length > 10 && (
+        <div className="px-6 py-3 bg-stone-50 border-t border-stone-200 text-center">
+          <button
+            onClick={() => setExpanded(false)}
+            className="text-sm text-blue-600 hover:text-blue-700 font-medium"
+          >
+            Ver menos
           </button>
         </div>
       )}

@@ -809,28 +809,24 @@ async def get_rankings(
     # Apply size floor filter for public city rankings (issue #186):
     # Only show cities that are either:
     # 1. Brazilian capitals, OR
-    # 2. Population > 100,000, OR
-    # 3. Have Arquivo cases (already guaranteed since they're in the rankings)
+    # 2. Population > 100,000
     # This prevents tiny towns like Matos Costa (pop 2,761) from appearing in top rankings
+    # Unknown population (None) does NOT pass unless it's a capital
     def passes_city_size_floor(city_row):
         city_name = city_row.get("city")
         if not city_name:
             return False
         
-        # Check if it's a capital
+        # Check if it's a capital (always pass)
         if city_name in BRAZILIAN_CAPITALS:
             return True
         
-        # Check if population > 100k
+        # For non-capitals: only pass if population is known AND > 100k
         population = city_row.get("population")
         if population is not None and population > 100_000:
             return True
         
-        # If no population data, include it (we can't filter without data)
-        # This handles non-BR cities or cities without IBGE matches
-        if population is None:
-            return True
-        
+        # Non-capitals without population data or with pop <= 100k are excluded
         return False
     
     cities_rankings = [c for c in cities_rankings if passes_city_size_floor(c)]
