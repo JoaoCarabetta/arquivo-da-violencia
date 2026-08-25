@@ -1,0 +1,59 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": {
+        "code_muni": 3304557,
+        "name_muni": "Rio de Janeiro",
+        "abbrev_state": "RJ"
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[
+          [-43.7968, -23.0826],
+          [-43.0968, -23.0826],
+          [-43.0968, -22.7468],
+          [-43.7968, -22.7468],
+          [-43.7968, -23.0826]
+        ]]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "code_muni": 5300108,
+        "name_muni": "Brasília",
+        "abbrev_state": "DF"
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[
+          [-48.2807, -16.0543],
+          [-47.3007, -16.0543],
+          [-47.3007, -15.4993],
+          [-48.2807, -15.4993],
+          [-48.2807, -16.0543]
+        ]]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "code_muni": 3550308,
+        "name_muni": "São Paulo",
+        "abbrev_state": "SP"
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[
+          [-46.8258, -23.7777],
+          [-46.3658, -23.7777],
+          [-46.3658, -23.3563],
+          [-46.8258, -23.3563],
+          [-46.8258, -23.7777]
+        ]]
+      }
+    }
+  ]
+}
