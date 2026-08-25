@@ -2,8 +2,8 @@ import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { ChevronDown, TrendingUp, TrendingDown, Minus, ArrowLeft } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
-import { fetchRankings, fetchStatsMatrix } from '@/lib/api';
-import type { RankingRow } from '@/lib/api';
+import { fetchRankings, fetchStatsMatrix, fetchCoverageStats } from '@/lib/api';
+import type { RankingRow, CoverageMunicipality } from '@/lib/api';
 import { useI18n } from '@/contexts/I18nContext';
 import { ArchiveLogo } from '@/components/portal/ArchiveLogo';
 import { LeftRail } from '@/components/portal/LeftRail';
@@ -212,6 +212,11 @@ export function Rankings() {
     queryFn: fetchStatsMatrix,
   });
 
+  const { data: coverageData, isLoading: isCoverageLoading } = useQuery({
+    queryKey: ['coverageStats'],
+    queryFn: fetchCoverageStats,
+  });
+
   const periodOptions: { value: PeriodOption; label: string }[] = [
     { value: 7, label: t.rankingsLast7Days },
     { value: 30, label: t.rankingsLast30Days },
@@ -334,6 +339,83 @@ export function Rankings() {
           {isLoading && (
             <div className="flex items-center justify-center py-12">
               <div className="text-stone-500">{t.rankingsLoading}</div>
+            </div>
+          )}
+
+          {/* Coverage Table */}
+          {coverageData && !isCoverageLoading && (
+            <div className="space-y-6 mb-8">
+              <div className="rounded-xl border border-stone-200 bg-white overflow-hidden">
+                <div className="px-6 py-4 border-b border-stone-200">
+                  <h2 className="text-lg font-semibold text-stone-900">
+                    Cobertura: Arquivo vs Oficial
+                  </h2>
+                  <p className="text-sm text-stone-500 mt-1">
+                    Comparação entre vítimas registradas pelo Arquivo da Violência e mortes violentas intencionais oficiais (Ministério da Justiça). Janela: desde setembro/2025.
+                  </p>
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead className="bg-stone-50 border-b border-stone-200">
+                      <tr>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-stone-500 uppercase tracking-wider">
+                          Município
+                        </th>
+                        <th className="px-4 py-3 text-center text-xs font-medium text-stone-500 uppercase tracking-wider">
+                          UF
+                        </th>
+                        <th className="px-4 py-3 text-right text-xs font-medium text-stone-500 uppercase tracking-wider">
+                          Oficial
+                        </th>
+                        <th className="px-4 py-3 text-right text-xs font-medium text-stone-500 uppercase tracking-wider">
+                          Arquivo
+                        </th>
+                        <th className="px-4 py-3 text-right text-xs font-medium text-stone-500 uppercase tracking-wider">
+                          Cobertura
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody className="bg-white divide-y divide-stone-200">
+                      {coverageData.municipalities.map((muni: CoverageMunicipality, idx: number) => {
+                        const coveragePercent = muni.coverage != null ? (muni.coverage * 100).toFixed(0) : '—';
+                        const coverageColor = 
+                          muni.coverage == null ? 'text-stone-400' :
+                          muni.coverage < 0.5 ? 'text-red-600' :
+                          muni.coverage < 0.8 ? 'text-orange-600' :
+                          muni.coverage < 1.0 ? 'text-yellow-600' :
+                          muni.coverage >= 1.0 ? 'text-green-600' :
+                          'text-stone-600';
+                        
+                        return (
+                          <tr key={muni.code} className="hover:bg-stone-50">
+                            <td className="px-4 py-3 font-medium text-stone-900">
+                              {muni.name}
+                            </td>
+                            <td className="px-4 py-3 text-center text-stone-700">
+                              {muni.uf}
+                            </td>
+                            <td className="px-4 py-3 text-right text-stone-900">
+                              {muni.official_victims.toLocaleString()}
+                            </td>
+                            <td className="px-4 py-3 text-right text-stone-900">
+                              {muni.arquivo_victims.toLocaleString()}
+                            </td>
+                            <td className={cn('px-4 py-3 text-right font-semibold', coverageColor)}>
+                              {coveragePercent}%
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+                <div className="px-6 py-4 bg-amber-50 border-t border-amber-200">
+                  <p className="text-xs text-amber-900">
+                    <strong>Metodologia:</strong> {coverageData.methodology.official_bag}. 
+                    Cobertura = Arquivo / oficial (valores acima de 100% indicam maior captura pelo Arquivo).
+                  </p>
+                </div>
+              </div>
             </div>
           )}
 

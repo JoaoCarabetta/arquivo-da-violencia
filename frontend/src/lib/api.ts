@@ -600,6 +600,29 @@ export async function fetchStatsMatrix(): Promise<MatrixResponse> {
   return fetchJson<MatrixResponse>(`${API_BASE}/public/stats/matrix`);
 }
 
+export interface CoverageMunicipality {
+  code: number;
+  name: string;
+  uf: string;
+  official_victims: number;
+  arquivo_victims: number;
+  coverage: number | null;
+}
+
+export interface CoverageResponse {
+  window_start: string;
+  methodology: {
+    official_bag: string;
+    arquivo_filter: string;
+    coverage_calculation: string;
+  };
+  municipalities: CoverageMunicipality[];
+}
+
+export async function fetchCoverageStats(): Promise<CoverageResponse> {
+  return fetchJson<CoverageResponse>(`${API_BASE}/public/stats/coverage`);
+}
+
 // Export URLs
 export interface ExportFilters {
   types?: string[];
