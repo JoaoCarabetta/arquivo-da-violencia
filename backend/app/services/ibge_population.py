@@ -11,12 +11,136 @@ Unit tests use fixture data (no network calls).
 Production loads full IBGE dataset once from geobr + SIDRA.
 """
 
+import unicodedata
+import re
 from typing import Dict, Optional, Tuple
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 from loguru import logger
 
 from app.models.ibge_population import IBGEPopulation
+
+
+# DF (Distrito Federal) administrative regions that are not municipalities
+# All map to Brasília 5300108
+DF_ADMINISTRATIVE_REGIONS = {
+    "taguatinga",
+    "ceilandia",
+    "samambaia",
+    "planaltina",
+    "gama",
+    "brazlandia",
+    "sobradinho",
+    "paranoa",  # Paranoá normalizes to paranoa (accent removed)
+    "santa maria",
+    "sao sebastiao",
+    "recanto das emas",
+    "lago sul",
+    "lago norte",
+    "riacho fundo",
+    "candangolandia",
+    "aguas claras",
+    "vicente pires",
+    "sudoeste",
+    "octogonal",
+    "cruzeiro",
+    "nucleo bandeirante",
+    "guara",
+}
+
+# State abbreviation to full name mapping
+STATE_FULL_NAMES = {
+    "AC": "Acre",
+    "AL": "Alagoas",
+    "AP": "Amapá",
+    "AM": "Amazonas",
+    "BA": "Bahia",
+    "CE": "Ceará",
+    "DF": "Distrito Federal",
+    "ES": "Espírito Santo",
+    "GO": "Goiás",
+    "MA": "Maranhão",
+    "MT": "Mato Grosso",
+    "MS": "Mato Grosso do Sul",
+    "MG": "Minas Gerais",
+    "PA": "Pará",
+    "PB": "Paraíba",
+    "PR": "Paraná",
+    "PE": "Pernambuco",
+    "PI": "Piauí",
+    "RJ": "Rio de Janeiro",
+    "RN": "Rio Grande do Norte",
+    "RS": "Rio Grande do Sul",
+    "RO": "Rondônia",
+    "RR": "Roraima",
+    "SC": "Santa Catarina",
+    "SP": "São Paulo",
+    "SE": "Sergipe",
+    "TO": "Tocantins",
+}
+
+# Reverse mapping: full name to abbreviation (normalized for accent-insensitive matching)
+STATE_NAME_TO_ABBREV = {}
+for abbrev, full_name in STATE_FULL_NAMES.items():
+    # Normalize the full name and store the mapping
+    normalized = full_name.lower()
+    # Remove accents
+    normalized = unicodedata.normalize('NFD', normalized)
+    normalized = ''.join(c for c in normalized if unicodedata.category(c) != 'Mn')
+    STATE_NAME_TO_ABBREV[normalized] = abbrev
+
+
+def normalize_text(text: str | None) -> str | None:
+    """
+    Normalize text for case-insensitive, accent-insensitive comparison.
+    
+    - Lowercases
+    - Removes accents (São Paulo → sao paulo)
+    - Strips leading/trailing punctuation and whitespace
+    - Normalizes internal whitespace
+    
+    Returns None if input is None or empty after normalization.
+    """
+    if not text:
+        return None
+    
+    # Lowercase
+    text = text.lower()
+    
+    # Remove accents: decompose Unicode, filter out combining marks
+    text = unicodedata.normalize('NFD', text)
+    text = ''.join(c for c in text if unicodedata.category(c) != 'Mn')
+    
+    # Strip punctuation/hyphens from edges, normalize whitespace
+    text = re.sub(r'^[\s\-\.\,]+|[\s\-\.\,]+$', '', text)
+    text = re.sub(r'\s+', ' ', text)
+    
+    return text if text else None
+
+
+def normalize_state(state: str | None) -> str | None:
+    """
+    Normalize state to abbreviation.
+    
+    - If already an abbreviation (2 chars) → return uppercase
+    - If full state name → convert to abbreviation
+    - Returns None if invalid or empty
+    """
+    if not state:
+        return None
+    
+    state = state.strip()
+    
+    # If it's 2 characters, treat as abbreviation
+    if len(state) == 2:
+        return state.upper()
+    
+    # Try to match full name
+    normalized = normalize_text(state)
+    if normalized and normalized in STATE_NAME_TO_ABBREV:
+        return STATE_NAME_TO_ABBREV[normalized]
+    
+    return None
 
 
 async def load_ibge_data_from_geobr_and_sidra(
@@ -137,43 +261,93 @@ async def lookup_city_codes(
     session: AsyncSession,
     cities: list[str],
     states: list[str]
-) -> Dict[Tuple[str, str], int]:
+) -> Dict[Tuple[str, str | None], int]:
     """
     Lookup IBGE municipal codes for a list of (city, state) pairs.
     
-    Queries the ibge_population table (loaded from geobr).
-    No hardcoded mapping - works for any city in the IBGE database.
+    Improvements (issue #179):
+    - Case-insensitive and accent-insensitive matching
+    - Accepts full state names (e.g. "Rio de Janeiro" not just "RJ")
+    - If city is present but state is missing, assigns code if city name is unique
+    - DF administrative regions (Taguatinga, Ceilândia, etc.) map to Brasília 5300108
+    
+    Does NOT:
+    - Invent cities when city is null
+    - Assign codes to foreign cities
+    - Guess aliases or typos
     
     Args:
         session: Database session
-        cities: List of city names
-        states: List of state abbreviations (e.g. "SP", "RJ")
+        cities: List of city names (can be None)
+        states: List of state abbreviations or full names (can be None)
     
     Returns:
-        Dictionary mapping (city, state) tuples to IBGE code_muni
+        Dictionary mapping (original_city, original_state) tuples to IBGE code_muni
     """
     if not cities:
         return {}
     
-    # Build lookup of (city, state) pairs
-    city_state_pairs = [(city, state) for city, state in zip(cities, states) if city and state]
-    if not city_state_pairs:
-        return {}
-    
-    # Query database for matching municipalities
-    # Try exact match first, could add fuzzy matching later
     result = {}
     
-    for city, state in city_state_pairs:
-        query = select(IBGEPopulation).where(
-            IBGEPopulation.name_muni == city,
-            IBGEPopulation.abbrev_state == state
-        )
-        db_result = await session.execute(query)
-        pop = db_result.scalar_one_or_none()
+    # Load all municipalities once for efficiency (when we need to check uniqueness)
+    all_munis = None
+    
+    # Process each (city, state) pair
+    for orig_city, orig_state in zip(cities, states):
+        # Skip if no city (do not invent)
+        if not orig_city:
+            continue
         
-        if pop and pop.code_muni:
-            result[(city, state)] = pop.code_muni
+        # Normalize inputs
+        norm_city = normalize_text(orig_city)
+        if not norm_city:
+            continue
+        
+        norm_state = normalize_state(orig_state)
+        
+        # Check DF administrative regions first
+        if norm_state == "DF" and norm_city in DF_ADMINISTRATIVE_REGIONS:
+            # Map to Brasília
+            query = select(IBGEPopulation).where(
+                IBGEPopulation.code_muni == 5300108
+            )
+            db_result = await session.execute(query)
+            pop = db_result.scalar_one_or_none()
+            if pop:
+                result[(orig_city, orig_state)] = 5300108
+                continue
+        
+        # If we have a state, do city+state lookup
+        if norm_state:
+            # Get all municipalities with this state
+            query = select(IBGEPopulation).where(
+                IBGEPopulation.abbrev_state == norm_state
+            )
+            db_result = await session.execute(query)
+            state_munis = db_result.scalars().all()
+            
+            # Find matching city (normalized)
+            for muni in state_munis:
+                if normalize_text(muni.name_muni) == norm_city:
+                    result[(orig_city, orig_state)] = muni.code_muni
+                    break
+        else:
+            # No state provided - check if city name is unique
+            # Load all municipalities once (lazy load)
+            if all_munis is None:
+                query = select(IBGEPopulation)
+                db_result = await session.execute(query)
+                all_munis = db_result.scalars().all()
+            
+            matches = [
+                muni for muni in all_munis
+                if normalize_text(muni.name_muni) == norm_city
+            ]
+            
+            # Only assign code if exactly one match (unique city name)
+            if len(matches) == 1:
+                result[(orig_city, orig_state)] = matches[0].code_muni
+            # If multiple matches or no matches, skip (ambiguous or not found)
     
     return result
 

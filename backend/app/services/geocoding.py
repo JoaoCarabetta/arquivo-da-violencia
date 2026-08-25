@@ -502,22 +502,40 @@ async def geocode_unique_event(
 
 async def _persist_geocode(unique_event_id: int, fields: dict) -> None:
     async with async_session_maker() as session:
-        # First get the event's city, state, and country for municipality code lookup
+        # First get the event's city, state, country, and new coordinates
         result = await session.execute(
             text("SELECT city, state, country FROM unique_event WHERE id = :id"),
             {"id": unique_event_id},
         )
         event_data = result.fetchone()
         
-        # Look up municipality code for Brazilian cities
+        # Look up municipality code for Brazilian cities (issue #179)
+        # RULE: When coordinates exist, code comes from polygon, NEVER from name
         municipality_code = None
         if event_data and event_data[2] in ("BR", "Brasil", None):  # country is BR, Brasil, or NULL (default BR)
-            city = event_data[0]
-            state = event_data[1]
-            if city and state:
-                from app.services.ibge_population import lookup_city_codes
-                codes = await lookup_city_codes(session, cities=[city], states=[state])
-                municipality_code = codes.get((city, state))
+            latitude = fields.get("latitude")
+            longitude = fields.get("longitude")
+            
+            # Priority 1: Point-in-polygon lookup (coordinates exist)
+            if latitude is not None and longitude is not None:
+                from app.services.municipality_codes import lookup_municipality_code_from_coordinates
+                try:
+                    municipality_code = await lookup_municipality_code_from_coordinates(
+                        session,
+                        float(latitude),
+                        float(longitude)
+                    )
+                    # If point is outside all polygons, leave empty (no name fallback)
+                except (ValueError, TypeError) as e:
+                    logger.warning(f"[Geocode] Invalid coordinates for event {unique_event_id}: {e}")
+            else:
+                # Priority 2: Name-based lookup ONLY when NO coordinates
+                city = event_data[0]
+                state = event_data[1]
+                if city or state:  # At least one must be present
+                    from app.services.ibge_population import lookup_city_codes
+                    codes = await lookup_city_codes(session, cities=[city], states=[state])
+                    municipality_code = codes.get((city, state))
         
         await session.execute(
             text("""

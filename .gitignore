@@ -204,3 +204,7 @@ backend/tests/fixtures/eval/enrichment_seed.json
 
 # Eval run outputs (may include LLM reasoning)
 backend/eval/results/
+
+# Cached municipality polygon data (downloaded from geobr)
+backend/app/data/municipality_polygons_cache.json
+
