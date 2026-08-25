@@ -1,8 +1,8 @@
 """add_official_violence_count_table
 
-Revision ID: k0l1m2n3o4p5
-Revises: j9k0l1m2n3o4
-Create Date: 2026-08-25 12:35:00.000000
+Revision ID: l1m2n3o4p5q6
+Revises: k0l1m2n3o4p5
+Create Date: 2026-08-25 13:11:00.000000
 
 Add official_violence_count table to store monthly victim counts from Ministry
 of Justice VDE (Validador de Dados Estatísticos) for coverage comparison.
@@ -15,8 +15,8 @@ from sqlalchemy import inspect
 import sqlmodel
 
 # revision identifiers, used by Alembic.
-revision: str = 'k0l1m2n3o4p5'
-down_revision: Union[str, Sequence[str], None] = 'j9k0l1m2n3o4'
+revision: str = 'l1m2n3o4p5q6'
+down_revision: Union[str, Sequence[str], None] = 'k0l1m2n3o4p5'
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
