@@ -281,6 +281,35 @@ describe('Rankings Page - Issue #189: URL State, Mobile, Chile, Skeleton', () =>
       // Coverage section header should still be visible
       expect(screen.getByText(/Cobertura.*Arquivo vs Oficial/i)).toBeInTheDocument();
     });
+
+    it('should show empty state for Chile even when Brazil municipalities are in coverage data', async () => {
+      (api.fetchRankings as unknown as ReturnType<typeof vi.fn>).mockResolvedValue(mockRankingsDataCL);
+      // Coverage data has Brazil municipalities, but Chile is selected
+      (api.fetchCoverageStats as unknown as ReturnType<typeof vi.fn>).mockResolvedValue(mockCoverageDataBR);
+
+      const user = userEvent.setup();
+      renderWithRouter(<Rankings />);
+
+      await screen.findByRole('heading', { name: /Rankings/i }, { timeout: 3000 });
+
+      // Select Chile
+      const chileButton = screen.getByRole('button', { name: /Chile/i });
+      await user.click(chileButton);
+
+      // Wait for Chile data
+      await waitFor(() => {
+        expect(api.fetchRankings).toHaveBeenCalledWith(
+          expect.objectContaining({ country: 'CL' })
+        );
+      }, { timeout: 3000 });
+
+      // Should show empty state message
+      expect(screen.getByText(/Dados de cobertura não disponíveis/i)).toBeInTheDocument();
+
+      // Should NOT show Brazilian municipality names
+      expect(screen.queryByText('São Paulo')).not.toBeInTheDocument();
+      expect(screen.queryByText('SP')).not.toBeInTheDocument();
+    });
   });
 
   describe('Test 3: Skeleton loading on first paint', () => {

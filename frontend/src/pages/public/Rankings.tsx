@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, useRef } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { ChevronDown, ArrowLeft, Download, Search } from 'lucide-react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
@@ -516,13 +516,34 @@ export function Rankings() {
   const [searchParams, setSearchParams] = useSearchParams();
   
   // Issue #186: Default to Brasil, last year (365 days), Municípios tab
-  const [period, setPeriod] = useState<PeriodOption>(365);
-  const [country, setCountry] = useState<CountryOption>('BR');
+  // Issue #189: Read from URL params if present, otherwise use defaults
+  const [period, setPeriod] = useState<PeriodOption>(() => {
+    try {
+      const param = searchParams.get('period');
+      if (param === '7') return 7;
+      if (param === '30') return 30;
+      if (param === '365') return 365;
+    } catch (e) {
+      // Fallthrough to default
+    }
+    return 365; // Default
+  });
+  
+  const [country, setCountry] = useState<CountryOption>(() => {
+    try {
+      const param = searchParams.get('country');
+      if (param === 'BR') return 'BR';
+      if (param === 'CL') return 'CL';
+      if (param === '') return '';
+    } catch (e) {
+      // Fallthrough to default
+    }
+    return 'BR'; // Default
+  });
   const [rankingTab, setRankingTab] = useState<RankingTab>('municipios');
   const [cityLimit, setCityLimit] = useState<number>(50);
   const [aboutOpen, setAboutOpen] = useState(false);
   const [methodologyOpen, setMethodologyOpen] = useState(false);
-  const [initialLoad, setInitialLoad] = useState(true);
   
   // Issue #185: Place search state (default to Brasil)
   const [selectedPlace, setSelectedPlace] = useState<PlaceOption>({
@@ -531,48 +552,26 @@ export function Rankings() {
     displayName: 'Brasil',
   });
   
-  // Issue #189: Read period and country from URL on mount (one-time only)
+  // Issue #189: Sync URL params when period or country changes
+  // Skip first render to avoid overwriting URL params on mount
+  const isFirstRender = useRef(true);
   useEffect(() => {
-    try {
-      const periodParam = searchParams.get('period');
-      if (periodParam) {
-        if (periodParam === '7') setPeriod(7);
-        else if (periodParam === '30') setPeriod(30);
-        else if (periodParam === '365') setPeriod(365);
-      }
-      
-      const countryParam = searchParams.get('country');
-      if (countryParam !== null) {
-        if (countryParam === 'BR') setCountry('BR');
-        else if (countryParam === 'CL') setCountry('CL');
-        else if (countryParam === '') setCountry('');
-      }
-    } catch (e) {
-      // Use defaults
+    if (isFirstRender.current) {
+      isFirstRender.current = false;
+      return;
     }
     
-    // Mark as loaded after reading URL
-    setInitialLoad(false);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []); // Only run once on mount
-  
-  // Issue #189: Sync URL params when period or country changes (skip initial render)
-  useEffect(() => {
-    if (initialLoad) return;
-    
     try {
-      const newParams = new URLSearchParams(searchParams);
+      const newParams = new URLSearchParams();
       newParams.set('period', period.toString());
       if (country) {
         newParams.set('country', country);
-      } else {
-        newParams.delete('country');
       }
       setSearchParams(newParams, { replace: true });
     } catch (e) {
       // Ignore URL sync errors in test environments
     }
-  }, [period, country, initialLoad, searchParams, setSearchParams]);
+  }, [period, country, setSearchParams]);
   
   // Reset city limit when period or country changes
   const handlePeriodChange = (newPeriod: PeriodOption) => {
@@ -944,7 +943,7 @@ export function Rankings() {
               {coverageData && !isCoverageLoading && (
                 <CoverageTable 
                   municipalities={coverageData.municipalities}
-                  isEmpty={country === 'CL' && coverageData.municipalities.length === 0}
+                  isEmpty={country === 'CL'}
                 />
               )}
             </div>
