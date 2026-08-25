@@ -311,8 +311,13 @@ describe('Rankings Page - Issue #185: Place Search and Card', () => {
     });
 
     it('should not include Chile victims in Brasil Arquivo count when Chile is in the rankings', async () => {
-      // Mock with Chile data in the response
-      (api.fetchRankings as unknown as ReturnType<typeof vi.fn>).mockResolvedValue(mockRankingsDataWithChile);
+      // Mock fetchRankings to return BR-only data when country='BR'
+      (api.fetchRankings as unknown as ReturnType<typeof vi.fn>).mockImplementation((params: any) => {
+        if (params.country === 'BR') {
+          return Promise.resolve(mockRankingsDataBR);
+        }
+        return Promise.resolve(mockRankingsDataWithChile);
+      });
       
       renderWithProviders(<Rankings />);
       
@@ -325,6 +330,11 @@ describe('Rankings Page - Issue #185: Place Search and Card', () => {
       // Official should still be BR-only (450 + 320 = 770)
       const officialCount = within(placeCard).getByTestId('official-count');
       expect(officialCount).toHaveTextContent('770');
+      
+      // Verify fetchRankings was called with country='BR'
+      expect(api.fetchRankings).toHaveBeenCalledWith(
+        expect.objectContaining({ country: 'BR' })
+      );
     });
   });
 
