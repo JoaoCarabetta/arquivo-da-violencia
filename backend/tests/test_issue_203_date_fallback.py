@@ -26,12 +26,12 @@ from app.services.extraction_schemas import (
 )
 
 
-def test_argentina_null_date_with_explicit_date_in_text_red():
+def test_argentina_null_date_with_explicit_date_in_text():
     """
-    RED: Argentina event where extraction left date NULL,
+    GREEN: Argentina event where extraction left date NULL,
     but story contains explicit date "15 de agosto de 2026".
     
-    Heuristic should recover the date from text.
+    Heuristic recovers the date from text.
     """
     # Story with explicit Spanish date
     content = """
@@ -84,7 +84,7 @@ def test_argentina_null_date_with_explicit_date_in_text_red():
     # Apply heuristics - should recover date from text
     fixed_event = apply_extraction_heuristics(event, content, metadata)
     
-    # RED: This will fail because no heuristic recovers explicit dates from text
+    # GREEN: Heuristic recovers explicit date from text
     assert fixed_event.date_time.date is not None, \
         "Heuristic should recover explicit date '15 de agosto de 2026' from text"
     
@@ -97,9 +97,9 @@ def test_argentina_null_date_with_explicit_date_in_text_red():
         "event_date should be 2026-08-15 after heuristic recovery"
 
 
-def test_argentina_slash_format_date_red():
+def test_argentina_slash_format_date():
     """
-    RED: Argentina event with numeric date format "15/08/2026".
+    GREEN: Argentina event with numeric date format "15/08/2026".
     """
     content = """
     Un hombre fue asesinado a tiros el 15/08/2026 en Buenos Aires.
@@ -143,15 +143,15 @@ def test_argentina_slash_format_date_red():
     
     fixed_event = apply_extraction_heuristics(event, content, metadata)
     
-    # RED: Should recover numeric date
+    # GREEN: Recovers numeric date
     assert fixed_event.date_time.date == "2026-08-15", \
         "Should recover date from '15/08/2026' format"
 
 
 @pytest.mark.asyncio
-async def test_recovered_date_appears_in_rankings_red(app, async_session):
+async def test_recovered_date_appears_in_rankings(app, async_session):
     """
-    RED: After heuristic recovers date, event should appear in rankings.
+    GREEN: After heuristic recovers date, event should appear in rankings.
     """
     # Simulate: extraction left date NULL, heuristic recovered it
     now = datetime.utcnow()
