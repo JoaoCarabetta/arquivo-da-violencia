@@ -178,3 +178,37 @@ class TestCountryRankings:
         assert "Brasil" in country_names
         assert "Argentina" in country_names
         assert "Colombia" in country_names
+    
+    async def test_rankings_unknown_iso_returns_empty(self, async_session: AsyncSession, client: AsyncClient):
+        """Rankings with unknown ISO code (ZZ, XX) returns empty rankings, not full set."""
+        # Create some BR events
+        br_event = UniqueEvent(
+            event_family="homicidio",
+            content_class="incident",
+            event_date=datetime.utcnow() - timedelta(days=10),
+            country="BR",
+            state="SP",
+            city="São Paulo",
+            victim_count=1,
+            latitude=-23.5505,
+            longitude=-46.6333,
+        )
+        async_session.add(br_event)
+        await async_session.commit()
+        
+        # Query rankings with unknown ISO code (should return zero events)
+        response = await client.get("/public/stats/rankings?country=ZZ&days=30")
+        
+        assert response.status_code == 200
+        data = response.json()
+        
+        # Should have zero total events and victims
+        assert data["total_events"] == 0
+        assert data["total_victims"] == 0
+        
+        # All ranking lists should be empty
+        assert len(data["cities"]) == 0
+        assert len(data["states"]) == 0
+        assert len(data["countries"]) == 0
+        assert len(data["homicide_types"]) == 0
+        assert len(data["methods"]) == 0
