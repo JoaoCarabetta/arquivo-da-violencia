@@ -458,6 +458,9 @@ export function Rankings() {
     ];
     
     data.states.forEach(state => {
+      // Only add states that have a defined state field
+      if (!state.state) return;
+      
       let uf = state.state;
       if (state.state.length > 2) {
         const cityInState = data.cities.find(c => c.state === state.state);
@@ -475,11 +478,14 @@ export function Rankings() {
     });
     
     data.cities.forEach(city => {
+      // Only add cities that have a defined city name
+      if (!city.city) return;
+      
       options.push({
         name: city.city,
         type: 'municipality',
         state: city.state,
-        uf: city.state_abbrev,
+        uf: city.state_abbrev || undefined,
         displayName: city.state_abbrev ? `${city.city}, ${city.state_abbrev}` : city.city,
       });
     });

@@ -6,6 +6,7 @@ export interface PlaceOption {
   name: string;
   type: 'country' | 'state' | 'municipality';
   uf?: string;
+  state?: string;
   displayName: string;
 }
 
