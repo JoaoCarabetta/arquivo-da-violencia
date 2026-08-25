@@ -31,6 +31,7 @@ from app.models.pipeline_attempt import (
     PipelineAttemptRead,
 )
 from app.models.ibge_population import IBGEPopulation
+from app.models.official_violence_data import OfficialViolenceCount
 
 __all__ = [
     # Source Google News
@@ -60,4 +61,6 @@ __all__ = [
     "PipelineAttemptRead",
     # IBGE Population
     "IBGEPopulation",
+    # Official Violence Data
+    "OfficialViolenceCount",
 ]
