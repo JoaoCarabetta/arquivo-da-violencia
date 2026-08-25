@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { ChevronDown, ArrowLeft } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
@@ -14,6 +14,8 @@ import { cn } from '@/lib/utils';
 import { formatTypeStatLabel } from '@/lib/taxonomy';
 import { translateMethod } from '@/lib/i18n';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { PlaceSearch, type PlaceOption } from '@/components/portal/PlaceSearch';
+import { PlaceCard, type PlaceData } from '@/components/portal/PlaceCard';
 
 type PeriodOption = 7 | 30 | 365;
 type CountryOption = '' | 'BR' | 'CL';
@@ -182,6 +184,13 @@ export function Rankings() {
   const [aboutOpen, setAboutOpen] = useState(false);
   const [methodologyOpen, setMethodologyOpen] = useState(false);
   
+  // Issue #185: Place search state (default to Brasil)
+  const [selectedPlace, setSelectedPlace] = useState<PlaceOption>({
+    name: 'Brasil',
+    type: 'country',
+    displayName: 'Brasil',
+  });
+  
   // Reset city limit when period or country changes
   const handlePeriodChange = (newPeriod: PeriodOption) => {
     setPeriod(newPeriod);
@@ -214,6 +223,129 @@ export function Rankings() {
     { value: 'BR', label: 'Brasil' },
     { value: 'CL', label: 'Chile' },
   ];
+
+  // Issue #185: Build place options for typeahead
+  const placeOptions = useMemo((): PlaceOption[] => {
+    if (!data) return [];
+    
+    const options: PlaceOption[] = [
+      { name: 'Brasil', type: 'country', displayName: 'Brasil' },
+    ];
+    
+    data.states.forEach(state => {
+      let uf = state.state;
+      if (state.state.length > 2) {
+        const cityInState = data.cities.find(c => c.state === state.state);
+        if (cityInState?.state_abbrev) {
+          uf = cityInState.state_abbrev;
+        }
+      }
+      
+      options.push({
+        name: state.state,
+        type: 'state',
+        uf,
+        displayName: state.state,
+      });
+    });
+    
+    data.cities.forEach(city => {
+      options.push({
+        name: city.city,
+        type: 'municipality',
+        state: city.state,
+        uf: city.state_abbrev,
+        displayName: city.state_abbrev ? `${city.city}, ${city.state_abbrev}` : city.city,
+      });
+    });
+    
+    return options;
+  }, [data]);
+
+  // Issue #185: Build place data for the selected place card
+  const placeData = useMemo((): PlaceData | null => {
+    if (!data) return null;
+    
+    if (selectedPlace.type === 'country' && selectedPlace.name === 'Brasil') {
+      let officialVictims: number | null = null;
+      let officialAvailable = false;
+      
+      if (period === 365 && coverageData) {
+        officialVictims = coverageData.municipalities.reduce(
+          (sum, muni) => sum + muni.official_victims,
+          0
+        );
+        officialAvailable = true;
+      }
+      
+      return {
+        name: 'Brasil',
+        type: 'country',
+        arquivoVictims: data.total_victims,
+        officialVictims: officialAvailable ? officialVictims : null,
+        officialAvailable,
+        lastUpdated: data.last_updated || new Date().toISOString(),
+        period,
+        officialWindowStart: coverageData?.start_month,
+      };
+    } else if (selectedPlace.type === 'state') {
+      const stateRow = data.states.find(s => s.state === selectedPlace.name);
+      if (!stateRow) return null;
+      
+      let officialVictims: number | null = null;
+      let officialAvailable = false;
+      
+      if (period === 365 && coverageData && selectedPlace.uf) {
+        const stateMunis = coverageData.municipalities.filter(
+          muni => muni.uf === selectedPlace.uf
+        );
+        if (stateMunis.length > 0) {
+          officialVictims = stateMunis.reduce((sum, muni) => sum + muni.official_victims, 0);
+          officialAvailable = true;
+        }
+      }
+      
+      return {
+        name: selectedPlace.name,
+        type: 'state',
+        arquivoVictims: stateRow.victim_count,
+        officialVictims: officialAvailable ? officialVictims : null,
+        officialAvailable,
+        lastUpdated: data.last_updated || new Date().toISOString(),
+        period,
+        officialWindowStart: coverageData?.start_month,
+      };
+    } else if (selectedPlace.type === 'municipality') {
+      const cityRow = data.cities.find(c => c.city === selectedPlace.name);
+      if (!cityRow) return null;
+      
+      let officialVictims: number | null = null;
+      let officialAvailable = false;
+      
+      if (period === 365 && coverageData) {
+        const muniOfficial = coverageData.municipalities.find(
+          muni => muni.name === selectedPlace.name && muni.uf === selectedPlace.uf
+        );
+        if (muniOfficial) {
+          officialVictims = muniOfficial.official_victims;
+          officialAvailable = true;
+        }
+      }
+      
+      return {
+        name: selectedPlace.displayName,
+        type: 'municipality',
+        arquivoVictims: cityRow.victim_count,
+        officialVictims: officialAvailable ? officialVictims : null,
+        officialAvailable,
+        lastUpdated: data.last_updated || new Date().toISOString(),
+        period,
+        officialWindowStart: coverageData?.start_month,
+      };
+    }
+    
+    return null;
+  }, [data, coverageData, selectedPlace, period]);
 
   const handleCityClick = (city: string) => {
     // Deep link to map filtered to this city
@@ -310,6 +442,21 @@ export function Rankings() {
               </div>
             </div>
           </div>
+
+          {/* Issue #185: Place search and card (above the fold) */}
+          {!isLoading && data && (
+            <div className="mb-8 space-y-4">
+              <PlaceSearch
+                places={placeOptions}
+                selectedPlace={selectedPlace}
+                onSelectPlace={setSelectedPlace}
+                placeholder="Busque um município ou estado"
+              />
+              {placeData && (
+                <PlaceCard placeData={placeData} />
+              )}
+            </div>
+          )}
 
           {/* Loading state */}
           {isLoading && (
