@@ -31,7 +31,7 @@ DF_ADMINISTRATIVE_REGIONS = {
     "gama",
     "brazlandia",
     "sobradinho",
-    "parano",
+    "paranoa",  # Paranoá normalizes to paranoa (accent removed)
     "santa maria",
     "sao sebastiao",
     "recanto das emas",

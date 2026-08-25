@@ -265,6 +265,79 @@ async def test_geocode_taguatinga_coordinates_return_brasilia(async_session):
 
 
 @pytest.mark.asyncio
+async def test_coordinates_trump_name_matching(async_session):
+    """
+    TEST SPEC RULE: When coordinates exist, code MUST come from polygon, NEVER from name.
+    
+    Event with city=São Paulo, state=SP, but coordinates inside Rio polygon.
+    Must return Rio code 3304557, NOT São Paulo code 3550308.
+    
+    This proves that point-in-polygon takes absolute priority over name matching.
+    """
+    await load_ibge_population_fixture(async_session)
+    
+    # Event with São Paulo name but Rio coordinates
+    event = UniqueEvent(
+        city="São Paulo",  # Name says São Paulo
+        state="SP",
+        country="BR",
+        event_family="homicidio",
+        # Coordinates inside Rio de Janeiro polygon (Cristo Redentor)
+        latitude=Decimal("-22.9519"),
+        longitude=Decimal("-43.2105"),
+        municipality_code=None
+    )
+    async_session.add(event)
+    await async_session.commit()
+    
+    # Run backfill
+    result = await backfill_municipality_codes(async_session)
+    
+    await async_session.refresh(event)
+    
+    # MUST be Rio (3304557), NOT São Paulo (3550308)
+    assert event.municipality_code == 3304557, \
+        "Coordinates inside Rio polygon must return Rio code, ignoring São Paulo name"
+    assert result["updated"] == 1
+
+
+@pytest.mark.asyncio
+async def test_coordinates_outside_all_polygons_no_name_fallback(async_session):
+    """
+    TEST SPEC RULE: If coordinates exist but point is not inside ANY polygon,
+    leave municipality_code empty. Do NOT fall back to name matching.
+    
+    Event has city+state that would normally resolve via name matching,
+    but coordinates are outside all known polygons → must stay empty.
+    """
+    await load_ibge_population_fixture(async_session)
+    
+    # Event with valid city+state but coordinates in the ocean (far from any land)
+    event = UniqueEvent(
+        city="Rio de Janeiro",
+        state="RJ",
+        country="BR",
+        event_family="homicidio",
+        # Coordinates in the Atlantic Ocean (no municipality)
+        latitude=Decimal("-25.0"),
+        longitude=Decimal("-40.0"),
+        municipality_code=None
+    )
+    async_session.add(event)
+    await async_session.commit()
+    
+    # Run backfill
+    result = await backfill_municipality_codes(async_session)
+    
+    await async_session.refresh(event)
+    
+    # MUST stay empty - do NOT fall back to name matching when coords exist
+    assert event.municipality_code is None, \
+        "Coordinates outside all polygons must leave code empty, no name fallback"
+    assert result["updated"] == 0
+
+
+@pytest.mark.asyncio
 async def test_backfill_prefers_coordinates_over_name(async_session):
     """
     Test that backfill uses point-in-polygon when coordinates exist,

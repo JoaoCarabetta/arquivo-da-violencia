@@ -313,9 +313,10 @@ async def backfill_municipality_codes(
         longitude = event[5]
         
         code = None
+        has_coordinates = latitude is not None and longitude is not None
         
         # Priority 1: Point-in-polygon if coordinates exist
-        if latitude is not None and longitude is not None:
+        if has_coordinates:
             try:
                 lat_float = float(latitude)
                 lng_float = float(longitude)
@@ -326,12 +327,13 @@ async def backfill_municipality_codes(
                 )
                 if code:
                     logger.debug(f"[Backfill] Event {event_id}: polygon lookup -> {code}")
+                else:
+                    # Coordinates exist but no polygon match - leave empty (do NOT fall back to name)
+                    logger.debug(f"[Backfill] Event {event_id}: coordinates outside all polygons, leaving empty")
             except (ValueError, TypeError) as e:
                 logger.warning(f"[Backfill] Event {event_id}: invalid coordinates: {e}")
-        
-        # Priority 2: Name-based lookup if no code from coordinates
-        if code is None:
-            # Build lookup for this single event
+        else:
+            # Priority 2: Name-based lookup ONLY when NO coordinates
             code_map = await lookup_city_codes(
                 session,
                 cities=[city],

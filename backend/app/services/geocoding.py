@@ -510,11 +510,13 @@ async def _persist_geocode(unique_event_id: int, fields: dict) -> None:
         event_data = result.fetchone()
         
         # Look up municipality code for Brazilian cities (issue #179)
+        # RULE: When coordinates exist, code comes from polygon, NEVER from name
         municipality_code = None
         if event_data and event_data[2] in ("BR", "Brasil", None):  # country is BR, Brasil, or NULL (default BR)
-            # Priority 1: Point-in-polygon lookup if we have coordinates
             latitude = fields.get("latitude")
             longitude = fields.get("longitude")
+            
+            # Priority 1: Point-in-polygon lookup (coordinates exist)
             if latitude is not None and longitude is not None:
                 from app.services.municipality_codes import lookup_municipality_code_from_coordinates
                 try:
@@ -523,11 +525,11 @@ async def _persist_geocode(unique_event_id: int, fields: dict) -> None:
                         float(latitude),
                         float(longitude)
                     )
+                    # If point is outside all polygons, leave empty (no name fallback)
                 except (ValueError, TypeError) as e:
                     logger.warning(f"[Geocode] Invalid coordinates for event {unique_event_id}: {e}")
-            
-            # Priority 2: Name-based lookup if no code from coordinates
-            if municipality_code is None:
+            else:
+                # Priority 2: Name-based lookup ONLY when NO coordinates
                 city = event_data[0]
                 state = event_data[1]
                 if city or state:  # At least one must be present
