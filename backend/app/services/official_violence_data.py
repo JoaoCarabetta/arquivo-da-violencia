@@ -106,7 +106,7 @@ async def ingest_official_violence_data(
         return
 
     # Import here to avoid circular dependency
-    from app.services.ibge_population import lookup_city_codes
+    from app.models.ibge_population import IBGEPopulation
 
     # First pass: collect all unique (uf, municipio) pairs for batch lookup
     unique_municipalities = set()
@@ -116,10 +116,19 @@ async def ingest_official_violence_data(
         if uf and municipio:
             unique_municipalities.add((municipio, uf))
 
-    # Batch lookup IBGE codes
-    cities = [m[0] for m in unique_municipalities]
-    states = [m[1] for m in unique_municipalities]
-    code_lookup = await lookup_city_codes(session, cities, states)
+    # Batch lookup IBGE codes with case-insensitive matching
+    # Dump uses "SÃO PAULO", IBGE has "São Paulo" - need casefold comparison
+    # Do NOT change lookup_city_codes globally (other callers rely on exact match)
+    query = select(IBGEPopulation.code_muni, IBGEPopulation.name_muni, IBGEPopulation.abbrev_state)
+    result = await session.execute(query)
+    ibge_records = result.all()
+
+    # Build case-insensitive lookup: (name_casefold, state_casefold) → code_muni
+    code_lookup: Dict[tuple, int] = {}
+    for code_muni, name_muni, abbrev_state in ibge_records:
+        if name_muni and abbrev_state:
+            key = (name_muni.strip().casefold(), abbrev_state.strip().casefold())
+            code_lookup[key] = code_muni
 
     # Second pass: group and sum by (code_muni, year_month, indicator)
     grouped: Dict[tuple, int] = {}
@@ -132,8 +141,9 @@ async def ingest_official_violence_data(
             logger.debug(f"Missing uf/municipio in row, skipping")
             continue
 
-        # Resolve to IBGE code
-        code_muni = code_lookup.get((municipio, uf))
+        # Resolve to IBGE code (case-insensitive)
+        lookup_key = (municipio.casefold(), uf.casefold())
+        code_muni = code_lookup.get(lookup_key)
         if not code_muni:
             logger.debug(f"Could not resolve IBGE code for {municipio}/{uf}, skipping")
             continue

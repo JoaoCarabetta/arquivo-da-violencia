@@ -16,18 +16,19 @@ from app.services.official_violence_data import (
 @pytest.fixture
 async def setup_ibge_data(async_session):
     """Load IBGE population data for municipality name resolution."""
-    # Add test municipalities
+    # Add test municipalities with title case names (as geobr provides)
+    # Real dump uses uppercase ("SÃO PAULO"), IBGE uses title case ("São Paulo")
     municipalities = [
         IBGEPopulation(
             code_muni=3550308,
-            name_muni="SÃO PAULO",
+            name_muni="São Paulo",  # Title case (as from geobr)
             abbrev_state="SP",
             population=12396372,
             year=2022
         ),
         IBGEPopulation(
             code_muni=3304557,
-            name_muni="RIO DE JANEIRO",
+            name_muni="Rio de Janeiro",  # Title case (as from geobr)
             abbrev_state="RJ",
             population=6775561,
             year=2022
@@ -325,3 +326,94 @@ async def test_get_official_violence_totals_window_filter(async_session, setup_i
     assert totals[0]["code_muni"] == 3550308
     assert totals[0]["year_month"] == "2025-09"
     # Should NOT include the August data
+
+@pytest.mark.asyncio
+async def test_case_insensitive_municipality_resolution(async_session, setup_ibge_data):
+    """
+    Test that municipality name resolution is case-insensitive.
+
+    The dump uses uppercase names ("SÃO PAULO"), while ibge_population
+    from geobr uses title case ("São Paulo"). Resolution must be case-insensitive
+    (casefold both sides) to avoid dropping all rows.
+
+    Spec: Accents stay as-is (Ã = Ã), only case is normalized.
+    """
+    # IBGE fixture already has name_muni="SÃO PAULO", abbrev_state="SP" (uppercase in setup_ibge_data)
+    # But let's verify with explicit title case entry too
+    # Actually, setup_ibge_data uses uppercase - let me check the fixture
+
+    # Dump row with uppercase municipality name
+    vde_fixture = [
+        {
+            "uf": "SP",
+            "municipio": "SÃO PAULO",  # Uppercase (as in real dump)
+            "evento": "Homicídio doloso",
+            "data_referencia": 45901,  # 2025-09-01
+            "agente": "",
+            "arma": "",
+            "faixa_etaria": "",
+            "feminino": 0,
+            "masculino": 42,
+            "nao_informado": 0,
+            "total_vitima": 42,
+            "total": 0,
+            "total_peso": 0,
+            "abrangencia": ""
+        },
+    ]
+
+    # Ingest
+    await ingest_official_violence_data(async_session, vde_fixture)
+
+    # Verify row was stored with correct code_muni
+    query = select(OfficialViolenceCount).where(
+        OfficialViolenceCount.code_muni == 3550308,
+        OfficialViolenceCount.year_month == "2025-09",
+        OfficialViolenceCount.indicator == "homicidio_doloso"
+    )
+    result = await async_session.execute(query)
+    counts = result.scalars().all()
+
+    # Should match despite case difference
+    assert len(counts) == 1
+    assert counts[0].victim_count == 42
+    assert counts[0].code_muni == 3550308
+
+@pytest.mark.asyncio
+async def test_unmatched_municipality_dropped(async_session, setup_ibge_data):
+    """
+    Test that rows with unmatched municipality names are dropped.
+
+    Spec: Rows that don't match an IBGE code are dropped (no unmatched name-only rows).
+    """
+    # Dump row with non-existent municipality
+    vde_fixture = [
+        {
+            "uf": "ZZ",
+            "municipio": "CIDADE INEXISTENTE",  # Does not exist in IBGE
+            "evento": "Homicídio doloso",
+            "data_referencia": 45901,  # 2025-09-01
+            "agente": "",
+            "arma": "",
+            "faixa_etaria": "",
+            "feminino": 0,
+            "masculino": 99,
+            "nao_informado": 0,
+            "total_vitima": 99,
+            "total": 0,
+            "total_peso": 0,
+            "abrangencia": ""
+        },
+    ]
+
+    # Ingest
+    await ingest_official_violence_data(async_session, vde_fixture)
+
+    # Query all rows - should be empty (unmatched row dropped)
+    query = select(OfficialViolenceCount)
+    result = await async_session.execute(query)
+    counts = result.scalars().all()
+
+    # Should have zero rows (unmatched municipality dropped)
+    assert len(counts) == 0
+
