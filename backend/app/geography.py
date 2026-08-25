@@ -75,6 +75,38 @@ BRAZILIAN_STATE_NAMES = {
     "TO": "Tocantins",
 }
 
+# Brazilian state capitals (all 27)
+# For city size floor filter in public rankings
+BRAZILIAN_CAPITALS = {
+    "Rio Branco",      # AC
+    "Maceió",          # AL
+    "Macapá",          # AP
+    "Manaus",          # AM
+    "Salvador",        # BA
+    "Fortaleza",       # CE
+    "Brasília",        # DF
+    "Vitória",         # ES
+    "Goiânia",         # GO
+    "São Luís",        # MA
+    "Cuiabá",          # MT
+    "Campo Grande",    # MS
+    "Belo Horizonte",  # MG
+    "Belém",           # PA
+    "João Pessoa",     # PB
+    "Curitiba",        # PR
+    "Recife",          # PE
+    "Teresina",        # PI
+    "Rio de Janeiro",  # RJ
+    "Natal",           # RN
+    "Porto Velho",     # RO
+    "Boa Vista",       # RR
+    "Porto Alegre",    # RS
+    "Florianópolis",   # SC
+    "Aracaju",         # SE
+    "São Paulo",       # SP
+    "Palmas",          # TO
+}
+
 # ============================================================================
 # Chilean Geography
 # ============================================================================

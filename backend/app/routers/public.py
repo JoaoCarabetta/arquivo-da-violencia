@@ -22,7 +22,7 @@ from app.services.public_filters import (
     homicide_type_filter,
     homicide_types_filter,
 )
-from app.geography import COUNTRY_NAMES, BRAZILIAN_STATES
+from app.geography import COUNTRY_NAMES, BRAZILIAN_STATES, BRAZILIAN_CAPITALS
 
 router = APIRouter(prefix="/public", tags=["public"])
 
@@ -806,9 +806,43 @@ async def get_rankings(
     # Format rankings
     cities_rankings = format_rankings(cities_current, cities_prev, include_rate=True, is_city=True)
     
+    # Apply size floor filter for public city rankings (issue #186):
+    # Only show cities that are either:
+    # 1. Brazilian capitals, OR
+    # 2. Population > 100,000, OR
+    # 3. Have Arquivo cases (already guaranteed since they're in the rankings)
+    # This prevents tiny towns like Matos Costa (pop 2,761) from appearing in top rankings
+    def passes_city_size_floor(city_row):
+        city_name = city_row.get("city")
+        if not city_name:
+            return False
+        
+        # Check if it's a capital
+        if city_name in BRAZILIAN_CAPITALS:
+            return True
+        
+        # Check if population > 100k
+        population = city_row.get("population")
+        if population is not None and population > 100_000:
+            return True
+        
+        # If no population data, include it (we can't filter without data)
+        # This handles non-BR cities or cities without IBGE matches
+        if population is None:
+            return True
+        
+        return False
+    
+    cities_rankings = [c for c in cities_rankings if passes_city_size_floor(c)]
+    
     # Apply city_limit for performance (default 50 for fast default load)
     if city_limit is not None and city_limit > 0:
         cities_rankings = cities_rankings[:city_limit]
+    
+    # Format states and filter to only include Brazilian states (issue #186)
+    # This removes foreign regions like "Síria", "Flórida", "OH", "CA", etc.
+    states_rankings = format_rankings(states_current, states_prev, "state", include_rate=True, state_pops=True)
+    states_rankings = [s for s in states_rankings if s.get("state") in BRAZILIAN_STATES]
     
     response = {
         "period_days": days,
@@ -818,7 +852,7 @@ async def get_rankings(
         "total_victims": total_victims,
         "total_events": total_events,
         "cities": cities_rankings,
-        "states": format_rankings(states_current, states_prev, "state", include_rate=True, state_pops=True),
+        "states": states_rankings,
         "countries": format_rankings(countries_current, countries_prev, "country", include_rate=True, country_pops=country_population_data),
         "homicide_types": format_rankings(types_current, types_prev, "type"),
         "methods": format_rankings(methods_current, methods_prev, "method"),
