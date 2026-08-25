@@ -207,13 +207,56 @@ else
     arq_in_progress_count=0
 fi
 arq_in_progress_count="${arq_in_progress_count:-0}"
+
+# Check if locks should be treated as stale (considers ingest progress)
+lock_status="ok"
+if [ "${arq_in_progress_count:-0}" -gt 0 ]; then
+    worker_logs_for_stale_check="$(docker logs "$WORKER_CONTAINER" --since "${PIPELINE_ACTIVITY_MINUTES}m" 2>&1 || true)"
+    lock_stale_result="$(docker compose $COMPOSE_PROD exec -T api python - <<PY
+import sys
+sys.path.insert(0, "/app")
+from app.services.pipeline_health import InProgressJob, WorkerLogs, should_treat_lock_as_stale
+
+# Parse in-progress keys
+in_progress_raw = """$arq_in_progress_raw"""
+jobs = []
+for line in in_progress_raw.strip().split('\n'):
+    line = line.strip()
+    if line and 'arq:in-progress:' in line:
+        jobs.append(InProgressJob.from_redis_key(line))
+
+# Get worker logs
+logs = WorkerLogs("""$worker_logs_for_stale_check""")
+
+# Check if locks are stale
+is_stale, reason = should_treat_lock_as_stale(jobs, logs, ${STUCK_SOURCE_MINUTES})
+print(f"stale={is_stale};reason={reason}")
+PY
+)" || echo "stale=error;reason=check_failed"
+    if echo "$lock_stale_result" | grep -q 'stale=True'; then
+        lock_status="stale"
+        lock_reason="$(echo "$lock_stale_result" | sed -n 's/.*reason=\([^;]*\).*/\1/p')"
+        DETAILS+=("WARN: locks_detected_as_stale(reason=${lock_reason})")
+    elif echo "$lock_stale_result" | grep -q 'stale=False'; then
+        lock_reason="$(echo "$lock_stale_result" | sed -n 's/.*reason=\([^;]*\).*/\1/p')"
+        DETAILS+=("INFO: locks_active_with_progress(reason=${lock_reason})")
+    else
+        DETAILS+=("WARN: lock_stale_check_failed")
+    fi
+fi
+
 if [ "$arq_queue_depth" = "error" ]; then
     record_warning "arq_queue_depth_query_failed"
 elif [ "${arq_queue_depth:-0}" -gt 0 ] || [ "${arq_in_progress_count:-0}" -gt 0 ]; then
     DETAILS+=("INFO: arq_queue_depth=${arq_queue_depth} in_progress=${arq_in_progress_count}")
     if [ "${arq_queue_depth:-0}" -gt 0 ] && [ "${recent_activity:-false}" != true ]; then
         if echo "$cron_enabled" | grep -q '"cron_enabled": true'; then
-            record_failure "arq_queue_jammed(depth=${arq_queue_depth},in_progress=${arq_in_progress_count})"
+            # Only treat as jammed if locks are truly stale
+            if [ "$lock_status" = "stale" ]; then
+                record_failure "arq_queue_jammed(depth=${arq_queue_depth},in_progress=${arq_in_progress_count})"
+            else
+                DETAILS+=("INFO: queue_has_depth_but_locks_active")
+            fi
         fi
     fi
 else
@@ -376,13 +419,47 @@ if [ "$REMEDIATE" = true ]; then
     elif [ "$had_queue_jam" = true ]; then
         tier_a_clear_arq_queue || true
     fi
-    # Prefer classify when ingest recently started (or queue was jammed with
-    # ready backlog). Otherwise kick a full cities pipeline when cron/ingest
-    # has gone quiet — including backlog_active_but_no_recent_ingest.
-    if [ "$had_queue_jam" = true ] || { [ "$had_no_pipeline" = true ] && [ "$had_recent_ingest" = true ]; }; then
+    # Use Python logic to decide whether to enqueue classify (considers active ingest)
+    worker_logs_for_classify_check="$(docker logs "$WORKER_CONTAINER" --since "${PIPELINE_ACTIVITY_MINUTES}m" 2>&1 || true)"
+    should_enqueue_classify="$(docker compose $COMPOSE_PROD exec -T api python - <<PY
+import sys
+sys.path.insert(0, "/app")
+from app.services.pipeline_health import InProgressJob, WorkerLogs, should_enqueue_classify_during_remediation
+
+# Parse in-progress keys
+in_progress_raw = """$arq_in_progress_raw"""
+jobs = []
+for line in in_progress_raw.strip().split('\n'):
+    line = line.strip()
+    if line and 'arq:in-progress:' in line:
+        jobs.append(InProgressJob.from_redis_key(line))
+
+# Get worker logs
+logs = WorkerLogs("""$worker_logs_for_classify_check""")
+
+# Check if we should enqueue classify
+should_enqueue, reason = should_enqueue_classify_during_remediation(
+    had_queue_jam=${had_queue_jam},
+    had_no_pipeline=${had_no_pipeline},
+    had_recent_ingest=${had_recent_ingest},
+    in_progress_jobs=jobs,
+    worker_logs=logs,
+)
+print(f"enqueue={should_enqueue};reason={reason}")
+PY
+)" || echo "enqueue=error;reason=check_failed"
+    
+    # Prefer classify when appropriate, but NOT when ingest is active
+    if echo "$should_enqueue_classify" | grep -q 'enqueue=True'; then
+        enqueue_reason="$(echo "$should_enqueue_classify" | sed -n 's/.*reason=\([^;]*\).*/\1/p')"
+        DETAILS+=("INFO: enqueue_classify_decision(reason=${enqueue_reason})")
         tier_a_enqueue_classify || true
     elif [ "$had_no_pipeline" = true ] || [ "$had_stale_ingest" = true ]; then
+        # Only enqueue pipeline if classify was not appropriate
         tier_a_enqueue_pipeline || true
+    else
+        enqueue_reason="$(echo "$should_enqueue_classify" | sed -n 's/.*reason=\([^;]*\).*/\1/p')"
+        DETAILS+=("INFO: skip_classify_enqueue(reason=${enqueue_reason})")
     fi
     if [ "$had_stuck" = true ]; then
         echo_step "🔧 Tier-A: resetting stuck transient source statuses..."
