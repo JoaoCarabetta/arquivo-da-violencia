@@ -206,6 +206,36 @@ describe('Rankings Page - Issue #184 Cleanup', () => {
       const methodologyText = screen.queryByText(/Estes rankings são baseados em dados extraídos de reportagens jornalísticas/i);
       expect(methodologyText).not.toBeInTheDocument();
     });
+
+    it('should NOT display "mortes violentas intencionais" text', async () => {
+      renderWithProviders(<Rankings />);
+      
+      // Wait for data to load
+      await waitFor(() => {
+        expect(screen.getByText(/Cidades/i)).toBeInTheDocument();
+      });
+      
+      // The five-type Mortes Violentas Intencionais one-liner should be gone
+      const mviText = screen.queryByText(/mortes violentas intencionais/i);
+      expect(mviText).not.toBeInTheDocument();
+    });
+
+    it('should NOT display the amber methodology footer under coverage table', async () => {
+      renderWithProviders(<Rankings />);
+      
+      // Wait for data to load
+      await waitFor(() => {
+        expect(screen.getByText(/Cidades/i)).toBeInTheDocument();
+      });
+      
+      // The amber footer with official_bag and "Metodologia:" should not be present
+      const metodologiaFooter = screen.queryByText(/Metodologia:.*homicídio doloso.*feminicídio/i);
+      expect(metodologiaFooter).not.toBeInTheDocument();
+      
+      // Also check that the "official_bag" text pattern is not rendered
+      const officialBagText = screen.queryByText(/Cobertura = Arquivo \/ oficial/i);
+      expect(officialBagText).not.toBeInTheDocument();
+    });
   });
 
   describe('Kept components (SHOULD be present)', () => {
