@@ -1,7 +1,7 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { ChevronDown, ArrowLeft, Download, Search } from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { fetchRankings, fetchCoverageStats } from '@/lib/api';
 import type { RankingRow, CoverageMunicipality } from '@/lib/api';
 import { useI18n } from '@/contexts/I18nContext';
@@ -26,11 +26,44 @@ function formatPortugueseNumber(num: number): string {
   return num.toLocaleString('pt-BR');
 }
 
-interface CoverageTableProps {
-  municipalities: CoverageMunicipality[];
+// Skeleton loading components
+function SkeletonCard() {
+  return (
+    <div data-testid="skeleton-card" className="rounded-xl border border-stone-200 bg-white p-6 space-y-4 animate-pulse">
+      <div className="h-6 bg-stone-200 rounded w-3/4"></div>
+      <div className="h-4 bg-stone-200 rounded w-1/2"></div>
+      <div className="h-12 bg-stone-200 rounded w-full"></div>
+      <div className="h-4 bg-stone-200 rounded w-2/3"></div>
+    </div>
+  );
 }
 
-function CoverageTable({ municipalities }: CoverageTableProps) {
+function SkeletonTable() {
+  return (
+    <div data-testid="skeleton-table" className="rounded-xl border border-stone-200 bg-white overflow-hidden animate-pulse">
+      <div className="px-6 py-4 border-b border-stone-200">
+        <div className="h-6 bg-stone-200 rounded w-1/3"></div>
+      </div>
+      <div className="p-6 space-y-3">
+        {[...Array(5)].map((_, i) => (
+          <div key={i} className="flex gap-4">
+            <div className="h-4 bg-stone-200 rounded flex-1"></div>
+            <div className="h-4 bg-stone-200 rounded w-20"></div>
+            <div className="h-4 bg-stone-200 rounded w-20"></div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+interface CoverageTableProps {
+  municipalities: CoverageMunicipality[];
+  isEmpty?: boolean;
+}
+
+function CoverageTable({ municipalities, isEmpty = false }: CoverageTableProps) {
+  const isMobile = useIsMobile();
   const [searchTerm, setSearchTerm] = useState('');
   const [showCoverage, setShowCoverage] = useState(false);
   const [perPage, setPerPage] = useState(25);
@@ -86,6 +119,39 @@ function CoverageTable({ municipalities }: CoverageTableProps) {
     setPerPage(value);
     setCurrentPage(1);
   };
+
+  // Empty state for Chile or no data
+  if (isEmpty || municipalities.length === 0) {
+    return (
+      <div className="rounded-xl border border-stone-200 bg-white overflow-hidden">
+        <div className="px-6 py-4 border-b border-stone-200">
+          <div className="flex items-center justify-between mb-3">
+            <div>
+              <h2 className="text-lg font-semibold text-stone-900">
+                Cobertura: Arquivo vs Oficial
+              </h2>
+              <p className="text-sm text-stone-500 mt-1">
+                Comparação entre vítimas registradas pelo Arquivo da Violência e dados oficiais do Ministério da Justiça e Segurança Pública. Janela: desde setembro/2025.
+              </p>
+            </div>
+            <a
+              href="/api/public/stats/coverage/download"
+              download
+              className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-blue-600 hover:text-blue-700 border border-blue-600 rounded-lg hover:bg-blue-50 transition-colors"
+            >
+              <Download className="h-4 w-4" />
+              Baixar oficial
+            </a>
+          </div>
+        </div>
+        <div className="px-6 py-12 text-center">
+          <p className="text-stone-600 text-sm">
+            Dados de cobertura não disponíveis para este país ou período.
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="rounded-xl border border-stone-200 bg-white overflow-hidden">
@@ -144,70 +210,117 @@ function CoverageTable({ municipalities }: CoverageTableProps) {
         </div>
       </div>
 
-      {/* Table */}
-      <div className="overflow-x-auto">
-        <table className="w-full text-sm">
-          <thead className="bg-stone-50 border-b border-stone-200">
-            <tr>
-              <th className="px-4 py-3 text-left text-xs font-medium text-stone-500 uppercase tracking-wider">
-                Município
-              </th>
-              <th className="px-4 py-3 text-center text-xs font-medium text-stone-500 uppercase tracking-wider">
-                UF
-              </th>
-              <th className="px-4 py-3 text-right text-xs font-medium text-stone-500 uppercase tracking-wider">
-                Oficial
-              </th>
-              <th className="px-4 py-3 text-right text-xs font-medium text-stone-500 uppercase tracking-wider">
-                Arquivo
-              </th>
-              {showCoverage && (
-                <th className="px-4 py-3 text-right text-xs font-medium text-stone-500 uppercase tracking-wider">
-                  Cobertura
-                </th>
-              )}
-            </tr>
-          </thead>
-          <tbody className="bg-white divide-y divide-stone-200">
-            {paginatedMunicipalities.length === 0 ? (
-              <tr>
-                <td colSpan={showCoverage ? 5 : 4} className="px-4 py-8 text-center text-stone-500">
-                  Nenhum município encontrado.
-                </td>
-              </tr>
-            ) : (
-              paginatedMunicipalities.map((muni) => {
-                // Fix: Don't append % to null coverage
-                const coveragePercent = muni.coverage != null 
-                  ? `${(muni.coverage * 100).toFixed(0)}%` 
-                  : '—';
-                
-                return (
-                  <tr key={muni.code} className="hover:bg-stone-50">
-                    <td className="px-4 py-3 font-medium text-stone-900">
-                      {muni.name}
-                    </td>
-                    <td className="px-4 py-3 text-center text-stone-700">
-                      {muni.uf}
-                    </td>
-                    <td className="px-4 py-3 text-right text-stone-900">
-                      {renderOfficialMark(muni.official_victims, muni.official_published)}
-                    </td>
-                    <td className="px-4 py-3 text-right text-stone-900">
-                      {renderArquivoMark(muni.arquivo_victims)}
-                    </td>
+      {/* Table or Cards (mobile) */}
+      {isMobile ? (
+        // Mobile: Stacked cards
+        <div className="divide-y divide-stone-200">
+          {paginatedMunicipalities.length === 0 ? (
+            <div className="px-4 py-8 text-center text-stone-500">
+              Nenhum município encontrado.
+            </div>
+          ) : (
+            paginatedMunicipalities.map((muni) => {
+              const coveragePercent = muni.coverage != null 
+                ? `${(muni.coverage * 100).toFixed(0)}%` 
+                : '—';
+              
+              return (
+                <div key={muni.code} data-testid="coverage-card" className="px-4 py-4 hover:bg-stone-50">
+                  <div className="flex justify-between items-start mb-2">
+                    <div className="font-medium text-stone-900">{muni.name}</div>
+                    <div className="text-sm text-stone-600 ml-2">{muni.uf}</div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3 text-sm">
+                    <div>
+                      <div className="text-xs text-stone-500 mb-1">Oficial</div>
+                      <div className="text-stone-900 font-medium">
+                        {renderOfficialMark(muni.official_victims, muni.official_published)}
+                      </div>
+                    </div>
+                    <div>
+                      <div className="text-xs text-stone-500 mb-1">Arquivo</div>
+                      <div className="text-stone-900 font-medium">
+                        {renderArquivoMark(muni.arquivo_victims)}
+                      </div>
+                    </div>
                     {showCoverage && (
-                      <td className="px-4 py-3 text-right text-stone-700">
-                        {coveragePercent}
-                      </td>
+                      <div className="col-span-2">
+                        <div className="text-xs text-stone-500 mb-1">Cobertura</div>
+                        <div className="text-stone-700 font-medium">{coveragePercent}</div>
+                      </div>
                     )}
-                  </tr>
-                );
-              })
-            )}
-          </tbody>
-        </table>
-      </div>
+                  </div>
+                </div>
+              );
+            })
+          )}
+        </div>
+      ) : (
+        // Desktop: Table
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead className="bg-stone-50 border-b border-stone-200">
+              <tr>
+                <th className="px-4 py-3 text-left text-xs font-medium text-stone-500 uppercase tracking-wider">
+                  Município
+                </th>
+                <th className="px-4 py-3 text-center text-xs font-medium text-stone-500 uppercase tracking-wider">
+                  UF
+                </th>
+                <th className="px-4 py-3 text-right text-xs font-medium text-stone-500 uppercase tracking-wider">
+                  Oficial
+                </th>
+                <th className="px-4 py-3 text-right text-xs font-medium text-stone-500 uppercase tracking-wider">
+                  Arquivo
+                </th>
+                {showCoverage && (
+                  <th className="px-4 py-3 text-right text-xs font-medium text-stone-500 uppercase tracking-wider">
+                    Cobertura
+                  </th>
+                )}
+              </tr>
+            </thead>
+            <tbody className="bg-white divide-y divide-stone-200">
+              {paginatedMunicipalities.length === 0 ? (
+                <tr>
+                  <td colSpan={showCoverage ? 5 : 4} className="px-4 py-8 text-center text-stone-500">
+                    Nenhum município encontrado.
+                  </td>
+                </tr>
+              ) : (
+                paginatedMunicipalities.map((muni) => {
+                  // Fix: Don't append % to null coverage
+                  const coveragePercent = muni.coverage != null 
+                    ? `${(muni.coverage * 100).toFixed(0)}%` 
+                    : '—';
+                  
+                  return (
+                    <tr key={muni.code} className="hover:bg-stone-50">
+                      <td className="px-4 py-3 font-medium text-stone-900">
+                        {muni.name}
+                      </td>
+                      <td className="px-4 py-3 text-center text-stone-700">
+                        {muni.uf}
+                      </td>
+                      <td className="px-4 py-3 text-right text-stone-900">
+                        {renderOfficialMark(muni.official_victims, muni.official_published)}
+                      </td>
+                      <td className="px-4 py-3 text-right text-stone-900">
+                        {renderArquivoMark(muni.arquivo_victims)}
+                      </td>
+                      {showCoverage && (
+                        <td className="px-4 py-3 text-right text-stone-700">
+                          {coveragePercent}
+                        </td>
+                      )}
+                    </tr>
+                  );
+                })
+              )}
+            </tbody>
+          </table>
+        </div>
+      )}
 
       {/* Pagination */}
       {filteredMunicipalities.length > 0 && (
@@ -400,6 +513,7 @@ export function Rankings() {
   const { t } = useI18n();
   const navigate = useNavigate();
   const isMobile = useIsMobile();
+  const [searchParams, setSearchParams] = useSearchParams();
   
   // Issue #186: Default to Brasil, last year (365 days), Municípios tab
   const [period, setPeriod] = useState<PeriodOption>(365);
@@ -408,6 +522,7 @@ export function Rankings() {
   const [cityLimit, setCityLimit] = useState<number>(50);
   const [aboutOpen, setAboutOpen] = useState(false);
   const [methodologyOpen, setMethodologyOpen] = useState(false);
+  const [initialLoad, setInitialLoad] = useState(true);
   
   // Issue #185: Place search state (default to Brasil)
   const [selectedPlace, setSelectedPlace] = useState<PlaceOption>({
@@ -415,6 +530,49 @@ export function Rankings() {
     type: 'country',
     displayName: 'Brasil',
   });
+  
+  // Issue #189: Read period and country from URL on mount (one-time only)
+  useEffect(() => {
+    try {
+      const periodParam = searchParams.get('period');
+      if (periodParam) {
+        if (periodParam === '7') setPeriod(7);
+        else if (periodParam === '30') setPeriod(30);
+        else if (periodParam === '365') setPeriod(365);
+      }
+      
+      const countryParam = searchParams.get('country');
+      if (countryParam !== null) {
+        if (countryParam === 'BR') setCountry('BR');
+        else if (countryParam === 'CL') setCountry('CL');
+        else if (countryParam === '') setCountry('');
+      }
+    } catch (e) {
+      // Use defaults
+    }
+    
+    // Mark as loaded after reading URL
+    setInitialLoad(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // Only run once on mount
+  
+  // Issue #189: Sync URL params when period or country changes (skip initial render)
+  useEffect(() => {
+    if (initialLoad) return;
+    
+    try {
+      const newParams = new URLSearchParams(searchParams);
+      newParams.set('period', period.toString());
+      if (country) {
+        newParams.set('country', country);
+      } else {
+        newParams.delete('country');
+      }
+      setSearchParams(newParams, { replace: true });
+    } catch (e) {
+      // Ignore URL sync errors in test environments
+    }
+  }, [period, country, initialLoad, searchParams, setSearchParams]);
   
   // Reset city limit when period or country changes
   const handlePeriodChange = (newPeriod: PeriodOption) => {
@@ -689,14 +847,25 @@ export function Rankings() {
             </div>
           )}
 
-          {/* Loading state */}
+          {/* Issue #189: Skeleton loading state (not blank page) */}
           {isLoading && (
-            <div className="flex items-center justify-center py-12">
-              <div className="text-stone-500">{t.rankingsLoading}</div>
+            <div className="mb-8 space-y-4">
+              <SkeletonCard />
             </div>
           )}
 
           {/* Rankings tables */}
+          {isLoading && (
+            <div className="space-y-6">
+              {/* Summary skeleton */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <SkeletonCard />
+                <SkeletonCard />
+              </div>
+              <SkeletonTable />
+            </div>
+          )}
+
           {data && (
             <div className="space-y-6">
               {/* Summary */}
@@ -771,9 +940,12 @@ export function Rankings() {
                 </TabsContent>
               </Tabs>
 
-              {/* Coverage Table */}
+              {/* Coverage Table - Issue #189: Show empty state for Chile */}
               {coverageData && !isCoverageLoading && (
-                <CoverageTable municipalities={coverageData.municipalities} />
+                <CoverageTable 
+                  municipalities={coverageData.municipalities}
+                  isEmpty={country === 'CL' && coverageData.municipalities.length === 0}
+                />
               )}
             </div>
           )}
