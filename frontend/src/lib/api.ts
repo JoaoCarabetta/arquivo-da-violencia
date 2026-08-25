@@ -339,6 +339,7 @@ export interface RankingsResponse {
   homicide_types: RankingRow[];
   methods: RankingRow[];
   population_vintage?: number;
+  last_updated?: string;
 }
 
 export interface MatrixCell {
