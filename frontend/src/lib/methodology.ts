@@ -44,7 +44,7 @@ const PT: MethodologyContent = {
       id: 'cities',
       title: 'Cidades monitoradas',
       paragraphs: [
-        'O monitoramento cobre 52 municípios brasileiros: todas as 27 capitais estaduais, grandes regiões metropolitanas e cidades de médio porte. A lista inclui metrópoles de 2 milhões ou mais habitantes (São Paulo, Rio de Janeiro, Brasília, Salvador, Fortaleza, Belo Horizonte, Manaus), grandes cidades entre 1 e 2 milhões (Curitiba, Recife, Goiânia, Belém, Porto Alegre, e outras), cidades médio-grandes de 500 mil a 1 milhão de habitantes, e as capitais menores (Florianópolis, Vitória, Macapá, Boa Vista, Rio Branco, Palmas). A busca padrão por cidade usa a janela temporal when:1h (última hora).',
+        'O monitoramento cobre 52 municípios: a lista brasileira de busca de notícias (capitais e grandes regiões metropolitanas). A busca padrão por cidade usa a janela temporal when:1h (última hora).',
       ],
       bullets: [
         'Execução paralela de até 10 cidades simultâneas',
@@ -216,7 +216,7 @@ const EN: MethodologyContent = {
     id: 'cities',
     title: 'Monitored cities',
     paragraphs: [
-      'Monitoring covers 52 Brazilian municipalities: all 27 state capitals, major metropolitan regions, and mid-sized cities. The list includes major metros of 2 million or more inhabitants (São Paulo, Rio de Janeiro, Brasília, Salvador, Fortaleza, Belo Horizonte, Manaus), large cities between 1 and 2 million (Curitiba, Recife, Goiânia, Belém, Porto Alegre, and others), medium-large cities with 500 thousand to 1 million inhabitants, and smaller capitals (Florianópolis, Vitória, Macapá, Boa Vista, Rio Branco, Palmas). The default city search uses the when:1h time window (last hour).',
+      'Monitoring covers 52 municipalities: the Brazilian news-search list (capitals and major metropolitan regions). The default city search uses the when:1h time window (last hour).',
     ],
     bullets: [
       'Parallel execution of up to 10 cities simultaneously',

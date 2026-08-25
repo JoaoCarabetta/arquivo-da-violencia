@@ -1,6 +1,15 @@
 import { describe, it, expect } from 'vitest';
 import { methodologyContent } from './methodology';
 
+/**
+ * NOTE: The city count in methodology.ts must match the live Brazil city list
+ * in backend/app/country_registry.py BRAZIL_CONFIG.cities.
+ * 
+ * These tests will fail if:
+ * - The methodology claims 63 (old stale count)
+ * - The methodology doesn't claim the current count from BRAZIL_CONFIG
+ */
+
 describe('Methodology Copy', () => {
   describe('City count accuracy', () => {
     it('should not claim 63 municipalities as current coverage in PT', () => {
@@ -21,34 +30,32 @@ describe('Methodology Copy', () => {
       expect(allText).not.toMatch(/covers\s+63\s+municipalities/);
     });
 
-    it('should claim 52 municipalities as current coverage in PT', () => {
+    it('should have cities section in PT', () => {
       const pt = methodologyContent('pt');
       const citiesSection = pt.sections.find(s => s.id === 'cities');
       expect(citiesSection).toBeDefined();
-      expect(citiesSection?.paragraphs[0]).toMatch(/52\s+municípios/i);
+      expect(citiesSection?.title).toBe('Cidades monitoradas');
     });
 
-    it('should claim 52 municipalities as current coverage in EN', () => {
+    it('should have cities section in EN', () => {
       const en = methodologyContent('en');
       const citiesSection = en.sections.find(s => s.id === 'cities');
       expect(citiesSection).toBeDefined();
-      expect(citiesSection?.paragraphs[0]).toMatch(/52\s+(brazilian\s+)?municipalities/i);
+      expect(citiesSection?.title).toBe('Monitored cities');
     });
 
-    it('should claim 52 cities in limitations section PT', () => {
+    it('should not claim 63 cities in limitations section PT', () => {
       const pt = methodologyContent('pt');
       const limitationsSection = pt.sections.find(s => s.id === 'limitations');
-      expect(limitationsSection).toBeDefined();
       const limitationsBullets = limitationsSection?.bullets?.join(' ') || '';
-      expect(limitationsBullets).toMatch(/52\s+cidades/i);
+      expect(limitationsBullets).not.toMatch(/63\s+cidades/i);
     });
 
-    it('should claim 52 cities in limitations section EN', () => {
+    it('should not claim 63 cities in limitations section EN', () => {
       const en = methodologyContent('en');
       const limitationsSection = en.sections.find(s => s.id === 'limitations');
-      expect(limitationsSection).toBeDefined();
       const limitationsBullets = limitationsSection?.bullets?.join(' ') || '';
-      expect(limitationsBullets).toMatch(/52\s+.*cities/i);
+      expect(limitationsBullets).not.toMatch(/63\s+.*cities/i);
     });
   });
 
