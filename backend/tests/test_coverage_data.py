@@ -252,6 +252,23 @@ async def setup_coverage_fixture(async_session):
     await async_session.commit()
 
 
+def test_coverage_data_module_imports_without_errors():
+    """
+    Issue #198: Verify coverage_data module can be imported without NameError.
+    
+    The module uses Optional in type annotations. If Optional is not imported,
+    Python will raise NameError at module import time (since annotations are
+    evaluated at definition time without future annotations).
+    
+    This test ensures get_coverage_data function can be accessed, which requires
+    the module to import successfully.
+    """
+    from app.services.coverage_data import get_coverage_data
+    
+    # If we got here without NameError, the import succeeded
+    assert callable(get_coverage_data)
+
+
 @pytest.mark.asyncio
 async def test_coverage_oficial_10_arquivo_4(async_session, setup_coverage_fixture):
     """

@@ -17,7 +17,7 @@ Official total = 4 Formulário 1 types only:
 DO NOT include morte por intervenção de agente do Estado in the municipal total.
 """
 
-from typing import Dict, List, Any
+from typing import Dict, List, Any, Optional
 from datetime import datetime
 from sqlmodel import select, func
 from sqlmodel.ext.asyncio.session import AsyncSession
