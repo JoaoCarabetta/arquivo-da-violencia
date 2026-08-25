@@ -10,6 +10,20 @@ from app.main import create_app
 from app.database import get_session
 
 
+@pytest.fixture(autouse=True)
+def use_test_mode_for_municipality_polygons():
+    """
+    Enable test fixture mode for all tests (issue #179).
+    
+    Ensures unit tests use the small bundled fixture (Rio, Brasília, São Paulo)
+    and NEVER call the live geobr API to download municipality polygons.
+    """
+    from app.services.municipality_codes import set_test_mode
+    set_test_mode(True)
+    yield
+    set_test_mode(False)
+
+
 @pytest.fixture
 def anyio_backend():
     """Use asyncio backend for pytest-asyncio."""
@@ -58,4 +72,12 @@ async def client(app):
         base_url="http://test"
     ) as client:
         yield client
+
+
+@pytest.fixture
+async def population_fixture(async_session):
+    """Load IBGE population fixture data for testing."""
+    from app.services.ibge_population import load_ibge_population_fixture
+    await load_ibge_population_fixture(async_session)
+    yield
 

@@ -1,5 +1,8 @@
 # Chile Ingest Integration - Changes Summary
 
+> **Note**: Ingest-only is NOT "country done." The full pipeline playbook is in [docs/adding-a-country.md](docs/adding-a-country.md).  
+> Chile ingest PRs #119–#121 were followed by **#128 persist country**, **#129 classifier/content-gate**, and **#131 geocode** to make Chile production-ready.
+
 ## Problem
 Chile support landed in PR #119 (merged to develop), but the live cron and API endpoints did not actually call the Chile ingestion functions. The hourly ingest path (`ingest_cities_hourly` → `ingest_cities_task`) was hard-coded to only ingest Brazilian cities.
 

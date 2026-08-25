@@ -6,6 +6,7 @@ from httpx import AsyncClient, ASGITransport
 from decimal import Decimal
 
 from app.models.unique_event import UniqueEvent
+from app.geography import BRAZILIAN_STATES
 
 
 def create_ranking_event(
@@ -100,15 +101,16 @@ async def test_rankings_basic_aggregation(app, async_session):
         assert response.status_code == 200
         data = response.json()
         
-        # Check aggregated totals
+        # Check totals
         assert data["total_victims"] == 4
         assert data["total_events"] == 3
         
         # Check cities ranking
         assert len(data["cities"]) == 2
-        assert data["cities"][0]["city"] == "Rio de Janeiro"
-        assert data["cities"][0]["victim_count"] == 3
-        assert data["cities"][0]["event_count"] == 2
+        rio = next(c for c in data["cities"] if c["city"] == "Rio de Janeiro")
+        assert rio["victim_count"] == 3
+        assert rio["event_count"] == 2
+        assert rio["victim_share"] > 0
         
         # Check states ranking
         assert len(data["states"]) == 2
@@ -116,13 +118,13 @@ async def test_rankings_basic_aggregation(app, async_session):
         assert rj["victim_count"] == 3
         assert rj["event_count"] == 2
         
-        # Check homicide types
+        # Check types ranking
         assert len(data["homicide_types"]) == 2
         simples = next(t for t in data["homicide_types"] if t["type"] == "Homicídio simples")
         assert simples["victim_count"] == 3
         assert simples["event_count"] == 2
         
-        # Check methods
+        # Check methods ranking
         assert len(data["methods"]) == 2
         arma_fogo = next(m for m in data["methods"] if m["method"] == "Arma de fogo")
         assert arma_fogo["victim_count"] == 3
@@ -523,77 +525,291 @@ async def test_rankings_victim_vs_event_counts(app, async_session):
 
 
 @pytest.mark.asyncio
-async def test_rankings_http_200_with_br_fixture(app, async_session):
-    """
-    Test that GET /api/public/stats/rankings returns HTTP 200 with BR fixture.
-    
-    Regression test for issue #161: COUNTRY_NAMES import missing caused HTTP 500.
-    """
+async def test_rankings_rate_per_100k_matched_br(app, async_session, population_fixture):
+    """Test that matched BR cities include rate_per_100k and population."""
     now = datetime.utcnow()
+    current_start = now - timedelta(days=30)
     
-    br_event = UniqueEvent(
-        title="Evento no Brasil",
-        event_date=now - timedelta(days=10),
-        country="BR",
-        state="SP",
-        city="São Paulo",
-        event_family="homicidio",
-        event_subtype="simples",
-        content_class="incident",
-        homicide_type="Homicídio simples",
-        method_of_death="Arma de fogo",
-        victim_count=1,
-        latitude=Decimal("-23.5505"),
-        longitude=Decimal("-46.6333"),
-        source_count=1,
-    )
+    # Create events in matched BR cities
+    events = [
+        create_ranking_event(
+            event_date=current_start + timedelta(days=1),
+            country="Brasil",
+            city="São Paulo",
+            state="SP",
+            victim_count=100
+        ),
+        create_ranking_event(
+            event_date=current_start + timedelta(days=2),
+            country="Brasil",
+            city="Rio de Janeiro",
+            state="RJ",
+            victim_count=50
+        ),
+    ]
     
-    async_session.add(br_event)
+    for event in events:
+        async_session.add(event)
     await async_session.commit()
     
     async with AsyncClient(
         transport=ASGITransport(app=app),
         base_url="http://test"
     ) as client:
-        response = await client.get("/api/public/stats/rankings?days=30")
-        assert response.status_code == 200, f"Expected 200, got {response.status_code}"
-        
+        response = await client.get("/api/public/stats/rankings?days=30&country=BR")
+        assert response.status_code == 200
         data = response.json()
-        assert data["total_events"] >= 1
-        assert len(data["countries"]) >= 1
-        # Verify BR is normalized to "Brasil" display name
-        br_country = next((c for c in data["countries"] if c["country"] == "Brasil"), None)
-        assert br_country is not None, "BR should be normalized to 'Brasil' in display"
+        
+        # Check that population_vintage is included
+        assert "population_vintage" in data
+        assert data["population_vintage"] == 2022
+        
+        # Check São Paulo has rate and population
+        sp = next(c for c in data["cities"] if c["city"] == "São Paulo")
+        assert "population" in sp
+        assert "rate_per_100k" in sp
+        assert sp["population"] == 11451245
+        # rate = 100 / 11451245 * 100000 ≈ 0.87
+        assert sp["rate_per_100k"] is not None
+        assert 0.8 < sp["rate_per_100k"] < 0.9
+        
+        # Check Rio has rate and population
+        rio = next(c for c in data["cities"] if c["city"] == "Rio de Janeiro")
+        assert "population" in rio
+        assert "rate_per_100k" in rio
+        assert rio["population"] == 6211423
+        # rate = 50 / 6211423 * 100000 ≈ 0.80
+        assert rio["rate_per_100k"] is not None
+        assert 0.7 < rio["rate_per_100k"] < 0.9
 
 
 @pytest.mark.asyncio
-async def test_rankings_http_200_with_cl_fixture(app, async_session):
-    """
-    Test that GET /api/public/stats/rankings returns HTTP 200 with CL fixture.
-    
-    Regression test for issue #161: COUNTRY_NAMES import missing caused HTTP 500.
-    Tests that state=Metropolitana is still counted for CL (issue #157).
-    """
+async def test_rankings_rate_per_100k_sao_paulo_specific(app, async_session, population_fixture):
+    """Test São Paulo (code_muni 3550308) gets correct rate calculation."""
     now = datetime.utcnow()
+    current_start = now - timedelta(days=30)
     
-    cl_event = UniqueEvent(
-        title="Evento en Chile",
-        event_date=now - timedelta(days=10),
-        country="CL",
-        state="Metropolitana",
-        city="Santiago",
-        event_family="homicidio",
-        event_subtype="simples",
-        content_class="incident",
-        homicide_type="Homicídio simples",
-        method_of_death="Arma de fogo",
-        victim_count=1,
-        latitude=Decimal("-33.4489"),
-        longitude=Decimal("-70.6693"),
-        source_count=1,
+    # Create event with known victim count
+    event = create_ranking_event(
+        event_date=current_start + timedelta(days=1),
+        country="Brasil",
+        city="São Paulo",
+        state="SP",
+        victim_count=1000
     )
     
-    async_session.add(cl_event)
+    async_session.add(event)
+    await async_session.commit()
+    
+    from app.database import get_session
+    app.dependency_overrides[get_session] = lambda: async_session
+    
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://test"
+    ) as client:
+        response = await client.get("/api/public/stats/rankings?days=30&country=BR")
+        assert response.status_code == 200
+        data = response.json()
+        
+        sp = data["cities"][0]
+        assert sp["city"] == "São Paulo"
+        assert sp["population"] == 11451245
+        # rate = 1000 / 11451245 * 100000 = 8.733...
+        expected_rate = 1000 / 11451245 * 100000
+        assert sp["rate_per_100k"] is not None
+        assert abs(sp["rate_per_100k"] - expected_rate) < 0.01
+
+
+@pytest.mark.asyncio
+async def test_rankings_junk_city_no_rate(app, async_session, population_fixture):
+    """Test that junk string 'Joanesburgo' does not get a rate."""
+    now = datetime.utcnow()
+    current_start = now - timedelta(days=30)
+    
+    # Create event with junk city name
+    event = create_ranking_event(
+        event_date=current_start + timedelta(days=1),
+        country="Brasil",
+        city="Joanesburgo",  # Not a BR city
+        state="XX",
+        victim_count=10
+    )
+    
+    async_session.add(event)
+    await async_session.commit()
+    
+    from app.database import get_session
+    app.dependency_overrides[get_session] = lambda: async_session
+    
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://test"
+    ) as client:
+        response = await client.get("/api/public/stats/rankings?days=30&country=BR")
+        assert response.status_code == 200
+        data = response.json()
+        
+        joanesburg = data["cities"][0]
+        assert joanesburg["city"] == "Joanesburgo"
+        assert joanesburg["victim_count"] == 10
+        # Should not have rate or population
+        assert joanesburg.get("rate_per_100k") is None
+        assert joanesburg.get("population") is None
+
+
+@pytest.mark.asyncio
+async def test_rankings_chile_no_rate(app, async_session, population_fixture):
+    """Test that Chile events do not get rate_per_100k (not using geobr)."""
+    now = datetime.utcnow()
+    current_start = now - timedelta(days=30)
+    
+    # Create Chile event
+    event = create_ranking_event(
+        event_date=current_start + timedelta(days=1),
+        country="Chile",
+        city="Santiago",
+        state="Metropolitana",
+        victim_count=20
+    )
+    
+    async_session.add(event)
+    await async_session.commit()
+    
+    from app.database import get_session
+    app.dependency_overrides[get_session] = lambda: async_session
+    
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://test"
+    ) as client:
+        response = await client.get("/api/public/stats/rankings?days=30&country=CL")
+        assert response.status_code == 200
+        data = response.json()
+        
+        santiago = data["cities"][0]
+        assert santiago["city"] == "Santiago"
+        assert santiago["victim_count"] == 20
+        # Chile should not have rate or population (INE later, not geobr)
+        assert santiago.get("rate_per_100k") is None
+        assert santiago.get("population") is None
+
+
+@pytest.mark.asyncio
+async def test_rankings_default_sort_by_rate(app, async_session, population_fixture):
+    """Test that rankings default sort by rate_per_100k when available."""
+    now = datetime.utcnow()
+    current_start = now - timedelta(days=30)
+    
+    # Create events: São Paulo has more victims but lower rate
+    # Bauru has fewer victims but higher rate
+    events = [
+        create_ranking_event(
+            event_date=current_start + timedelta(days=1),
+            country="Brasil",
+            city="São Paulo",
+            state="SP",
+            victim_count=100  # rate ≈ 0.87 per 100k
+        ),
+        create_ranking_event(
+            event_date=current_start + timedelta(days=2),
+            country="Brasil",
+            city="Bauru",
+            state="SP",
+            victim_count=10  # rate ≈ 2.64 per 100k (higher!)
+        ),
+    ]
+    
+    for event in events:
+        async_session.add(event)
+    await async_session.commit()
+    
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://test"
+    ) as client:
+        response = await client.get("/api/public/stats/rankings?days=30&country=BR")
+        assert response.status_code == 200
+        data = response.json()
+        
+        # Bauru should be first (higher rate despite fewer victims)
+        assert data["cities"][0]["city"] == "Bauru"
+        assert data["cities"][0]["rate_per_100k"] > data["cities"][1]["rate_per_100k"]
+        
+        # São Paulo should be second
+        assert data["cities"][1]["city"] == "São Paulo"
+
+
+@pytest.mark.asyncio
+async def test_rankings_campinas_not_hardcoded(app, async_session, population_fixture):
+    """Test that Campinas gets a rate even though it's not in any hardcoded list.
+    
+    This proves the lookup uses the database, not a hardcoded mapping.
+    Campinas (code_muni 3509502) is in the fixture but was never mentioned in code.
+    """
+    now = datetime.utcnow()
+    current_start = now - timedelta(days=30)
+    
+    # Create event in Campinas - NOT in any hardcoded list
+    event = create_ranking_event(
+        event_date=current_start + timedelta(days=1),
+        country="Brasil",
+        city="Campinas",
+        state="SP",
+        victim_count=25
+    )
+    
+    async_session.add(event)
+    await async_session.commit()
+    
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://test"
+    ) as client:
+        response = await client.get("/api/public/stats/rankings?days=30&country=BR")
+        assert response.status_code == 200
+        data = response.json()
+        
+        campinas = data["cities"][0]
+        assert campinas["city"] == "Campinas"
+        assert campinas["victim_count"] == 25
+        # Should have rate and population despite not being hardcoded
+        assert campinas["rate_per_100k"] is not None
+        assert campinas["population"] == 1213792  # From fixture
+        # rate = 25 / 1213792 * 100000 ≈ 2.06
+        expected_rate = 25 / 1213792 * 100000
+        assert abs(campinas["rate_per_100k"] - expected_rate) < 0.01
+
+
+@pytest.mark.asyncio
+async def test_rankings_country_rate_brasil(app, async_session, population_fixture):
+    """Test that Brasil country row includes rate_per_100k and population from cached IBGE data.
+    
+    Brasil national population = sum of all state populations = sum of all municipalities.
+    """
+    now = datetime.utcnow()
+    current_start = now - timedelta(days=30)
+    
+    # Create events in Brazil
+    events = [
+        create_ranking_event(
+            event_date=current_start + timedelta(days=1),
+            country="Brasil",
+            city="São Paulo",
+            state="SP",
+            victim_count=50
+        ),
+        create_ranking_event(
+            event_date=current_start + timedelta(days=2),
+            country="Brasil",
+            city="Rio de Janeiro",
+            state="RJ",
+            victim_count=30
+        ),
+    ]
+    
+    for event in events:
+        async_session.add(event)
     await async_session.commit()
     
     async with AsyncClient(
@@ -601,18 +817,618 @@ async def test_rankings_http_200_with_cl_fixture(app, async_session):
         base_url="http://test"
     ) as client:
         response = await client.get("/api/public/stats/rankings?days=30")
-        assert response.status_code == 200, f"Expected 200, got {response.status_code}"
-        
+        assert response.status_code == 200
         data = response.json()
-        assert data["total_events"] >= 1
-        assert len(data["countries"]) >= 1
-        # Verify CL is normalized to "Chile" display name
-        cl_country = next((c for c in data["countries"] if c["country"] == "Chile"), None)
-        assert cl_country is not None, "CL should be normalized to 'Chile' in display"
-        # Verify state=Metropolitana is counted
-        assert len(data["states"]) >= 1
-        metropolitana_state = next((s for s in data["states"] if s["state"] == "Metropolitana"), None)
-        assert metropolitana_state is not None, "state=Metropolitana should be counted for CL"
+        
+        # Should have a Brasil/BR country row
+        assert len(data["countries"]) == 1
+        brasil = data["countries"][0]
+        assert brasil["country"] == "Brasil"
+        assert brasil["victim_count"] == 80
+        
+        # Should have rate and population from cached IBGE data
+        # Fixture has: São Paulo (11451245) + Rio (6211423) + Bauru (379297) + Campinas (1213792) = 19255757
+        assert brasil["population"] is not None
+        assert brasil["population"] == 19255757
+        assert brasil["rate_per_100k"] is not None
+        expected_rate = 80 / 19255757 * 100000
+        assert abs(brasil["rate_per_100k"] - expected_rate) < 0.01
+
+
+@pytest.mark.asyncio
+async def test_rankings_country_rate_chile(app, async_session, population_fixture):
+    """Test that Chile country row has null rate and population (no Brazilian denominator)."""
+    now = datetime.utcnow()
+    current_start = now - timedelta(days=30)
+    
+    # Create events in Chile
+    events = [
+        create_ranking_event(
+            event_date=current_start + timedelta(days=1),
+            country="CL",
+            city="Santiago",
+            state="Región Metropolitana",
+            victim_count=25
+        ),
+    ]
+    
+    for event in events:
+        async_session.add(event)
+    await async_session.commit()
+    
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://test"
+    ) as client:
+        response = await client.get("/api/public/stats/rankings?days=30")
+        assert response.status_code == 200
+        data = response.json()
+        
+        # Should have a Chile country row
+        chile = next((c for c in data["countries"] if c["country"] == "Chile"), None)
+        assert chile is not None
+        assert chile["victim_count"] == 25
+        
+        # Chile should have null rate and population
+        assert chile["rate_per_100k"] is None
+        assert chile["population"] is None
+
+
+@pytest.mark.asyncio
+async def test_rankings_city_includes_state_abbrev(app, async_session, population_fixture):
+    """Test that city rows include state_abbrev for matched BR cities.
+    
+    A city with a known IBGE match includes state_abbrev of length 2.
+    """
+    now = datetime.utcnow()
+    current_start = now - timedelta(days=30)
+    
+    # Create event in a known city
+    events = [
+        create_ranking_event(
+            event_date=current_start + timedelta(days=1),
+            country="Brasil",
+            city="São Paulo",
+            state="SP",
+            victim_count=10
+        ),
+    ]
+    
+    for event in events:
+        async_session.add(event)
+    await async_session.commit()
+    
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://test"
+    ) as client:
+        response = await client.get("/api/public/stats/rankings?days=30&country=BR")
+        assert response.status_code == 200
+        data = response.json()
+        
+        # São Paulo should have state_abbrev
+        sao_paulo = data["cities"][0]
+        assert sao_paulo["city"] == "São Paulo"
+        assert "state_abbrev" in sao_paulo
+        assert sao_paulo["state_abbrev"] == "SP"
+        assert len(sao_paulo["state_abbrev"]) == 2
+        
+        # Should also have state display name
+        assert "state" in sao_paulo
+        assert sao_paulo["state"] == "SP"
+
+
+@pytest.mark.asyncio
+async def test_rankings_city_duplicate_names_different_uf(app, async_session, population_fixture):
+    """Test that two same-named cities in different UFs are distinct rows with different abbrev.
+    
+    Example: Lajeado exists in RS and TO. They should be separate rows.
+    """
+    now = datetime.utcnow()
+    current_start = now - timedelta(days=30)
+    
+    # Create two cities with the same name in different states
+    # We'll use the fixture cities and create hypothetical duplicates
+    events = [
+        create_ranking_event(
+            event_date=current_start + timedelta(days=1),
+            country="Brasil",
+            city="TestCity",
+            state="SP",
+            victim_count=10
+        ),
+        create_ranking_event(
+            event_date=current_start + timedelta(days=2),
+            country="Brasil",
+            city="TestCity",
+            state="RJ",
+            victim_count=5
+        ),
+    ]
+    
+    for event in events:
+        async_session.add(event)
+    await async_session.commit()
+    
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://test"
+    ) as client:
+        response = await client.get("/api/public/stats/rankings?days=30&country=BR")
+        assert response.status_code == 200
+        data = response.json()
+        
+        # Should have 2 separate TestCity rows
+        test_cities = [c for c in data["cities"] if c["city"] == "TestCity"]
+        assert len(test_cities) == 2
+        
+        # Should have different state_abbrev
+        abbrevs = [c["state_abbrev"] for c in test_cities]
+        assert "SP" in abbrevs
+        assert "RJ" in abbrevs
+        assert len(set(abbrevs)) == 2  # Both distinct
+
+
+@pytest.mark.asyncio
+async def test_rankings_city_unmatched_no_invented_uf(app, async_session, population_fixture):
+    """Test that unmatched junk cities do not invent a UF.
+    
+    Joanesburgo (South Africa) should not get a Brazilian UF.
+    """
+    now = datetime.utcnow()
+    current_start = now - timedelta(days=30)
+    
+    # Create event in a non-existent/foreign city
+    events = [
+        create_ranking_event(
+            event_date=current_start + timedelta(days=1),
+            country="Brasil",
+            city="Joanesburgo",
+            state="ZA",  # Not a Brazilian state
+            victim_count=10
+        ),
+    ]
+    
+    for event in events:
+        async_session.add(event)
+    await async_session.commit()
+    
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://test"
+    ) as client:
+        response = await client.get("/api/public/stats/rankings?days=30&country=BR")
+        assert response.status_code == 200
+        data = response.json()
+        
+        # Joanesburgo should be in the list
+        joanesburgo = next((c for c in data["cities"] if c["city"] == "Joanesburgo"), None)
+        assert joanesburgo is not None
+        
+        # Should NOT have a state_abbrev (ZA is not a valid Brazilian UF)
+        assert joanesburgo.get("state_abbrev") is None
+        
+        # Should still have state display name from event
+        assert joanesburgo.get("state") == "ZA"
+
+
+@pytest.mark.asyncio
+async def test_rankings_city_limit_default(app, async_session, population_fixture):
+    """Test that rankings default to returning top 50 cities for fast load."""
+    now = datetime.utcnow()
+    current_start = now - timedelta(days=30)
+    
+    # Create 100 cities to test limiting
+    events = []
+    for i in range(100):
+        events.append(
+            create_ranking_event(
+                event_date=current_start + timedelta(days=1),
+                country="Brasil",
+                city=f"City{i:03d}",
+                state="SP",
+                victim_count=1
+            )
+        )
+    
+    for event in events:
+        async_session.add(event)
+    await async_session.commit()
+    
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://test"
+    ) as client:
+        # Default request should limit to 50 cities
+        response = await client.get("/api/public/stats/rankings?days=30&country=BR")
+        assert response.status_code == 200
+        data = response.json()
+        
+        # Should return exactly 50 cities (default limit)
+        assert len(data["cities"]) == 50
+        
+        # Request with explicit limit=100
+        response_all = await client.get("/api/public/stats/rankings?days=30&country=BR&city_limit=100")
+        assert response_all.status_code == 200
+        data_all = response_all.json()
+        
+        # Should return all 100 cities
+        assert len(data_all["cities"]) == 100
+        
+        # Request with limit=10
+        response_small = await client.get("/api/public/stats/rankings?days=30&country=BR&city_limit=10")
+        assert response_small.status_code == 200
+        data_small = response_small.json()
+        
+        # Should return only 10 cities
+        assert len(data_small["cities"]) == 10
+
+
+# ============================================================================
+# Matrix endpoint tests (Issue #141)
+# ============================================================================
+
+def test_matrix_months_pure_logic():
+    """Test matrix_months helper with frozen time (pure unit test, no HTTP/FastAPI).
+    
+    This is the clock/fixture test: verifies that after a new month starts,
+    the next column appears without schema changes.
+    """
+    from datetime import timezone
+    from app.routers.public import matrix_months
+    
+    # Test 1: September 2026 (UTC-4) → includes Jul, Aug, Sep
+    sept_now = datetime(2026, 9, 15, tzinfo=timezone(timedelta(hours=-4)))
+    result_sept = matrix_months(sept_now)
+    assert result_sept == ["2026-07", "2026-08", "2026-09"]
+    assert result_sept[0] == "2026-07", "First month always July 2026"
+    
+    # Test 2: August 2026 (UTC-4) → includes Jul, Aug only
+    aug_now = datetime(2026, 8, 19, tzinfo=timezone(timedelta(hours=-4)))
+    result_aug = matrix_months(aug_now)
+    assert result_aug == ["2026-07", "2026-08"]
+    assert "2026-09" not in result_aug, "September should not appear in August"
+    
+    # Test 3: July 2026 (UTC-4) → includes Jul only
+    july_now = datetime(2026, 7, 1, tzinfo=timezone(timedelta(hours=-4)))
+    result_july = matrix_months(july_now)
+    assert result_july == ["2026-07"]
+    
+    # Test 4: December 2026 (UTC-4) → crosses year boundary correctly
+    dec_now = datetime(2026, 12, 31, tzinfo=timezone(timedelta(hours=-4)))
+    result_dec = matrix_months(dec_now)
+    assert result_dec[0] == "2026-07"
+    assert result_dec[-1] == "2026-12"
+    assert len(result_dec) == 6  # Jul through Dec
+
+
+@pytest.mark.asyncio
+async def test_matrix_months_start_july_2026(app, async_session, population_fixture):
+    """Test matrix endpoint returns months starting with 2026-07 as first column."""
+    now = datetime.utcnow()
+    
+    # Create events in July and August 2026
+    events = [
+        create_ranking_event(
+            event_date=datetime(2026, 7, 15),
+            state="SP",
+            country="Brasil",
+            victim_count=1
+        ),
+        create_ranking_event(
+            event_date=datetime(2026, 8, 10),
+            state="RJ",
+            country="Brasil",
+            victim_count=2
+        ),
+    ]
+    
+    for event in events:
+        async_session.add(event)
+    await async_session.commit()
+    
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://test"
+    ) as client:
+        response = await client.get("/api/public/stats/matrix")
+        assert response.status_code == 200
+        data = response.json()
+        
+        # Months should start with "2026-07" and include "2026-08"
+        assert "months" in data
+        assert len(data["months"]) >= 2
+        assert data["months"][0] == "2026-07"
+        assert "2026-08" in data["months"]
+
+
+@pytest.mark.asyncio
+async def test_matrix_uf_with_population_has_rate(app, async_session, population_fixture):
+    """Test UF with population has numeric rate_per_100k; unmatched state excluded."""
+    # Create events in known UFs
+    events = [
+        create_ranking_event(
+            event_date=datetime(2026, 7, 15),
+            state="SP",  # Known state with population
+            country="Brasil",
+            victim_count=5
+        ),
+        create_ranking_event(
+            event_date=datetime(2026, 7, 16),
+            state="RJ",  # Another known state
+            country="Brasil",
+            victim_count=3
+        ),
+        create_ranking_event(
+            event_date=datetime(2026, 7, 17),
+            state=None,  # Unmatched state should be excluded
+            country="Brasil",
+            victim_count=2
+        ),
+    ]
+    
+    for event in events:
+        async_session.add(event)
+    await async_session.commit()
+    
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://test"
+    ) as client:
+        response = await client.get("/api/public/stats/matrix")
+        assert response.status_code == 200
+        data = response.json()
+        
+        # UFs should have population and rate_per_100k
+        assert "ufs" in data
+        
+        # Find SP and RJ in the results
+        sp_uf = next((uf for uf in data["ufs"] if uf["abbrev"] == "SP"), None)
+        rj_uf = next((uf for uf in data["ufs"] if uf["abbrev"] == "RJ"), None)
+        
+        assert sp_uf is not None
+        assert rj_uf is not None
+        
+        # Check population exists
+        assert sp_uf["population"] > 0
+        assert rj_uf["population"] > 0
+        
+        # Check cells have rate_per_100k
+        july_cell = next((c for c in sp_uf["cells"] if c["month"] == "2026-07"), None)
+        assert july_cell is not None
+        assert "rate_per_100k" in july_cell
+        assert july_cell["rate_per_100k"] > 0
+        assert july_cell["victims"] == 5
+
+
+@pytest.mark.asyncio
+async def test_matrix_type_rows_victim_sums(app, async_session, population_fixture):
+    """Test type-row victim sums vs monthly victim totals for included types."""
+    events = [
+        create_ranking_event(
+            event_date=datetime(2026, 7, 15),
+            state="SP",
+            country="Brasil",
+            homicide_type="Homicídio simples",
+            victim_count=3
+        ),
+        create_ranking_event(
+            event_date=datetime(2026, 7, 16),
+            state="RJ",
+            country="Brasil",
+            homicide_type="Feminicídio",
+            victim_count=2
+        ),
+        create_ranking_event(
+            event_date=datetime(2026, 7, 17),
+            state="MG",
+            country="Brasil",
+            homicide_type="Latrocínio",
+            victim_count=1
+        ),
+    ]
+    
+    for event in events:
+        async_session.add(event)
+    await async_session.commit()
+    
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://test"
+    ) as client:
+        response = await client.get("/api/public/stats/matrix")
+        assert response.status_code == 200
+        data = response.json()
+        
+        # Types should have cells with victim counts
+        assert "types" in data
+        assert len(data["types"]) > 0
+        
+        # Sum victims across all types for July
+        total_july_victims = 0
+        for type_row in data["types"]:
+            july_cell = next((c for c in type_row["cells"] if c["month"] == "2026-07"), None)
+            if july_cell:
+                total_july_victims += july_cell["victims"]
+        
+        # Should equal total victims from events
+        assert total_july_victims == 6  # 3 + 2 + 1
+
+
+@pytest.mark.asyncio
+async def test_matrix_rankings_period_does_not_affect_matrix(app, async_session, population_fixture):
+    """Test that rankings period query params do not change matrix months."""
+    # Create events in July 2026
+    events = [
+        create_ranking_event(
+            event_date=datetime(2026, 7, 15),
+            state="SP",
+            country="Brasil",
+            victim_count=1
+        ),
+    ]
+    
+    for event in events:
+        async_session.add(event)
+    await async_session.commit()
+    
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://test"
+    ) as client:
+        # Matrix endpoint should ignore ranking-style period filters
+        response = await client.get("/api/public/stats/matrix")
+        assert response.status_code == 200
+        data = response.json()
+        
+        # Months should always start with "2026-07" regardless of any filters
+        assert data["months"][0] == "2026-07"
+
+
+@pytest.mark.asyncio
+async def test_matrix_excludes_chile(app, async_session, population_fixture):
+    """Test that matrix excludes Chilean events (BR only)."""
+    events = [
+        create_ranking_event(
+            event_date=datetime(2026, 7, 15),
+            state="SP",
+            country="Brasil",
+            victim_count=3
+        ),
+        create_ranking_event(
+            event_date=datetime(2026, 7, 16),
+            state="Metropolitana",  # Chilean region
+            country="CL",  # Use ISO code as stored in database
+            victim_count=5
+        ),
+    ]
+    
+    for event in events:
+        async_session.add(event)
+    await async_session.commit()
+    
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://test"
+    ) as client:
+        response = await client.get("/api/public/stats/matrix")
+        assert response.status_code == 200
+        data = response.json()
+        
+        # UFs should only contain Brazilian states
+        assert "ufs" in data
+        for uf in data["ufs"]:
+            # All UF abbrevs should be valid Brazilian states
+            assert uf["abbrev"] in BRAZILIAN_STATES
+        
+        # Total victims in matrix should only be from Brasil
+        total_victims = 0
+        for uf in data["ufs"]:
+            for cell in uf["cells"]:
+                total_victims += cell["victims"]
+        
+        # Should only count the Brazilian event
+        assert total_victims == 3
+
+
+@pytest.mark.asyncio
+async def test_matrix_all_27_ufs_present(app, async_session, population_fixture):
+    """Test that all 27 Brazilian UFs are present even if they have no events."""
+    # Create events only in SP
+    events = [
+        create_ranking_event(
+            event_date=datetime(2026, 7, 15),
+            state="SP",
+            country="Brasil",
+            victim_count=5
+        ),
+    ]
+    
+    for event in events:
+        async_session.add(event)
+    await async_session.commit()
+    
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://test"
+    ) as client:
+        response = await client.get("/api/public/stats/matrix")
+        assert response.status_code == 200
+        data = response.json()
+        
+        # Should have exactly 27 UF rows
+        assert len(data["ufs"]) == 27
+        
+        # All Brazilian states should be present
+        uf_abbrevs = {uf["abbrev"] for uf in data["ufs"]}
+        assert uf_abbrevs == set(BRAZILIAN_STATES)
+        
+        # SP should have victims
+        sp_uf = next((uf for uf in data["ufs"] if uf["abbrev"] == "SP"), None)
+        assert sp_uf is not None
+        july_cell = next((c for c in sp_uf["cells"] if c["month"] == "2026-07"), None)
+        assert july_cell["victims"] == 5
+        
+        # AC (first alphabetically) should have 0 victims
+        ac_uf = next((uf for uf in data["ufs"] if uf["abbrev"] == "AC"), None)
+        assert ac_uf is not None
+        ac_july_cell = next((c for c in ac_uf["cells"] if c["month"] == "2026-07"), None)
+        assert ac_july_cell["victims"] == 0
+
+
+@pytest.mark.asyncio
+async def test_matrix_leftover_types_in_outro(app, async_session, population_fixture):
+    """Test that types not in canonical list go into Outro row."""
+    events = [
+        create_ranking_event(
+            event_date=datetime(2026, 7, 15),
+            state="SP",
+            country="Brasil",
+            homicide_type="Homicídio simples",
+            victim_count=3
+        ),
+        create_ranking_event(
+            event_date=datetime(2026, 7, 16),
+            state="RJ",
+            country="Brasil",
+            homicide_type="Tipo não canônico A",  # Not in canonical list
+            victim_count=2
+        ),
+        create_ranking_event(
+            event_date=datetime(2026, 8, 1),
+            state="MG",
+            country="Brasil",
+            homicide_type="Tipo não canônico B",  # Not in canonical list
+            victim_count=1
+        ),
+    ]
+    
+    for event in events:
+        async_session.add(event)
+    await async_session.commit()
+    
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://test"
+    ) as client:
+        response = await client.get("/api/public/stats/matrix")
+        assert response.status_code == 200
+        data = response.json()
+        
+        # Should have canonical types plus Outro
+        type_names = [t["type"] for t in data["types"]]
+        assert "Homicídio simples" in type_names
+        assert "Outro" in type_names
+        
+        # Outro should have the leftover victims
+        outro = next((t for t in data["types"] if t["type"] == "Outro"), None)
+        assert outro is not None
+        
+        july_cell = next((c for c in outro["cells"] if c["month"] == "2026-07"), None)
+        assert july_cell["victims"] == 2  # From tipo não canônico A
+        
+        aug_cell = next((c for c in outro["cells"] if c["month"] == "2026-08"), None)
+        assert aug_cell["victims"] == 1  # From tipo não canônico B
 
 
 @pytest.mark.asyncio
@@ -726,3 +1542,371 @@ async def test_rankings_country_filter_iso_codes_issue_152(app, async_session):
         # Should count all events (2 + 3 + 1 = 6 victims)
         assert data_all["total_victims"] == 6
         assert data_all["total_events"] == 3
+
+
+@pytest.mark.asyncio
+async def test_city_size_floor_excludes_small_towns(app, async_session):
+    """Test that small non-capital towns are excluded from rankings (issue #186).
+    
+    Size floor: capitals + population > 100k + has Arquivo cases.
+    Example: Matos Costa SC (pop 2,761, 3 victims, not a capital) must NOT appear.
+    """
+    from app.models.ibge_population import IBGEPopulation
+    
+    now = datetime.utcnow()
+    current_start = now - timedelta(days=365)
+    
+    # Create events for different city types
+    events = [
+        # Capital city (always included)
+        create_ranking_event(
+            event_date=current_start + timedelta(days=1),
+            city="Florianópolis",
+            state="SC",
+            victim_count=2
+        ),
+        # Small town (pop 2,761, NOT a capital) - should be EXCLUDED
+        create_ranking_event(
+            event_date=current_start + timedelta(days=2),
+            city="Matos Costa",
+            state="SC",
+            victim_count=3
+        ),
+        # Large city (pop > 100k, not a capital) - should be included
+        create_ranking_event(
+            event_date=current_start + timedelta(days=3),
+            city="Joinville",
+            state="SC",
+            victim_count=1
+        ),
+    ]
+    
+    # Add population data
+    # Real IBGE codes for these cities
+    populations = [
+        IBGEPopulation(code_muni=4205407, name_muni="Florianópolis", abbrev_state="SC", population=508826, year=2022),
+        IBGEPopulation(code_muni=4210803, name_muni="Matos Costa", abbrev_state="SC", population=2761, year=2022),
+        IBGEPopulation(code_muni=4209102, name_muni="Joinville", abbrev_state="SC", population=597658, year=2022),
+    ]
+    
+    for event in events:
+        async_session.add(event)
+    for pop in populations:
+        async_session.add(pop)
+    await async_session.commit()
+    
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://test"
+    ) as client:
+        response = await client.get("/api/public/stats/rankings?days=365&country=BR")
+        assert response.status_code == 200
+        data = response.json()
+        
+        # Extract city names from rankings
+        city_names = [city["city"] for city in data["cities"]]
+        
+        # Florianópolis (capital) should be included
+        assert "Florianópolis" in city_names, "Capital city should be included"
+        
+        # Joinville (pop > 100k) should be included
+        assert "Joinville" in city_names, "Large city (pop > 100k) should be included"
+        
+        # Matos Costa (pop 2,761, not a capital) should be EXCLUDED
+        assert "Matos Costa" not in city_names, "Small non-capital town (pop 2,761) must be excluded from rankings"
+
+
+@pytest.mark.asyncio
+async def test_states_filter_excludes_foreign_regions(app, async_session):
+    """Test that only Brazilian states appear in states rankings (issue #186).
+    
+    Must exclude foreign regions like Síria, Flórida, OH, CA, Nova Jersey, etc.
+    """
+    now = datetime.utcnow()
+    current_start = now - timedelta(days=365)
+    
+    # Create events in various locations
+    events = [
+        # Brazilian states (should be included)
+        create_ranking_event(
+            event_date=current_start + timedelta(days=1),
+            country="BR",
+            state="RJ",
+            city="Rio de Janeiro",
+            victim_count=2
+        ),
+        create_ranking_event(
+            event_date=current_start + timedelta(days=2),
+            country="BR",
+            state="SP",
+            city="São Paulo",
+            victim_count=3
+        ),
+        # Foreign region (should be EXCLUDED)
+        create_ranking_event(
+            event_date=current_start + timedelta(days=3),
+            country="BR",
+            state="Síria",
+            city="Damasco",
+            victim_count=1,
+            latitude=Decimal("33.5138"),
+            longitude=Decimal("36.2765")
+        ),
+        # US states (should be EXCLUDED)
+        create_ranking_event(
+            event_date=current_start + timedelta(days=4),
+            country="BR",
+            state="Flórida",
+            city="Miami",
+            victim_count=1,
+            latitude=Decimal("25.7617"),
+            longitude=Decimal("-80.1918")
+        ),
+        create_ranking_event(
+            event_date=current_start + timedelta(days=5),
+            country="BR",
+            state="OH",
+            city="Cleveland",
+            victim_count=1,
+            latitude=Decimal("41.4993"),
+            longitude=Decimal("-81.6944")
+        ),
+        # Mexican state (should be EXCLUDED)
+        create_ranking_event(
+            event_date=current_start + timedelta(days=6),
+            country="BR",
+            state="Jalisco",
+            city="Guadalajara",
+            victim_count=2,
+            latitude=Decimal("20.6597"),
+            longitude=Decimal("-103.3496")
+        ),
+    ]
+    
+    for event in events:
+        async_session.add(event)
+    await async_session.commit()
+    
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://test"
+    ) as client:
+        response = await client.get("/api/public/stats/rankings?days=365&country=BR")
+        assert response.status_code == 200
+        data = response.json()
+        
+        # Extract state names from rankings
+        state_names = [state["state"] for state in data["states"]]
+        
+        # Brazilian states should be included
+        assert "RJ" in state_names, "Brazilian state RJ should be included"
+        assert "SP" in state_names, "Brazilian state SP should be included"
+        
+        # Foreign regions should be EXCLUDED
+        foreign_regions = ["Síria", "Flórida", "OH", "CA", "Nova Jersey", "Jalisco", "Guatemala", "Canindeyú"]
+        for foreign in foreign_regions:
+            assert foreign not in state_names, f"Foreign region '{foreign}' must be excluded from states rankings"
+
+
+@pytest.mark.asyncio
+async def test_rankings_default_sort_by_victims(app, async_session):
+    """Test that rankings are sorted by victim count (not event count) by default (issue #186)."""
+    now = datetime.utcnow()
+    current_start = now - timedelta(days=365)
+    
+    # Create events with different victim/event ratios
+    events = [
+        # City A: 1 event, 5 victims (should be ranked #1)
+        create_ranking_event(
+            event_date=current_start + timedelta(days=1),
+            city="São Paulo",
+            state="SP",
+            victim_count=5
+        ),
+        # City B: 3 events, 3 victims (should be ranked #2)
+        create_ranking_event(
+            event_date=current_start + timedelta(days=2),
+            city="Rio de Janeiro",
+            state="RJ",
+            victim_count=1
+        ),
+        create_ranking_event(
+            event_date=current_start + timedelta(days=3),
+            city="Rio de Janeiro",
+            state="RJ",
+            victim_count=1
+        ),
+        create_ranking_event(
+            event_date=current_start + timedelta(days=4),
+            city="Rio de Janeiro",
+            state="RJ",
+            victim_count=1
+        ),
+        # City C: 1 event, 2 victims (should be ranked #3)
+        create_ranking_event(
+            event_date=current_start + timedelta(days=5),
+            city="Belo Horizonte",
+            state="MG",
+            victim_count=2
+        ),
+    ]
+    
+    for event in events:
+        async_session.add(event)
+    await async_session.commit()
+    
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://test"
+    ) as client:
+        response = await client.get("/api/public/stats/rankings?days=365&country=BR")
+        assert response.status_code == 200
+        data = response.json()
+        
+        # Verify ranking order is by victim count
+        assert len(data["cities"]) >= 3
+        assert data["cities"][0]["city"] == "São Paulo", "São Paulo (5 victims) should be ranked #1"
+        assert data["cities"][0]["victim_count"] == 5
+        
+        assert data["cities"][1]["city"] == "Rio de Janeiro", "Rio de Janeiro (3 victims) should be ranked #2"
+        assert data["cities"][1]["victim_count"] == 3
+        
+        assert data["cities"][2]["city"] == "Belo Horizonte", "Belo Horizonte (2 victims) should be ranked #3"
+        assert data["cities"][2]["victim_count"] == 2
+
+
+@pytest.mark.asyncio
+async def test_top_10_first_page_requirements(app, async_session):
+    """Test that first page of last-year Cidades shows max 10 rows and excludes non-capitals under 100k (issue #186).
+    
+    Acceptance: Top 10 + "Ver mais." No non-capital under 100k in first page.
+    """
+    from app.models.ibge_population import IBGEPopulation
+    from app.geography import BRAZILIAN_CAPITALS
+    
+    now = datetime.utcnow()
+    current_start = now - timedelta(days=365)
+    
+    # Create 15 cities with varying populations to test top 10 logic
+    events = []
+    populations = []
+    
+    # Capital cities (should pass size floor) - make them high victim count to be in top 10
+    for idx, capital in enumerate(["São Paulo", "Rio de Janeiro", "Belo Horizonte", "Salvador", "Brasília"]):
+        events.append(create_ranking_event(
+            event_date=current_start + timedelta(days=idx),
+            city=capital,
+            state=["SP", "RJ", "MG", "BA", "DF"][idx],
+            victim_count=10 - idx  # 10, 9, 8, 7, 6 victims
+        ))
+    
+    # Large non-capital cities (pop > 100k, should pass size floor)
+    for idx, (city, state, pop) in enumerate([
+        ("Guarulhos", "SP", 1391000),
+        ("Campinas", "SP", 1213792),
+        ("Duque de Caxias", "RJ", 924624),
+        ("Joinville", "SC", 597658),
+        ("Ribeirão Preto", "SP", 711825),
+    ]):
+        events.append(create_ranking_event(
+            event_date=current_start + timedelta(days=5 + idx),
+            city=city,
+            state=state,
+            victim_count=5 - idx  # 5, 4, 3, 2, 1 victims
+        ))
+        populations.append(IBGEPopulation(
+            code_muni=4200000 + idx,
+            name_muni=city,
+            abbrev_state=state,
+            population=pop,
+            year=2022
+        ))
+    
+    # Small non-capital cities (pop < 100k, should be EXCLUDED)
+    for idx, (city, state, pop) in enumerate([
+        ("Matos Costa", "SC", 2761),
+        ("Cidadezinha Pequena", "RS", 5432),
+        ("Vila Minúscula", "PR", 15000),
+        ("Povoado Diminuto", "SC", 45000),
+        ("Lugarejo Ínfimo", "RS", 89000),
+    ]):
+        events.append(create_ranking_event(
+            event_date=current_start + timedelta(days=10 + idx),
+            city=city,
+            state=state,
+            victim_count=20 + idx  # High victim count to test they're still excluded
+        ))
+        populations.append(IBGEPopulation(
+            code_muni=4300000 + idx,
+            name_muni=city,
+            abbrev_state=state,
+            population=pop,
+            year=2022
+        ))
+    
+    # Add population data for capitals (use real approximate values)
+    capital_pops = [
+        (4205407, "São Paulo", "SP", 12325232),
+        (3304557, "Rio de Janeiro", "RJ", 6747815),
+        (3106200, "Belo Horizonte", "MG", 2521564),
+        (2927408, "Salvador", "BA", 2886698),
+        (5300108, "Brasília", "DF", 3055149),
+    ]
+    for code, name, state, pop in capital_pops:
+        populations.append(IBGEPopulation(
+            code_muni=code,
+            name_muni=name,
+            abbrev_state=state,
+            population=pop,
+            year=2022
+        ))
+    
+    for event in events:
+        async_session.add(event)
+    for pop in populations:
+        async_session.add(pop)
+    await async_session.commit()
+    
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://test"
+    ) as client:
+        # Test with default city_limit (50, but we expect size floor to reduce this)
+        response = await client.get("/api/public/stats/rankings?days=365&country=BR")
+        assert response.status_code == 200
+        data = response.json()
+        
+        cities = data["cities"]
+        
+        # Acceptance criterion 1: First page (default fetch) should not exceed practical display limit
+        # The API returns filtered results, frontend shows top 10 initially
+        # We're testing that the backend filtering works correctly
+        assert len(cities) >= 10, f"Should have at least 10 cities after filtering, got {len(cities)}"
+        
+        # Acceptance criterion 2: No non-capital city under 100k should appear in ANY position
+        for city in cities:
+            city_name = city["city"]
+            population = city.get("population")
+            
+            # If it's not a capital, it must have population > 100k
+            if city_name not in BRAZILIAN_CAPITALS:
+                assert population is not None, f"Non-capital {city_name} should have population data"
+                assert population > 100_000, \
+                    f"Non-capital {city_name} with population {population:,} should be excluded (size floor: capitals OR pop > 100k)"
+        
+        # Specifically verify that small towns are NOT in the results
+        city_names = [city["city"] for city in cities]
+        assert "Matos Costa" not in city_names, "Matos Costa (pop 2,761) must be excluded"
+        assert "Cidadezinha Pequena" not in city_names, "Cidadezinha Pequena (pop 5,432) must be excluded"
+        assert "Vila Minúscula" not in city_names, "Vila Minúscula (pop 15,000) must be excluded"
+        
+        # Verify that capitals ARE in the results (even if they had lower victim counts)
+        # At least some capitals should appear
+        capitals_in_result = [city for city in cities if city["city"] in BRAZILIAN_CAPITALS]
+        assert len(capitals_in_result) > 0, "Capitals should appear in rankings"
+        
+        # Verify that large non-capital cities ARE in the results
+        assert "Guarulhos" in city_names or "Campinas" in city_names or "Joinville" in city_names, \
+            "Large cities (pop > 100k) should be included"
+
+

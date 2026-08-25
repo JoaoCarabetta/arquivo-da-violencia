@@ -15,6 +15,7 @@ export interface Strings {
   navMap: string;
   navFeed: string;
   navData: string;
+  navRankings: string;
   navAbout: string;
   navMethodology: string;
   temporalScope: string;
@@ -109,6 +110,28 @@ export interface Strings {
   aboutP2: string;
   disclaimerLabel: string;
   disclaimer: string;
+  rankingsTitle: string;
+  rankingsIntro: string;
+  rankingsCities: string;
+  rankingsStates: string;
+  rankingsCountries: string;
+  rankingsTypes: string;
+  rankingsMethods: string;
+  rankingsMethodologyNote: string;
+  rankingsVictimCount: string;
+  rankingsEventCount: string;
+  rankingsShare: string;
+  rankingsDelta: string;
+  rankingsPlace: string;
+  rankingsType: string;
+  rankingsMethod: string;
+  rankingsCountry: string;
+  rankingsLast7Days: string;
+  rankingsLast30Days: string;
+  rankingsLast365Days: string;
+  rankingsFilterCountry: string;
+  rankingsAllCountries: string;
+  rankingsLoading: string;
 }
 
 const PT: Strings = {
@@ -120,6 +143,7 @@ const PT: Strings = {
   navMap: 'Mapa',
   navFeed: 'Linha do tempo',
   navData: 'Dados',
+  navRankings: 'Rankings',
   navAbout: 'Sobre',
   navMethodology: 'Metodologia',
   temporalScope: 'No recorte atual desde {date}',
@@ -218,6 +242,28 @@ const PT: Strings = {
   disclaimerLabel: 'Aviso',
   disclaimer:
     'Nossos dados sobre mortes violentas são obtidos a partir de reportagens jornalísticas. Use-os como referência, não como registro oficial. Consulte a metodologia completa para detalhes sobre coleta, processamento e limitações.',
+  rankingsTitle: 'Rankings',
+  rankingsIntro: 'Rankings de cidades, estados e países por número de vítimas e eventos no período selecionado.',
+  rankingsCities: 'Cidades',
+  rankingsStates: 'Estados / Regiões',
+  rankingsCountries: 'Países',
+  rankingsTypes: 'Tipos de homicídio',
+  rankingsMethods: 'Métodos',
+  rankingsMethodologyNote: 'Estes rankings são baseados em dados extraídos de reportagens jornalísticas, não em estatísticas oficiais.',
+  rankingsVictimCount: 'Vítimas',
+  rankingsEventCount: 'Eventos',
+  rankingsShare: 'Percentual',
+  rankingsDelta: 'Variação',
+  rankingsPlace: 'Local',
+  rankingsType: 'Tipo',
+  rankingsMethod: 'Método',
+  rankingsCountry: 'País',
+  rankingsLast7Days: 'Últimos 7 dias',
+  rankingsLast30Days: 'Últimos 30 dias',
+  rankingsLast365Days: 'Último ano',
+  rankingsFilterCountry: 'Filtrar por país',
+  rankingsAllCountries: 'Todos os países',
+  rankingsLoading: 'Carregando rankings…',
 };
 
 const EN: Strings = {
@@ -229,6 +275,7 @@ const EN: Strings = {
   navMap: 'Map',
   navFeed: 'Timeline',
   navData: 'Data',
+  navRankings: 'Rankings',
   navAbout: 'About',
   navMethodology: 'Methodology',
   temporalScope: 'In the current view since {date}',
@@ -327,6 +374,28 @@ const EN: Strings = {
   disclaimerLabel: 'Notice',
   disclaimer:
     'Our data on violent deaths comes from news reports. Use it as a reference, not as an official record. See the full methodology for details on collection, processing, and limitations.',
+  rankingsTitle: 'Rankings',
+  rankingsIntro: 'Rankings of cities, states, and countries by number of victims and events in the selected period.',
+  rankingsCities: 'Cities',
+  rankingsStates: 'States / Regions',
+  rankingsCountries: 'Countries',
+  rankingsTypes: 'Homicide types',
+  rankingsMethods: 'Methods',
+  rankingsMethodologyNote: 'These rankings are based on data extracted from news reports, not official statistics.',
+  rankingsVictimCount: 'Victims',
+  rankingsEventCount: 'Events',
+  rankingsShare: 'Share',
+  rankingsDelta: 'Change',
+  rankingsPlace: 'Place',
+  rankingsType: 'Type',
+  rankingsMethod: 'Method',
+  rankingsCountry: 'Country',
+  rankingsLast7Days: 'Last 7 days',
+  rankingsLast30Days: 'Last 30 days',
+  rankingsLast365Days: 'Last year',
+  rankingsFilterCountry: 'Filter by country',
+  rankingsAllCountries: 'All countries',
+  rankingsLoading: 'Loading rankings…',
 };
 
 export function strings(lang: Lang): Strings {

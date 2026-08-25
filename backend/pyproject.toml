@@ -30,6 +30,10 @@ dependencies = [
     "httpx>=0.28.0",
     "pydantic-settings>=2.6.0",
     "loguru>=0.7.0",
+    # IBGE data
+    "geobr>=0.2.0",
+    "sidrapy>=0.1.0",
+    "pandas>=2.0.0",
     # Authentication
     "python-jose[cryptography]>=3.3.0",
     "passlib[bcrypt]>=1.7.4",
