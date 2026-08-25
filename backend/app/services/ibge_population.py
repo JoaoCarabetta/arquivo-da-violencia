@@ -79,8 +79,15 @@ STATE_FULL_NAMES = {
     "TO": "Tocantins",
 }
 
-# Reverse mapping: full name to abbreviation
-STATE_NAME_TO_ABBREV = {v.lower(): k for k, v in STATE_FULL_NAMES.items()}
+# Reverse mapping: full name to abbreviation (normalized for accent-insensitive matching)
+STATE_NAME_TO_ABBREV = {}
+for abbrev, full_name in STATE_FULL_NAMES.items():
+    # Normalize the full name and store the mapping
+    normalized = full_name.lower()
+    # Remove accents
+    normalized = unicodedata.normalize('NFD', normalized)
+    normalized = ''.join(c for c in normalized if unicodedata.category(c) != 'Mn')
+    STATE_NAME_TO_ABBREV[normalized] = abbrev
 
 
 def normalize_text(text: str | None) -> str | None:
