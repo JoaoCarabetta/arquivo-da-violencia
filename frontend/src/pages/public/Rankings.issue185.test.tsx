@@ -325,7 +325,7 @@ describe('Rankings Page - Issue #185: Place Search and Card', () => {
       
       // Brasil card should show BR-only Arquivo count (1234), not including Chile (300)
       const arquivoCount = within(placeCard).getByTestId('arquivo-count');
-      expect(arquivoCount).toHaveTextContent('1,234');
+      expect(arquivoCount).toHaveTextContent('1.234');
       
       // Official should still be BR-only (450 + 320 = 770)
       const officialCount = within(placeCard).getByTestId('official-count');

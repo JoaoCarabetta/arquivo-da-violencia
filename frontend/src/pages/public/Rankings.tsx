@@ -270,7 +270,7 @@ export function Rankings() {
       let officialVictims: number | null = null;
       let officialAvailable = false;
       
-      if (period === 365 && coverageData) {
+      if (period === 365 && coverageData && coverageData.municipalities.length > 0) {
         officialVictims = coverageData.municipalities.reduce(
           (sum, muni) => sum + muni.official_victims,
           0
@@ -286,7 +286,7 @@ export function Rankings() {
         officialAvailable,
         lastUpdated: data.last_updated || new Date().toISOString(),
         period,
-        officialWindowStart: coverageData?.start_month,
+        officialWindowStart: coverageData?.window_start,
       };
     } else if (selectedPlace.type === 'state') {
       const stateRow = data.states.find(s => s.state === selectedPlace.name);
@@ -313,7 +313,7 @@ export function Rankings() {
         officialAvailable,
         lastUpdated: data.last_updated || new Date().toISOString(),
         period,
-        officialWindowStart: coverageData?.start_month,
+        officialWindowStart: coverageData?.window_start,
       };
     } else if (selectedPlace.type === 'municipality') {
       const cityRow = data.cities.find(c => c.city === selectedPlace.name);
@@ -340,7 +340,7 @@ export function Rankings() {
         officialAvailable,
         lastUpdated: data.last_updated || new Date().toISOString(),
         period,
-        officialWindowStart: coverageData?.start_month,
+        officialWindowStart: coverageData?.window_start,
       };
     }
     
