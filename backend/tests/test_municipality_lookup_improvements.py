@@ -8,7 +8,16 @@ from app.models.unique_event import UniqueEvent
 from app.models.ibge_population import IBGEPopulation
 from app.services.ibge_population import load_ibge_population_fixture, lookup_city_codes
 from app.services.geocoding import geocode_unique_event
-from app.services.municipality_codes import backfill_municipality_codes
+from app.services.municipality_codes import backfill_municipality_codes, set_test_mode
+
+
+# Enable test fixture mode for all tests in this module
+@pytest.fixture(autouse=True)
+def use_test_fixture():
+    """Ensure all tests use the small fixture, not production geobr polygons."""
+    set_test_mode(True)
+    yield
+    set_test_mode(False)  # Reset after tests
 
 
 class _TestSessionMaker:

@@ -11,6 +11,9 @@ Issue #179 improvements:
 - Unique city without state support
 - DF administrative regions map to Brasília
 
+Production loads full municipality polygons from geobr (cached on disk).
+Tests use a small fixture (Rio, Brasília, São Paulo) - no live API calls in tests.
+
 Only Brazilian municipalities get codes. Ambiguous city names (no state) are
 skipped unless unique - we do not guess.
 """
@@ -26,38 +29,120 @@ from loguru import logger
 from app.services.ibge_population import lookup_city_codes
 
 
-# Cache for municipality polygons (loaded once from fixture)
-_MUNICIPALITY_POLYGONS = None
+# Global cache for municipality polygons
+_MUNICIPALITY_POLYGONS_CACHE = None
+_USE_TEST_FIXTURE = False  # Set to True in tests
 
 
-def _load_municipality_polygons():
+def set_test_mode(use_fixture: bool = True):
     """
-    Load municipality polygon fixtures from JSON.
+    Enable or disable test fixture mode.
     
-    In production, this would load from geobr. For tests and offline use,
-    we use a fixture with a subset of municipalities (Rio, Brasília, São Paulo).
+    When True, uses the small 3-municipality fixture for tests.
+    When False (production), loads full geobr municipality polygons.
+    
+    Tests should call this before using lookup functions.
     """
-    global _MUNICIPALITY_POLYGONS
-    
-    if _MUNICIPALITY_POLYGONS is not None:
-        return _MUNICIPALITY_POLYGONS
-    
+    global _USE_TEST_FIXTURE, _MUNICIPALITY_POLYGONS_CACHE
+    _USE_TEST_FIXTURE = use_fixture
+    _MUNICIPALITY_POLYGONS_CACHE = None  # Clear cache when mode changes
+
+
+def _get_polygon_cache_path() -> Path:
+    """Get the path to the cached municipality polygons file."""
+    # Store in app data directory
+    cache_dir = Path(__file__).parent.parent / "data"
+    cache_dir.mkdir(exist_ok=True)
+    return cache_dir / "municipality_polygons_cache.json"
+
+
+def _load_test_fixture() -> dict:
+    """Load the small test fixture (Rio, Brasília, São Paulo)."""
     fixture_path = Path(__file__).parent.parent / "fixtures" / "municipality_polygons.json"
     
     if not fixture_path.exists():
-        logger.warning(f"[MunicipalityLookup] Polygon fixture not found at {fixture_path}")
-        _MUNICIPALITY_POLYGONS = {"features": []}
-        return _MUNICIPALITY_POLYGONS
+        logger.warning(f"[MunicipalityLookup] Test fixture not found at {fixture_path}")
+        return {"features": []}
     
     try:
         with open(fixture_path, "r") as f:
-            _MUNICIPALITY_POLYGONS = json.load(f)
-        logger.info(f"[MunicipalityLookup] Loaded {len(_MUNICIPALITY_POLYGONS.get('features', []))} municipality polygons")
+            data = json.load(f)
+        logger.info(f"[MunicipalityLookup] Loaded {len(data.get('features', []))} municipalities from test fixture")
+        return data
     except Exception as e:
-        logger.error(f"[MunicipalityLookup] Failed to load polygon fixture: {e}")
-        _MUNICIPALITY_POLYGONS = {"features": []}
+        logger.error(f"[MunicipalityLookup] Failed to load test fixture: {e}")
+        return {"features": []}
+
+
+def _load_geobr_polygons() -> dict:
+    """
+    Load full municipality polygons from geobr (production).
     
-    return _MUNICIPALITY_POLYGONS
+    First checks for cached file on disk. If not found or stale,
+    downloads from geobr and caches it.
+    
+    Returns GeoJSON FeatureCollection with all ~5,570 Brazilian municipalities.
+    """
+    cache_path = _get_polygon_cache_path()
+    
+    # Try to load from cache first
+    if cache_path.exists():
+        try:
+            with open(cache_path, "r") as f:
+                data = json.load(f)
+            logger.info(f"[MunicipalityLookup] Loaded {len(data.get('features', []))} municipalities from cache")
+            return data
+        except Exception as e:
+            logger.warning(f"[MunicipalityLookup] Failed to load cache, will download: {e}")
+    
+    # Download from geobr
+    logger.info("[MunicipalityLookup] Downloading municipality polygons from geobr...")
+    try:
+        from geobr import read_municipality
+        import geopandas as gpd
+        
+        # Load all municipalities (year 2022 to match population data)
+        gdf = read_municipality(year=2022, verbose=False)
+        
+        # Convert to GeoJSON format
+        geojson_str = gdf.to_json()
+        data = json.loads(geojson_str)
+        
+        # Cache to disk
+        with open(cache_path, "w") as f:
+            json.dump(data, f)
+        
+        logger.info(f"[MunicipalityLookup] Downloaded and cached {len(data.get('features', []))} municipalities")
+        return data
+        
+    except ImportError as e:
+        logger.error(f"[MunicipalityLookup] Missing geobr package: {e}. Install with: pip install geobr")
+        return {"features": []}
+    except Exception as e:
+        logger.error(f"[MunicipalityLookup] Failed to download geobr polygons: {e}")
+        return {"features": []}
+
+
+def _load_municipality_polygons() -> dict:
+    """
+    Load municipality polygon data.
+    
+    In test mode: uses small fixture (Rio, Brasília, São Paulo).
+    In production mode: loads full geobr polygons (~5,570 municipalities).
+    
+    Results are cached in memory after first load.
+    """
+    global _MUNICIPALITY_POLYGONS_CACHE
+    
+    if _MUNICIPALITY_POLYGONS_CACHE is not None:
+        return _MUNICIPALITY_POLYGONS_CACHE
+    
+    if _USE_TEST_FIXTURE:
+        _MUNICIPALITY_POLYGONS_CACHE = _load_test_fixture()
+    else:
+        _MUNICIPALITY_POLYGONS_CACHE = _load_geobr_polygons()
+    
+    return _MUNICIPALITY_POLYGONS_CACHE
 
 
 def point_in_polygon(lat: float, lng: float, polygon_coords: list) -> bool:
@@ -104,8 +189,11 @@ async def lookup_municipality_code_from_coordinates(
     This is the PRIMARY lookup method when coordinates are available (issue #179).
     Falls back to None if the point doesn't match any municipality polygon.
     
+    Production uses full geobr municipality polygons (~5,570 municipalities).
+    Tests use a small fixture (Rio, Brasília, São Paulo) - no live API calls.
+    
     Args:
-        session: Database session (not used in fixture mode, but kept for API consistency)
+        session: Database session (not used in current implementation, kept for API consistency)
         latitude: Latitude
         longitude: Longitude
     
@@ -118,17 +206,34 @@ async def lookup_municipality_code_from_coordinates(
         geometry = feature.get("geometry", {})
         properties = feature.get("properties", {})
         
-        if geometry.get("type") == "Polygon":
-            coords = geometry.get("coordinates", [[]])[0]
-            
-            if point_in_polygon(latitude, longitude, coords):
-                code_muni = properties.get("code_muni")
-                if code_muni:
+        # Extract municipality code - geobr uses 'code_muni', fixture also uses 'code_muni'
+        code_muni = properties.get("code_muni")
+        if not code_muni:
+            continue
+        
+        # Handle both Polygon and MultiPolygon geometries
+        geom_type = geometry.get("type")
+        
+        if geom_type == "Polygon":
+            coords_list = geometry.get("coordinates", [])
+            for coords in coords_list:
+                if point_in_polygon(latitude, longitude, coords):
                     logger.debug(
                         f"[MunicipalityLookup] Point ({latitude}, {longitude}) -> "
-                        f"{properties.get('name_muni')} ({code_muni})"
+                        f"{properties.get('name_muni', 'Unknown')} ({code_muni})"
                     )
-                    return code_muni
+                    return int(code_muni)
+        
+        elif geom_type == "MultiPolygon":
+            # MultiPolygon is a list of Polygons
+            for polygon in geometry.get("coordinates", []):
+                for coords in polygon:
+                    if point_in_polygon(latitude, longitude, coords):
+                        logger.debug(
+                            f"[MunicipalityLookup] Point ({latitude}, {longitude}) -> "
+                            f"{properties.get('name_muni', 'Unknown')} ({code_muni})"
+                        )
+                        return int(code_muni)
     
     logger.debug(f"[MunicipalityLookup] No polygon match for ({latitude}, {longitude})")
     return None
