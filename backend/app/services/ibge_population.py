@@ -282,6 +282,9 @@ async def lookup_city_codes(
     
     result = {}
     
+    # Load all municipalities once for efficiency (when we need to check uniqueness)
+    all_munis = None
+    
     # Process each (city, state) pair
     for orig_city, orig_state in zip(cities, states):
         # Skip if no city (do not invent)
@@ -323,10 +326,11 @@ async def lookup_city_codes(
                     break
         else:
             # No state provided - check if city name is unique
-            # Get all municipalities with this normalized name
-            query = select(IBGEPopulation)
-            db_result = await session.execute(query)
-            all_munis = db_result.scalars().all()
+            # Load all municipalities once (lazy load)
+            if all_munis is None:
+                query = select(IBGEPopulation)
+                db_result = await session.execute(query)
+                all_munis = db_result.scalars().all()
             
             matches = [
                 muni for muni in all_munis
