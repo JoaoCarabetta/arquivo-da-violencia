@@ -728,3 +728,112 @@ async def test_stats_with_multiple_fake_events(app, async_session):
             # Event from 31 days ago should not be in last_30_days
             assert data["last_30_days"] == 9  # Should not include the 31-day-old event
 
+
+@pytest.mark.asyncio
+async def test_coverage_api_response_no_mvi_label(app, async_session):
+    """
+    Issue #183: API response must not use the label "Mortes Violentas Intencionais".
+    
+    The methodology should describe the four Formulário 1 types only, without
+    using the Fórum Brasileiro de Segurança Pública term "Mortes Violentas Intencionais"
+    or listing "morte por intervenção de agente do Estado" in the formula.
+    """
+    from app.database import get_session
+    from app.models.official_violence_data import OfficialViolenceCount
+    from app.models.unique_event import UniqueEvent
+    from app.models.ibge_population import IBGEPopulation
+    
+    # Setup minimal data for coverage endpoint
+    municipality = IBGEPopulation(
+        code_muni=3550308,
+        code_state="35",
+        name_muni="São Paulo",
+        name_state="São Paulo",
+        abbrev_state="SP",
+        population=12396372,
+        year=2022
+    )
+    async_session.add(municipality)
+    
+    # Add official counts (four types totaling 10)
+    async_session.add(OfficialViolenceCount(
+        code_muni=3550308,
+        year_month="2025-09",
+        indicator="homicidio_doloso",
+        victim_count=6,
+        is_total=False,
+        source="SINESP VDE"
+    ))
+    async_session.add(OfficialViolenceCount(
+        code_muni=3550308,
+        year_month="2025-09",
+        indicator="feminicidio",
+        victim_count=2,
+        is_total=False,
+        source="SINESP VDE"
+    ))
+    async_session.add(OfficialViolenceCount(
+        code_muni=3550308,
+        year_month="2025-09",
+        indicator="latrocinio",
+        victim_count=1,
+        is_total=False,
+        source="SINESP VDE"
+    ))
+    async_session.add(OfficialViolenceCount(
+        code_muni=3550308,
+        year_month="2025-09",
+        indicator="lesao_corporal_seguida_morte",
+        victim_count=1,
+        is_total=False,
+        source="SINESP VDE"
+    ))
+    
+    # Add Arquivo event
+    async_session.add(UniqueEvent(
+        event_family="homicidio",
+        event_subtype="simples",
+        content_class="incident",
+        country="BR",
+        state="SP",
+        city="São Paulo",
+        municipality_code=3550308,
+        event_date=datetime(2025, 9, 15),
+        victim_count=5,
+        latitude=-23.55052,
+        longitude=-46.633308,
+    ))
+    
+    await async_session.commit()
+    
+    async def override_get_session():
+        yield async_session
+    
+    app.dependency_overrides[get_session] = override_get_session
+    
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.get("/api/public/stats/coverage")
+        assert response.status_code == 200
+        data = response.json()
+        
+        # Verify response structure
+        assert "methodology" in data
+        assert "official_bag" in data["methodology"]
+        
+        # Verify "Mortes Violentas Intencionais" is NOT used
+        official_bag_text = data["methodology"]["official_bag"]
+        assert "Mortes Violentas Intencionais" not in official_bag_text, \
+            "Response must not use the term 'Mortes Violentas Intencionais'"
+        assert "mortes violentas intencionais" not in official_bag_text, \
+            "Response must not use the term 'mortes violentas intencionais'"
+        
+        # Verify "morte por intervenção" is NOT listed in the formula
+        assert "intervenção" not in official_bag_text.lower(), \
+            "Response must not list 'morte por intervenção de agente do Estado' in the formula"
+        
+        # Verify the four Formulário 1 types ARE listed
+        assert "homicídio doloso" in official_bag_text.lower()
+        assert "feminicídio" in official_bag_text.lower()
+        assert "latrocínio" in official_bag_text.lower()
+        assert "lesão corporal seguida de morte" in official_bag_text.lower()
+
