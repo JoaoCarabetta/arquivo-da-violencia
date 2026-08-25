@@ -24,6 +24,7 @@ const mockRankingsDataBR = {
   cities: [
     {
       city: 'São Paulo',
+      state: 'São Paulo',
       state_abbrev: 'SP',
       victim_count: 250,
       event_count: 125,
@@ -34,6 +35,7 @@ const mockRankingsDataBR = {
     },
     {
       city: 'Rio de Janeiro',
+      state: 'Rio de Janeiro',
       state_abbrev: 'RJ',
       victim_count: 180,
       event_count: 90,
@@ -61,6 +63,80 @@ const mockRankingsDataBR = {
       victim_delta: 0,
       rate_per_100k: 1.7,
       population: 17463349,
+    },
+  ],
+  countries: [],
+  homicide_types: [],
+  methods: [],
+  population_vintage: 'Censo 2022',
+};
+
+const mockRankingsDataWithChile = {
+  total_victims: 1534, // BR 1234 + CL 300
+  total_events: 667,
+  last_updated: '2026-08-20T10:30:00Z',
+  cities: [
+    {
+      city: 'São Paulo',
+      state: 'São Paulo',
+      state_abbrev: 'SP',
+      victim_count: 250,
+      event_count: 125,
+      victim_share: 16.3,
+      victim_delta: 0,
+      rate_per_100k: 2.1,
+      population: 12000000,
+    },
+    {
+      city: 'Rio de Janeiro',
+      state: 'Rio de Janeiro',
+      state_abbrev: 'RJ',
+      victim_count: 180,
+      event_count: 90,
+      victim_share: 11.7,
+      victim_delta: 0,
+      rate_per_100k: 2.7,
+      population: 6747815,
+    },
+    {
+      city: 'Santiago',
+      state: 'Región Metropolitana',
+      state_abbrev: 'RM',
+      victim_count: 300,
+      event_count: 100,
+      victim_share: 19.6,
+      victim_delta: 0,
+      rate_per_100k: 5.0,
+      population: 6000000,
+    },
+  ],
+  states: [
+    {
+      state: 'São Paulo',
+      victim_count: 450,
+      event_count: 225,
+      victim_share: 29.3,
+      victim_delta: 0,
+      rate_per_100k: 1.0,
+      population: 46289333,
+    },
+    {
+      state: 'Rio de Janeiro',
+      victim_count: 300,
+      event_count: 150,
+      victim_share: 19.6,
+      victim_delta: 0,
+      rate_per_100k: 1.7,
+      population: 17463349,
+    },
+    {
+      state: 'Región Metropolitana',
+      victim_count: 300,
+      event_count: 100,
+      victim_share: 19.6,
+      victim_delta: 0,
+      rate_per_100k: 5.0,
+      population: 6000000,
     },
   ],
   countries: [],
@@ -233,6 +309,23 @@ describe('Rankings Page - Issue #185: Place Search and Card', () => {
       const hasChileMunicipalities = allMunicipalities.some(m => m.uf === 'CL' || m.uf.startsWith('CL'));
       expect(hasChileMunicipalities).toBe(false);
     });
+
+    it('should not include Chile victims in Brasil Arquivo count when Chile is in the rankings', async () => {
+      // Mock with Chile data in the response
+      (api.fetchRankings as unknown as ReturnType<typeof vi.fn>).mockResolvedValue(mockRankingsDataWithChile);
+      
+      renderWithProviders(<Rankings />);
+      
+      const placeCard = await screen.findByTestId('place-card', {}, { timeout: 3000 });
+      
+      // Brasil card should show BR-only Arquivo count (1234), not including Chile (300)
+      const arquivoCount = within(placeCard).getByTestId('arquivo-count');
+      expect(arquivoCount).toHaveTextContent('1,234');
+      
+      // Official should still be BR-only (450 + 320 = 770)
+      const officialCount = within(placeCard).getByTestId('official-count');
+      expect(officialCount).toHaveTextContent('770');
+    });
   });
 
   describe('Test 6: No 5563-row dump above the fold', () => {
@@ -258,7 +351,9 @@ describe('Rankings Page - Issue #185: Place Search and Card', () => {
       
       expect(within(placeCard).getByText(/Último ano/i)).toBeInTheDocument();
       
+      // Should show last update from data (2026-08-20), not "agora mesmo"
       expect(within(placeCard).getByText(/Última atualização/i)).toBeInTheDocument();
+      expect(within(placeCard).queryByText(/agora mesmo/i)).not.toBeInTheDocument();
     });
 
     it('should display official count with full citation when available', async () => {
@@ -309,6 +404,46 @@ describe('Rankings Page - Issue #185: Place Search and Card', () => {
       
       const searchInput = screen.getByPlaceholderText('Busque um município ou estado');
       expect(searchInput).toBeInTheDocument();
+    });
+
+    it('should show state official data as sum of municipalities in that state', async () => {
+      const user = userEvent.setup();
+      renderWithProviders(<Rankings />);
+      
+      await screen.findByTestId('place-card', {}, { timeout: 3000 });
+      const searchInput = await screen.findByPlaceholderText('Busque um município ou estado');
+      
+      // Search and select São Paulo state
+      await user.type(searchInput, 'São Paulo');
+      
+      await waitFor(() => {
+        const options = screen.getAllByText(/São Paulo/i);
+        expect(options.length).toBeGreaterThan(0);
+      }, { timeout: 2000 });
+      
+      // Find the state option (not the municipality)
+      const stateOption = screen.getAllByText('São Paulo').find(el => {
+        const button = el.closest('button');
+        if (!button) return false;
+        const type = within(button).queryByText('Estado');
+        return type !== null;
+      });
+      expect(stateOption).toBeDefined();
+      await user.click(stateOption!);
+      
+      // Verify state card shows correct data
+      const placeCard = screen.getByTestId('place-card');
+      
+      // Arquivo count for São Paulo state
+      const arquivoCount = within(placeCard).getByTestId('arquivo-count');
+      expect(arquivoCount).toHaveTextContent('450');
+      
+      // Official should be sum of SP municipalities (only São Paulo city = 450 in fixture)
+      const officialCount = within(placeCard).getByTestId('official-count');
+      expect(officialCount).toHaveTextContent('450');
+      
+      // Should show it's a state
+      expect(within(placeCard).getByText('Estado')).toBeInTheDocument();
     });
   });
 });
