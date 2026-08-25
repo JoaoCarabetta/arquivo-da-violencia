@@ -14,12 +14,13 @@ class OfficialViolenceCount(SQLModel, table=True):
 
     Data source: https://www.gov.br/mj/pt-br/assuntos/sua-seguranca/seguranca-publica/estatistica/download/dnsp-base-de-dados/
 
-    The five indicators summed into "mortes violentas intencionais":
+    The four Formulário 1 indicators summed into the official municipal total:
     1. Homicídio doloso
     2. Feminicídio
     3. Latrocínio (roubo seguido de morte)
     4. Lesão corporal seguida de morte
-    5. Morte por intervenção do Estado
+    
+    Note: Morte por intervenção do Estado is stored but NOT included in the municipal total.
     """
     __tablename__ = "official_violence_count"
     __table_args__ = (
@@ -56,7 +57,7 @@ class OfficialViolenceCount(SQLModel, table=True):
     # Flag for summed total row
     is_total: bool = Field(
         default=False,
-        description="True if this row is the summed 'mortes_violentas_intencionais' total"
+        description="True if this row is the summed official municipal total (Formulário 1 types only)"
     )
 
     # Metadata

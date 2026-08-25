@@ -16,7 +16,7 @@ Headers: ["uf","municipio","evento","data_referencia","agente","arma","faixa_eta
 
 from typing import Dict, List, Any
 from datetime import datetime, timedelta
-from sqlmodel import select
+from sqlmodel import select, func
 from sqlmodel.ext.asyncio.session import AsyncSession
 from loguru import logger
 
@@ -33,14 +33,15 @@ INDICATOR_MAPPING = {
     "Morte por intervenção de Agente do Estado": "morte_intervencao_policial",
 }
 
-# Indicators that comprise "mortes violentas intencionais"
-# Spec: homicídio doloso + feminicídio + latrocínio + lesão corporal seguida de morte + morte por intervenção do Estado
+# Indicators that comprise the official municipal total (Formulário 1 types only)
+# Spec (issue #183): homicídio doloso + feminicídio + latrocínio (roubo seguido de morte)
+# + lesão corporal seguida de morte ONLY.
+# Do NOT include morte por intervenção de agente do Estado in the municipal bag.
 MVI_INDICATORS = [
     "homicidio_doloso",
     "feminicidio",
     "latrocinio",
     "lesao_corporal_seguida_morte",
-    "morte_intervencao_policial",
 ]
 
 
@@ -93,9 +94,11 @@ async def ingest_official_violence_data(
     This function:
     1. Resolves municipality names to IBGE codes
     2. Groups and sums by (code_muni, year_month, indicator)
-    3. Stores per-indicator counts
-    4. Calculates and stores summed "mortes violentas intencionais" total
-    5. Is idempotent: re-ingesting the same month updates existing rows
+    3. Stores per-indicator counts (4 Formulário 1 types + intervenção separately)
+    4. Is idempotent: re-ingesting the same month updates existing rows
+    
+    Note: Does not store a convenience total. Official municipal total is computed
+    at query time by summing the four Formulário 1 types.
 
     Args:
         session: Database session
@@ -220,33 +223,6 @@ async def ingest_official_violence_data(
                 )
                 session.add(count_row)
 
-        # Calculate and store summed "mortes violentas intencionais" total
-        mvi_total = sum(indicators.get(ind, 0) for ind in MVI_INDICATORS)
-
-        query_existing_total = select(OfficialViolenceCount).where(
-            OfficialViolenceCount.code_muni == code_muni,
-            OfficialViolenceCount.year_month == year_month,
-            OfficialViolenceCount.indicator == "mortes_violentas_intencionais"
-        )
-        result = await session.execute(query_existing_total)
-        existing_total = result.scalar_one_or_none()
-
-        if existing_total:
-            # Update existing total
-            existing_total.victim_count = mvi_total
-            existing_total.updated_at = datetime.utcnow()
-        else:
-            # Insert new total
-            total_row = OfficialViolenceCount(
-                code_muni=code_muni,
-                year_month=year_month,
-                indicator="mortes_violentas_intencionais",
-                victim_count=mvi_total,
-                is_total=True,
-                source=source
-            )
-            session.add(total_row)
-
     await session.commit()
     logger.info(f"Ingested official violence data for {len(storage_grouped)} municipality-months")
 
@@ -257,7 +233,13 @@ async def get_official_violence_totals(
     min_year_month: str = "2025-09"
 ) -> List[Dict[str, Any]]:
     """
-    Get official "mortes violentas intencionais" totals for municipalities.
+    Get official municipal totals (Formulário 1 types only) for municipalities.
+    
+    Sums the four exclusive Formulário 1 types at query time:
+    - homicidio_doloso
+    - feminicidio
+    - latrocinio
+    - lesao_corporal_seguida_morte
 
     Args:
         session: Database session
@@ -269,24 +251,38 @@ async def get_official_violence_totals(
     """
     if not code_munis:
         return []
+    
+    formulario_1_types = [
+        "homicidio_doloso",
+        "feminicidio",
+        "latrocinio",
+        "lesao_corporal_seguida_morte",
+    ]
 
-    query = select(OfficialViolenceCount).where(
+    query = select(
+        OfficialViolenceCount.code_muni,
+        OfficialViolenceCount.year_month,
+        func.sum(OfficialViolenceCount.victim_count).label("victim_count")
+    ).where(
         OfficialViolenceCount.code_muni.in_(code_munis),
-        OfficialViolenceCount.indicator == "mortes_violentas_intencionais",
+        OfficialViolenceCount.indicator.in_(formulario_1_types),
         OfficialViolenceCount.year_month >= min_year_month
+    ).group_by(
+        OfficialViolenceCount.code_muni,
+        OfficialViolenceCount.year_month
     ).order_by(
         OfficialViolenceCount.code_muni,
         OfficialViolenceCount.year_month
     )
 
     result = await session.execute(query)
-    counts = result.scalars().all()
+    rows = result.all()
 
     return [
         {
-            "code_muni": c.code_muni,
-            "year_month": c.year_month,
-            "victim_count": c.victim_count
+            "code_muni": r.code_muni,
+            "year_month": r.year_month,
+            "victim_count": r.victim_count
         }
-        for c in counts
+        for r in rows
     ]

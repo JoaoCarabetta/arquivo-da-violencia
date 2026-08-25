@@ -2,12 +2,19 @@
 Coverage data aggregator: Arquivo vs Official violence statistics.
 
 Combines:
-1. Official "mortes violentas intencionais" counts from Ministry of Justice VDE data
+1. Official municipal total counts from Ministry of Justice VDE data (Formulário 1 only)
 2. Arquivo victim counts from UniqueEvent (public incident filter)
 3. Municipality metadata from IBGE population table
 
 Returns coverage table for /estatisticas page.
 Window: 2025-09-01 through latest official month.
+
+Official total = 4 Formulário 1 types only:
+- homicídio doloso
+- feminicídio
+- roubo seguido de morte (latrocínio)
+- lesão corporal seguida de morte
+DO NOT include morte por intervenção de agente do Estado in the municipal total.
 """
 
 from typing import Dict, List, Any
@@ -35,7 +42,7 @@ async def get_coverage_data(
     Get coverage data: union of municipalities with official > 0 OR Arquivo > 0.
     
     Aggregates:
-    - Official "mortes violentas intencionais" counts by municipality
+    - Official municipal total counts by municipality (Formulário 1 types only)
     - Arquivo victim counts (public incident filter, Brazil only, >= 2025-09)
     - Coverage = Arquivo / official (not capped, None when official=0)
     
@@ -48,7 +55,7 @@ async def get_coverage_data(
         - code: 7-digit IBGE municipal code
         - name: Municipality name
         - uf: State abbreviation (e.g. "SP", "RJ")
-        - official_victims: Official mortes violentas intencionais count
+        - official_victims: Official municipal total count (Formulário 1 types only)
         - arquivo_victims: Arquivo victim count (public filter)
         - coverage: Arquivo / official ratio (None when official=0)
         
@@ -56,18 +63,27 @@ async def get_coverage_data(
     
     Acceptance criteria:
     - Official 0 + Arquivo > 0 → row exists, coverage=None
+    - Official 0 + Arquivo 0 → row absent (hidden)
     - Official 10 + Arquivo 12 → coverage=1.2 (not capped)
     - Event without municipality_code → absent
     - Non-Brazil event → absent
     - Event before 2025-09-01 → absent from Arquivo count
     """
     
-    # 1. Get official counts (mortes violentas intencionais) by municipality
+    # 1. Get official counts (Formulário 1 types only) by municipality
+    # Sum the four exclusive Formulário 1 types at query time
+    formulario_1_types = [
+        "homicidio_doloso",
+        "feminicidio",
+        "latrocinio",
+        "lesao_corporal_seguida_morte",
+    ]
+    
     official_query = select(
         OfficialViolenceCount.code_muni,
         func.sum(OfficialViolenceCount.victim_count).label("official_victims")
     ).where(
-        OfficialViolenceCount.indicator == "mortes_violentas_intencionais",
+        OfficialViolenceCount.indicator.in_(formulario_1_types),
         OfficialViolenceCount.year_month >= min_year_month
     ).group_by(OfficialViolenceCount.code_muni)
     
@@ -136,6 +152,10 @@ async def get_coverage_data(
     for code in all_codes:
         official_count = official_by_code.get(code, 0)
         arquivo_count = arquivo_by_code.get(code, 0)
+        
+        # Hide official 0 + Arquivo 0 (issue #183)
+        if official_count == 0 and arquivo_count == 0:
+            continue
         
         # Calculate coverage (None when official=0 to avoid divide-by-zero)
         if official_count > 0:
