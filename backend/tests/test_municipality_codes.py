@@ -11,6 +11,22 @@ from app.services.ibge_population import load_ibge_population_fixture, lookup_ci
 from app.services.geocoding import geocode_unique_event
 
 
+class _TestSessionMaker:
+    """Test session maker wrapper for patching async_session_maker."""
+    
+    def __init__(self, session):
+        self._session = session
+    
+    def __call__(self):
+        return self
+    
+    async def __aenter__(self):
+        return self._session
+    
+    async def __aexit__(self, exc_type, exc, tb):
+        return False
+
+
 @pytest.mark.asyncio
 async def test_lookup_city_codes_returns_official_code(async_session):
     """
@@ -129,8 +145,14 @@ async def test_geocode_stores_municipality_code_for_brazilian_city(async_session
     mock_client = AsyncMock()
     mock_client.get = AsyncMock(return_value=mock_response)
     
+    # Patch async_session_maker to use test session
+    maker = _TestSessionMaker(async_session)
+    
     # Geocode the event
-    with patch("app.services.geocoding.get_settings") as mock_settings:
+    with (
+        patch("app.services.geocoding.async_session_maker", maker),
+        patch("app.services.geocoding.get_settings") as mock_settings,
+    ):
         mock_settings.return_value.google_maps_api_key = "test-key"
         success = await geocode_unique_event(event.id, client=mock_client)
     
@@ -180,8 +202,14 @@ async def test_geocode_no_code_for_chile_cities(async_session):
     mock_client = AsyncMock()
     mock_client.get = AsyncMock(return_value=mock_response)
     
+    # Patch async_session_maker to use test session
+    maker = _TestSessionMaker(async_session)
+    
     # Geocode the event
-    with patch("app.services.geocoding.get_settings") as mock_settings:
+    with (
+        patch("app.services.geocoding.async_session_maker", maker),
+        patch("app.services.geocoding.get_settings") as mock_settings,
+    ):
         mock_settings.return_value.google_maps_api_key = "test-key"
         success = await geocode_unique_event(event.id, client=mock_client)
     
