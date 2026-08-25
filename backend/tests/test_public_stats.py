@@ -755,13 +755,37 @@ async def test_coverage_api_response_no_mvi_label(app, async_session):
     )
     async_session.add(municipality)
     
-    # Add official count
+    # Add official counts (four types totaling 10)
     async_session.add(OfficialViolenceCount(
         code_muni=3550308,
         year_month="2025-09",
-        indicator="mortes_violentas_intencionais",
-        victim_count=10,
-        is_total=True,
+        indicator="homicidio_doloso",
+        victim_count=6,
+        is_total=False,
+        source="SINESP VDE"
+    ))
+    async_session.add(OfficialViolenceCount(
+        code_muni=3550308,
+        year_month="2025-09",
+        indicator="feminicidio",
+        victim_count=2,
+        is_total=False,
+        source="SINESP VDE"
+    ))
+    async_session.add(OfficialViolenceCount(
+        code_muni=3550308,
+        year_month="2025-09",
+        indicator="latrocinio",
+        victim_count=1,
+        is_total=False,
+        source="SINESP VDE"
+    ))
+    async_session.add(OfficialViolenceCount(
+        code_muni=3550308,
+        year_month="2025-09",
+        indicator="lesao_corporal_seguida_morte",
+        victim_count=1,
+        is_total=False,
         source="SINESP VDE"
     ))
     

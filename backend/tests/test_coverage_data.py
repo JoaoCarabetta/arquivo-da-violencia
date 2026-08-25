@@ -72,33 +72,74 @@ async def setup_coverage_fixture(async_session):
     for muni in municipalities:
         async_session.add(muni)
     
-    # Official violence counts (mortes violentas intencionais)
+    # Official violence counts (4 Formulário 1 types)
     official_counts = [
-        # São Paulo: 10 official victims in 2025-09
+        # São Paulo: 10 total = 6 homicidio + 2 feminicidio + 1 latrocinio + 1 lesao
         OfficialViolenceCount(
             code_muni=3550308,
             year_month="2025-09",
-            indicator="mortes_violentas_intencionais",
-            victim_count=10,
-            is_total=True,
+            indicator="homicidio_doloso",
+            victim_count=6,
+            is_total=False,
             source="SINESP VDE"
         ),
-        # Rio: 0 official victims in 2025-09
         OfficialViolenceCount(
-            code_muni=3304557,
+            code_muni=3550308,
             year_month="2025-09",
-            indicator="mortes_violentas_intencionais",
-            victim_count=0,
-            is_total=True,
+            indicator="feminicidio",
+            victim_count=2,
+            is_total=False,
             source="SINESP VDE"
         ),
-        # Bauru: 10 official victims in 2025-09
+        OfficialViolenceCount(
+            code_muni=3550308,
+            year_month="2025-09",
+            indicator="latrocinio",
+            victim_count=1,
+            is_total=False,
+            source="SINESP VDE"
+        ),
+        OfficialViolenceCount(
+            code_muni=3550308,
+            year_month="2025-09",
+            indicator="lesao_corporal_seguida_morte",
+            victim_count=1,
+            is_total=False,
+            source="SINESP VDE"
+        ),
+        # Rio: 0 total (all four types = 0, will be hidden with Arquivo=0)
+        # Omit zero rows - if all four are missing, sum = 0
+        # Bauru: 10 total = 5 + 3 + 1 + 1
         OfficialViolenceCount(
             code_muni=3505708,
             year_month="2025-09",
-            indicator="mortes_violentas_intencionais",
-            victim_count=10,
-            is_total=True,
+            indicator="homicidio_doloso",
+            victim_count=5,
+            is_total=False,
+            source="SINESP VDE"
+        ),
+        OfficialViolenceCount(
+            code_muni=3505708,
+            year_month="2025-09",
+            indicator="feminicidio",
+            victim_count=3,
+            is_total=False,
+            source="SINESP VDE"
+        ),
+        OfficialViolenceCount(
+            code_muni=3505708,
+            year_month="2025-09",
+            indicator="latrocinio",
+            victim_count=1,
+            is_total=False,
+            source="SINESP VDE"
+        ),
+        OfficialViolenceCount(
+            code_muni=3505708,
+            year_month="2025-09",
+            indicator="lesao_corporal_seguida_morte",
+            victim_count=1,
+            is_total=False,
             source="SINESP VDE"
         ),
     ]
@@ -474,12 +515,37 @@ async def test_hide_oficial_0_arquivo_0(async_session):
         async_session.add(muni)
     
     # São Paulo: official > 0, Arquivo > 0 (should appear)
+    # Insert 10 total as 6+2+1+1
     async_session.add(OfficialViolenceCount(
         code_muni=3550308,
         year_month="2025-09",
-        indicator="mortes_violentas_intencionais",
-        victim_count=10,
-        is_total=True,
+        indicator="homicidio_doloso",
+        victim_count=6,
+        is_total=False,
+        source="SINESP VDE"
+    ))
+    async_session.add(OfficialViolenceCount(
+        code_muni=3550308,
+        year_month="2025-09",
+        indicator="feminicidio",
+        victim_count=2,
+        is_total=False,
+        source="SINESP VDE"
+    ))
+    async_session.add(OfficialViolenceCount(
+        code_muni=3550308,
+        year_month="2025-09",
+        indicator="latrocinio",
+        victim_count=1,
+        is_total=False,
+        source="SINESP VDE"
+    ))
+    async_session.add(OfficialViolenceCount(
+        code_muni=3550308,
+        year_month="2025-09",
+        indicator="lesao_corporal_seguida_morte",
+        victim_count=1,
+        is_total=False,
         source="SINESP VDE"
     ))
     
@@ -498,14 +564,7 @@ async def test_hide_oficial_0_arquivo_0(async_session):
     ))
     
     # Rio: official = 0, Arquivo = 0 (should NOT appear)
-    async_session.add(OfficialViolenceCount(
-        code_muni=3304557,
-        year_month="2025-09",
-        indicator="mortes_violentas_intencionais",
-        victim_count=0,
-        is_total=True,
-        source="SINESP VDE"
-    ))
+    # No official counts for Rio = sum is 0
     # NO Arquivo event for Rio (Arquivo count = 0)
     
     await async_session.commit()

@@ -191,10 +191,14 @@ async def test_ingest_official_violence_data_single_municipality(async_session, 
     intervencao = next(c for c in counts if c.indicator == "morte_intervencao_policial")
     assert intervencao.victim_count == 13
 
-    # Check summed total (Formulário 1 types only, no intervenção)
-    total = next(c for c in counts if c.indicator == "mortes_violentas_intencionais")
-    assert total.victim_count == 64  # 53 + 3 + 6 + 2 (NOT including 13 from intervenção)
-    assert total.is_total is True
+    # Check sum of four Formulário 1 types (no intervenção, no convenience total)
+    homicidio = next(c for c in counts if c.indicator == "homicidio_doloso")
+    feminicidio = next(c for c in counts if c.indicator == "feminicidio")
+    latrocinio = next(c for c in counts if c.indicator == "latrocinio")
+    lesao = next(c for c in counts if c.indicator == "lesao_corporal_seguida_morte")
+    
+    formulario_1_sum = homicidio.victim_count + feminicidio.victim_count + latrocinio.victim_count + lesao.victim_count
+    assert formulario_1_sum == 64, f"Four-type sum should be 64 (53+3+6+2), got {formulario_1_sum}"
 
 @pytest.mark.asyncio
 async def test_ingest_idempotence(async_session, setup_ibge_data):

@@ -71,11 +71,19 @@ async def get_coverage_data(
     """
     
     # 1. Get official counts (Formulário 1 types only) by municipality
+    # Sum the four exclusive Formulário 1 types at query time
+    formulario_1_types = [
+        "homicidio_doloso",
+        "feminicidio",
+        "latrocinio",
+        "lesao_corporal_seguida_morte",
+    ]
+    
     official_query = select(
         OfficialViolenceCount.code_muni,
         func.sum(OfficialViolenceCount.victim_count).label("official_victims")
     ).where(
-        OfficialViolenceCount.indicator == "mortes_violentas_intencionais",
+        OfficialViolenceCount.indicator.in_(formulario_1_types),
         OfficialViolenceCount.year_month >= min_year_month
     ).group_by(OfficialViolenceCount.code_muni)
     
