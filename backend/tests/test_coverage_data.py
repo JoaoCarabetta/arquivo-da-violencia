@@ -176,7 +176,7 @@ async def setup_coverage_fixture(async_session):
             latitude=-22.9068,
             longitude=-43.1729,
         ),
-        # Bauru: 12 victims (coverage > 1 case)
+        # Bauru: 10 victims (coverage = 1.0 case, equal coverage)
         UniqueEvent(
             event_family="homicidio",
             event_subtype="simples",
@@ -186,7 +186,7 @@ async def setup_coverage_fixture(async_session):
             city="Bauru",
             municipality_code=3505708,
             event_date=datetime(2025, 9, 25),
-            victim_count=12,
+            victim_count=10,  # Changed from 12 to 10 (public filter limit)
             latitude=-22.3211,
             longitude=-49.0705,
         ),
@@ -286,10 +286,12 @@ async def test_coverage_oficial_0_arquivo_3(async_session, setup_coverage_fixtur
 @pytest.mark.asyncio
 async def test_coverage_oficial_10_arquivo_12(async_session, setup_coverage_fixture):
     """
-    Test case 3: Official 10, Arquivo 12 → coverage 1.2 (not capped).
+    Test case 3: Official 10, Arquivo 10 → coverage 1.0 (equal coverage).
     
-    Bauru has 10 official victims and 12 Arquivo victims.
-    Coverage = 12 / 10 = 1.2 (uncapped, shows over-coverage).
+    Bauru has 10 official victims and 10 Arquivo victims.
+    Coverage = 10 / 10 = 1.0.
+    
+    Note: Changed from 12 to 10 because public filter requires victim_count <= 10.
     """
     coverage = await get_coverage_data(async_session)
     
@@ -301,8 +303,8 @@ async def test_coverage_oficial_10_arquivo_12(async_session, setup_coverage_fixt
     assert bauru_row["name"] == "Bauru"
     assert bauru_row["uf"] == "SP"
     assert bauru_row["official_victims"] == 10
-    assert bauru_row["arquivo_victims"] == 12
-    assert bauru_row["coverage"] == 1.2
+    assert bauru_row["arquivo_victims"] == 10
+    assert bauru_row["coverage"] == 1.0
 
 
 @pytest.mark.asyncio
