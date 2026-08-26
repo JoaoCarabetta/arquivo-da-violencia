@@ -1,0 +1,274 @@
+Português Brasil
+Deutsch
+English
+Español Latinoamérica
+Français
+Italiano
+Nederlands
+Polski
+Русский
+Türkçe
+العربية
+中文（简体）
+中文（繁體）
+日本語
+한국어
+Afrikaans
+Bahasa Indonesia
+Bahasa Melayu
+Català
+Čeština
+Dansk
+Eesti
+English UK
+English US
+Español España
+Euskara
+Filipino
+Galego
+Hrvatski
+Íslenska
+Kiswahili
+Latviešu
+Lietuvių
+Magyar
+Norsk
+Română
+Slovenčina
+Slovenščina
+Srpski
+Suomi
+Svenska
+Tiếng Việt
+Українська
+עברית
+हिन्दी
+ไทย
+Ελληνικά
+Български
+Македонски
+Монгол
+অসমীয়া
+বাংলা
+ગુજરાતી
+ಕನ್ನಡ
+മലയാളം
+मराठी
+ଓଡ଼ିଆ
+ਪੰਜਾਬੀ
+தமிழ்
+తెలుగు
+اردو
+Azərbaycan
+Bosanski
+Español US
+Gaeilge
+Latviešu valoda
+Lietuvių kalba
+Lëtzebuergesch
+Malti
+Norsk bokmål
+O'zbek
+Qaraqalpaqsha
+Qırımtatarca
+Slovenský jazyk
+Shqip
+አማርኛ
+Հայերեն
+ქართული
+Қазақ тілі
+Кыргызча
+ភាសាខ្មែរ
+လူမျိုး
+नेपाली
+සිංහල
+ትግርኛ
+Кыргыз тили
+Монгол хэл
+ລາວ
+မြန်မာ
+ਪੰਜਾਬੀ (ਭਾਰਤ)
+پښتو
+فارسی
+සිංහල (ශ්‍රී ලංකා)
+Afaan Oromoo
+አማርኛ (ኢትዮጵያ)
+ትግርኛ (ኤርትራ)
+Hausa
+Igbo
+Kiswahili (Kenya)
+Yorùbá
+isiXhosa
+isiZulu
+Sesotho
+Setswana
+Español Argentina
+Español Bolivia
+Español Chile
+Español Colombia
+Español Costa Rica
+Español Cuba
+Español Ecuador
+Español El Salvador
+Español Guatemala
+Español Honduras
+Español México
+Español Nicaragua
+Español Panamá
+Español Paraguay
+Español Perú
+Español Puerto Rico
+Español República Dominicana
+Español Uruguay
+Español Venezuela
+Français Belgique
+Français Canada
+Français France
+Français Luxembourg
+Français Suisse
+Português Portugal
+English Australia
+English Canada
+English India
+English Ireland
+English New Zealand
+English Singapore
+English South Africa
+Deutsch Deutschland
+Deutsch Österreich
+Deutsch Schweiz
+Italiano Italia
+Italiano Svizzera
+Nederlands België
+Nederlands Nederland
+Svenska Sverige
+Norsk Norge
+Dansk Danmark
+Suomi Suomi
+Polski Polska
+Čeština Česká republika
+Slovenčina Slovensko
+Magyar Magyarország
+Română România
+Български България
+Ελληνικά Ελλάδα
+Українська Україна
+Türkçe Türkiye
+עברית ישראל
+العربية السعودية
+العربية الإمارات
+العربية مصر
+فارسی ایران
+हिन्दी भारत
+বাংলা বাংলাদেশ
+தமிழ் இந்தியா
+తెలుగు భారతదేశం
+ಕನ್ನಡ ಭಾರತ
+മലയാളം ഇന്ത്യ
+ไทย ประเทศไทย
+Tiếng Việt Việt Nam
+Bahasa Indonesia Indonesia
+Bahasa Melayu Malaysia
+Filipino Pilipinas
+中文（简体）中国
+中文（繁體）台灣
+中文（繁體）香港
+日本語 日本
+한국어 대한민국
+Català Espanya
+Euskara Espainia
+Galego España
+Bosanski Bosna i Hercegovina
+Hrvatski Hrvatska
+Српски Србија
+Slovenščina Slovenija
+Latviešu Latvija
+Lietuvių Lietuva
+Eesti Eesti
+Íslenska Ísland
+Gaeilge Éire
+Malti Malta
+Lëtzebuergesch Lëtzebuerg
+Română Moldova
+Azərbaycan Azərbaycan
+Қазақ тілі Қазақстан
+O'zbek O'zbekiston
+Кыргызча Кыргызстан
+Монгол Монгол улс
+አማርኛ ኢትዮጵያ
+Kiswahili Tanzania
+Afrikaans Suid-Afrika
+isiZulu iNingizimu Afrika
+Español Andorra
+Français Monaco
+Italiano San Marino
+Español Guinea Ecuatorial
+Português Angola
+Português Cabo Verde
+Português Guiné-Bissau
+Português Moçambique
+Português São Tomé e Príncipe
+Português Timor-Leste
+English Bahamas
+English Barbados
+English Belize
+English Botswana
+English Cameroon
+English Fiji
+English Gambia
+English Ghana
+English Guyana
+English Jamaica
+English Kenya
+English Kiribati
+English Lesotho
+English Liberia
+English Malawi
+English Malta
+English Mauritius
+English Namibia
+English Nauru
+English Nigeria
+English Pakistan
+English Papua New Guinea
+English Philippines
+English Rwanda
+English Saint Lucia
+English Samoa
+English Seychelles
+English Sierra Leone
+English Solomon Islands
+English Sudan
+English Eswatini
+English Tanzania
+English Tonga
+English Trinidad and Tobago
+English Tuvalu
+English Uganda
+English Vanuatu
+English Zambia
+English Zimbabwe
+Français Bénin
+Français Burkina Faso
+Français Burundi
+Français Cameroun
+Français Centrafrique
+Français Comores
+Français Congo
+Français Congo-Kinshasa
+Français Côte d'Ivoire
+Français Djibouti
+Français Gabon
+Français Guinée
+Français Haïti
+Français Madagascar
+Français Mali
+Français Mauritanie
+Français Maurice
+Français Niger
+Français Rwanda
+Français Sénégal
+Français Seychelles
+Français Tchad
+Français Togo
+Français Vanuatu
