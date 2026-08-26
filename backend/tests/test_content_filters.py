@@ -98,6 +98,21 @@ def test_heuristic_rejects_google_language_picker():
     assert match.rule == "google_language_picker"
 
 
+def test_heuristic_rejects_production_google_language_picker():
+    """Production Google language picker (no space in PortuguêsBrasil) must be rejected (issue #208)."""
+    # Exact production body from 32 sources: 3441 chars starting with this line
+    content = (
+        "PortuguêsBrasil - Deutsch - English - Español - Français - Italiano - "
+        "Suomi - Todos os idiomas - Afrikaans - Bahasa Indonesia"
+    )
+    headline = ""
+    
+    match = apply_content_heuristics(headline, content)
+    assert match is not None, "Production language picker must be rejected"
+    assert match.hint == "non_incident"
+    assert match.rule == "google_language_picker", f"Expected google_language_picker but got {match.rule if match else None}"
+
+
 def test_heuristic_rejects_google_consent_page():
     """Google consent/cookie page should be rejected (issue #208)."""
     fixture_path = FIXTURES_DIR / "google_consent_page.txt"

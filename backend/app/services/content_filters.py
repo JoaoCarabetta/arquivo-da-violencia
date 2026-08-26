@@ -125,14 +125,14 @@ _NON_INCIDENT_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
     (
         "google_consent_page",
         re.compile(
-            r"\b(before\s+you\s+continue|todos\s+os\s+idiomas)\b",
+            r"\bbefore\s+you\s+continue\b",
             re.IGNORECASE,
         ),
     ),
     (
         "google_language_picker",
         re.compile(
-            r"Português\s+Brasil.*Deutsch.*English",
+            r"Português\s*Brasil.*Deutsch.*English",
             re.IGNORECASE | re.DOTALL,
         ),
     ),
