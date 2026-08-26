@@ -72,28 +72,49 @@ def extract_content_and_metadata(html: str) -> tuple[str | None, dict | None]:
     return content, metadata
 
 
-async def _fetch_html(url: str) -> tuple[int, str]:
+def get_accept_language_for_country(country: str | None) -> str:
+    """Map country code to Accept-Language header (issue #209).
+
+    Args:
+        country: ISO 3166-1 alpha-2 country code (BR, AR, CL, etc.)
+
+    Returns:
+        Accept-Language header value
+
+    Language intents (issues #129, #164, #209):
+    - BR → Brazilian Portuguese
+    - AR, BO, CL, CO, EC, PY, PE, UY, VE → Spanish (es-419)
+    - GY → English
+    - SR → Dutch
+    - Default → Brazilian Portuguese
+    """
+    if not country:
+        return "pt-BR,pt;q=0.9,en;q=0.8"
+
+    spanish_countries = {"AR", "BO", "CL", "CO", "EC", "PY", "PE", "UY", "VE"}
+    if country in spanish_countries:
+        return "es,es-419;q=0.9,pt-BR;q=0.8,pt;q=0.7,en;q=0.6"
+    elif country == "GY":
+        return "en,en-US;q=0.9,es;q=0.8,pt;q=0.7"
+    elif country == "SR":
+        return "nl,nl-NL;q=0.9,en;q=0.8,pt;q=0.7"
+    else:
+        return "pt-BR,pt;q=0.9,en;q=0.8"
+
+
+async def _fetch_html(url: str, country: str | None = None) -> tuple[int, str]:
     """Fetch a URL with a browser-like client.
+
+    Args:
+        url: Target URL to fetch
+        country: ISO 3166-1 alpha-2 country code for Accept-Language (issue #209)
 
     Returns (status_code, html). Raises ``httpx.HTTPStatusError`` for non-2xx
     responses and other ``httpx`` errors for transport failures, so the caller
     can classify the reason.
     """
     settings = get_settings()
-    # Country-aware Accept-Language header (issue #129, #164)
-    # Default to Brazilian Portuguese
-    accept_language = "pt-BR,pt;q=0.9,en;q=0.8"
-    
-    # Spanish-speaking SA countries (.ar, .cl, .co, .ec, .py, .pe, .uy, .ve, .bo)
-    spanish_cctlds = [".ar", ".cl", ".co", ".ec", ".py", ".pe", ".uy", ".ve", ".bo"]
-    if any(f"{tld}/" in url or url.endswith(tld) for tld in spanish_cctlds):
-        accept_language = "es,es-419;q=0.9,pt-BR;q=0.8,pt;q=0.7,en;q=0.6"
-    # Guyana (.gy) - English
-    elif ".gy/" in url or url.endswith(".gy"):
-        accept_language = "en,en-US;q=0.9,es;q=0.8,pt;q=0.7"
-    # Suriname (.sr) - Dutch
-    elif ".sr/" in url or url.endswith(".sr"):
-        accept_language = "nl,nl-NL;q=0.9,en;q=0.8,pt;q=0.7"
+    accept_language = get_accept_language_for_country(country)
 
     headers = {
         "User-Agent": settings.download_user_agent,
@@ -251,12 +272,12 @@ async def download_source_content(source_id: int) -> DownloadOutcome:
     import time
     from sqlalchemy import text
 
-    # Step 1: read the target URL in a short-lived session, then release the
-    # connection so we don't hold it during the (slow) network fetch.
+    # Step 1: read the target URL and country in a short-lived session, then release
+    # the connection so we don't hold it during the (slow) network fetch.
     async with async_session_maker() as session:
         result = await session.execute(
             text(
-                "SELECT resolved_url, google_news_url, headline "
+                "SELECT resolved_url, google_news_url, headline, country "
                 "FROM source_google_news WHERE id = :id"
             ),
             {"id": source_id},
@@ -270,6 +291,7 @@ async def download_source_content(source_id: int) -> DownloadOutcome:
         resolved_url = row[0]
         google_news_url = row[1]
         headline = row[2]
+        country = row[3]
     
     # Issue #171 & #207: If resolved_url is NULL but google_news_url exists,
     # try to resolve it now (handles decoder failures during ingest)
@@ -375,7 +397,7 @@ async def download_source_content(source_id: int) -> DownloadOutcome:
     # step holds a DB connection.
     started = time.monotonic()
     try:
-        status_code, html = await _fetch_html(target_url)
+        status_code, html = await _fetch_html(target_url, country)
     except Exception as e:
         duration_ms = int((time.monotonic() - started) * 1000)
         reason = diagnostics.classify_download_exception(e)
