@@ -3,9 +3,13 @@
 Accept-Language should follow source country, not URL TLD.
 When a URL has no country TLD (e.g., news.google.com), the language
 must come from the source's country field, not default to Brazilian Portuguese.
+
+Critical: Tests must verify the actual HTTP headers sent to httpx, not just
+the country argument. Mocking _fetch_html is insufficient to catch regressions
+where TLD sniffing is reintroduced inside _fetch_html.
 """
 
-from unittest.mock import AsyncMock, patch, ANY
+from unittest.mock import AsyncMock, patch, ANY, MagicMock
 import pytest
 
 from app.services.download import download_source_content, DownloadOutcome
@@ -46,6 +50,161 @@ def _source(**kwargs):
     }
     defaults.update(kwargs)
     return SourceGoogleNews(**defaults)
+
+
+@pytest.mark.asyncio
+async def test_argentina_news_google_com_sends_spanish_header_not_portuguese(download_db):
+    """
+    Integration test: Argentina source with news.google.com sends Spanish in HTTP header.
+    
+    Issue #209 acceptance: Verify the actual Accept-Language HTTP header sent to httpx
+    is Spanish (es,es-419), not Brazilian Portuguese (pt-BR), when source country is AR
+    and URL has no .ar ending.
+    
+    This test does NOT mock _fetch_html or get_accept_language_for_country.
+    It mocks httpx.AsyncClient to capture the headers actually sent.
+    
+    If someone reintroduces TLD sniffing inside _fetch_html, this test will fail.
+    """
+    from app.models.source_google_news import SourceStatus
+
+    source = _source(
+        google_news_id="ar-news-google",
+        resolved_url="https://news.google.com/articles/xyz123",
+        country="AR",
+        status=SourceStatus.ready_for_download,
+    )
+    download_db.add(source)
+    await download_db.commit()
+    await download_db.refresh(source)
+
+    html = "<html><body>Un hombre fue asesinado en Buenos Aires.</body></html>"
+    
+    # Mock httpx.AsyncClient to capture the headers
+    mock_response = MagicMock()
+    mock_response.status_code = 200
+    mock_response.text = html
+    mock_response.raise_for_status = MagicMock()
+    
+    captured_headers = {}
+    
+    async def mock_get(url):
+        # Capture headers from the client's headers attribute
+        return mock_response
+    
+    mock_client = MagicMock()
+    mock_client.get = AsyncMock(side_effect=mock_get)
+    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+    mock_client.__aexit__ = AsyncMock(return_value=None)
+    
+    def capture_client_init(follow_redirects, timeout, headers):
+        captured_headers.update(headers)
+        return mock_client
+    
+    with patch(
+        "app.services.download.httpx.AsyncClient",
+        side_effect=capture_client_init,
+    ), patch(
+        "app.services.download.extract_content_and_metadata",
+        return_value=("Un hombre fue asesinado.", None),
+    ), patch(
+        "app.services.download.classify_article_content",
+    ), patch(
+        "app.services.download.diagnostics.record_attempt",
+        new=AsyncMock(),
+    ):
+        outcome = await download_source_content(source.id)
+
+    # Assert the Accept-Language header is Spanish, not Brazilian Portuguese
+    assert "Accept-Language" in captured_headers
+    accept_lang = captured_headers["Accept-Language"]
+    
+    # Spanish must be primary (appears first)
+    assert accept_lang.startswith("es"), \
+        f"Expected Spanish (es) as primary language, got: {accept_lang}"
+    
+    # Brazilian Portuguese must NOT be primary
+    assert not accept_lang.startswith("pt-BR"), \
+        f"Brazilian Portuguese should not be primary for AR source, got: {accept_lang}"
+    
+    # Full string check
+    assert accept_lang == "es,es-419;q=0.9,pt-BR;q=0.8,pt;q=0.7,en;q=0.6", \
+        f"Expected Spanish Accept-Language, got: {accept_lang}"
+
+
+@pytest.mark.asyncio
+async def test_brazil_bare_com_url_sends_portuguese_header(download_db):
+    """
+    Integration test: Brazil source with bare .com URL sends Brazilian Portuguese header.
+    
+    Verifies that when country=BR and URL has no .br ending, the Accept-Language
+    header is Brazilian Portuguese (pt-BR), not Spanish.
+    
+    This test does NOT mock _fetch_html or get_accept_language_for_country.
+    """
+    from app.models.source_google_news import SourceStatus
+
+    source = _source(
+        google_news_id="br-bare-com",
+        resolved_url="https://example.com/article/12345",
+        country="BR",
+        status=SourceStatus.ready_for_download,
+    )
+    download_db.add(source)
+    await download_db.commit()
+    await download_db.refresh(source)
+
+    html = "<html><body>Um homem foi morto a tiros na cidade.</body></html>"
+    
+    # Mock httpx.AsyncClient to capture the headers
+    mock_response = MagicMock()
+    mock_response.status_code = 200
+    mock_response.text = html
+    mock_response.raise_for_status = MagicMock()
+    
+    captured_headers = {}
+    
+    async def mock_get(url):
+        return mock_response
+    
+    mock_client = MagicMock()
+    mock_client.get = AsyncMock(side_effect=mock_get)
+    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+    mock_client.__aexit__ = AsyncMock(return_value=None)
+    
+    def capture_client_init(follow_redirects, timeout, headers):
+        captured_headers.update(headers)
+        return mock_client
+    
+    with patch(
+        "app.services.download.httpx.AsyncClient",
+        side_effect=capture_client_init,
+    ), patch(
+        "app.services.download.extract_content_and_metadata",
+        return_value=("Um homem foi morto.", None),
+    ), patch(
+        "app.services.download.classify_article_content",
+    ), patch(
+        "app.services.download.diagnostics.record_attempt",
+        new=AsyncMock(),
+    ):
+        outcome = await download_source_content(source.id)
+
+    # Assert the Accept-Language header is Brazilian Portuguese
+    assert "Accept-Language" in captured_headers
+    accept_lang = captured_headers["Accept-Language"]
+    
+    # Brazilian Portuguese must be primary
+    assert accept_lang.startswith("pt-BR"), \
+        f"Expected Brazilian Portuguese (pt-BR) as primary, got: {accept_lang}"
+    
+    # Spanish must NOT be primary
+    assert not accept_lang.startswith("es"), \
+        f"Spanish should not be primary for BR source, got: {accept_lang}"
+    
+    # Full string check
+    assert accept_lang == "pt-BR,pt;q=0.9,en;q=0.8", \
+        f"Expected Brazilian Portuguese Accept-Language, got: {accept_lang}"
 
 
 @pytest.mark.asyncio
