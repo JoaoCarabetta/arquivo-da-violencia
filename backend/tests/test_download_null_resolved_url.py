@@ -113,7 +113,10 @@ async def test_download_processes_null_resolved_url_with_late_resolution_success
 @pytest.mark.asyncio
 async def test_download_processes_null_resolved_url_with_late_resolution_failure(test_db):
     """
-    Test that sources with NULL resolved_url are still processed when late resolution fails.
+    Test that sources with NULL resolved_url are NOT downloaded when late resolution fails.
+    
+    Issue #207: When unwrap fails both at ingest and at download time, do NOT fetch
+    from the Google News URL. Mark the source as failed instead.
     
     When a source has:
     - status = ready_for_download
@@ -121,8 +124,8 @@ async def test_download_processes_null_resolved_url_with_late_resolution_failure
     - google_news_url present
     
     And late resolution ALSO fails (returns None), the source should:
-    - Still be processed (processed==1) via fallback to google_news_url
-    - NOT skip the source
+    - Be processed but marked FAILED (not downloaded from Google News URL)
+    - NOT reach ready_for_extraction status
     """
     source = SourceGoogleNews(
         google_news_id="test-null-resolved-failure",
@@ -138,32 +141,33 @@ async def test_download_processes_null_resolved_url_with_late_resolution_failure
     await test_db.refresh(source)
     
     maker = _TestSessionMaker(test_db)
-    html = "<html><body>Dois mortos em tiroteio.</body></html>"
-    content = "Dois mortos em tiroteio."
+    mock_fetch = AsyncMock()
     
     with (
         patch("app.services.download.async_session_maker", maker),
         patch("app.services.diagnostics.async_session_maker", maker),
-        patch("app.services.ingestion.resolve_google_news_url", return_value=None) as mock_resolve,  # Late resolution also fails
-        patch("app.services.download._fetch_html", new=AsyncMock(return_value=(200, html))),
-        patch("app.services.download.extract_content_and_metadata", return_value=(content, None)),
-        patch("app.services.download.classify_article_content", new=AsyncMock()),
-        patch("app.services.download.passes_content_gate", return_value=True),
+        patch("app.services.ingestion.resolve_google_news_url", return_value=None),  # Late resolution also fails
+        patch("app.services.download._fetch_html", new=mock_fetch),  # Should NOT be called
         patch("app.services.diagnostics.record_attempt", new=AsyncMock()),
     ):
         result = await download_classified_sources(limit=10)
     
-    # Should still process 1 source (fallback to google_news_url)
-    assert result["processed"] == 1, (
-        f"Expected 1 processed via fallback to google_news_url, got {result['processed']}"
-    )
-    assert result["successful"] == 1, f"Expected 1 successful, got {result['successful']}"
+    # Should be processed but failed (NOT downloaded from Google News URL)
+    assert result["processed"] == 1, f"Expected 1 processed, got {result['processed']}"
+    assert result["successful"] == 0, f"Expected 0 successful, got {result['successful']}"
+    assert result["failed"] == 1, f"Expected 1 failed, got {result['failed']}"
     
-    # Verify resolved_url is still NULL (late resolution failed)
+    # HTTP fetch should NOT have been called
+    mock_fetch.assert_not_called()
+    
+    # Verify source is marked failed and resolved_url is still NULL
     await test_db.refresh(source)
     assert source.resolved_url is None, (
         f"Expected resolved_url to remain NULL when late resolution fails, "
         f"but got {source.resolved_url}"
+    )
+    assert source.status == SourceStatus.failed_in_download, (
+        f"Expected status failed_in_download, got {source.status}"
     )
 
 

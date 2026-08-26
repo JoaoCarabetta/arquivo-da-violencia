@@ -271,7 +271,7 @@ async def download_source_content(source_id: int) -> DownloadOutcome:
         google_news_url = row[1]
         headline = row[2]
     
-    # Issue #171: If resolved_url is NULL but google_news_url exists,
+    # Issue #171 & #207: If resolved_url is NULL but google_news_url exists,
     # try to resolve it now (handles decoder failures during ingest)
     if not resolved_url and google_news_url:
         logger.info(f"Source {source_id}: resolved_url is NULL, attempting late resolution")
@@ -288,10 +288,36 @@ async def download_source_content(source_id: int) -> DownloadOutcome:
                 )
                 await session.commit()
         else:
-            logger.warning(f"Source {source_id}: late resolution failed, will use google_news_url")
+            # Issue #207: If late resolution also failed, do NOT fetch from Google News URL.
+            # Mark as failed instead of downloading the Google language picker page.
+            logger.warning(
+                f"Source {source_id}: late resolution failed, cannot download from Google News URL"
+            )
+            async with async_session_maker() as session:
+                await session.execute(
+                    text("""
+                        UPDATE source_google_news 
+                        SET status = 'failed_in_download', updated_at = CURRENT_TIMESTAMP
+                        WHERE id = :id
+                    """),
+                    {"id": source_id}
+                )
+                await session.commit()
+            await diagnostics.record_attempt(
+                stage=diagnostics.STAGE_DOWNLOAD,
+                outcome=diagnostics.OUTCOME_FAILURE,
+                source_google_news_id=source_id,
+                failure_reason=diagnostics.NO_URL,
+                failure_detail="Unwrap failed: cannot resolve Google News URL to newspaper URL",
+                http_status=None,
+                url_domain=None,
+                duration_ms=0,
+                attempt_number=await diagnostics.count_attempts(source_id, diagnostics.STAGE_DOWNLOAD) + 1,
+            )
+            return DownloadOutcome.failed
     
-    # Use resolved URL if available, otherwise fall back to Google News URL
-    target_url = resolved_url or google_news_url
+    # Use resolved URL (newspaper URL only, never Google News URL)
+    target_url = resolved_url
     
     if not target_url:
         async with async_session_maker() as session:
