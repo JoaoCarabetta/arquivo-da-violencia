@@ -106,6 +106,7 @@ _FOREIGN_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
 )
 
 # Suicides and animal cruelty — out of scope even when violent.
+# Google interstitial pages (language picker, consent) — issue #208.
 _NON_INCIDENT_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
     (
         "suicide",
@@ -119,6 +120,20 @@ _NON_INCIDENT_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
         re.compile(
             r"\b(cachorro|gato|animal|cavalo).{0,40}\b(morto|mortos|envenenado|maltratado)\b",
             re.IGNORECASE,
+        ),
+    ),
+    (
+        "google_consent_page",
+        re.compile(
+            r"\bbefore\s+you\s+continue\b",
+            re.IGNORECASE,
+        ),
+    ),
+    (
+        "google_language_picker",
+        re.compile(
+            r"Português\s*Brasil.*Deutsch.*English",
+            re.IGNORECASE | re.DOTALL,
         ),
     ),
 )
