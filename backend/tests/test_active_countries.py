@@ -251,9 +251,15 @@ class TestClassifyActiveCountries:
             await session.refresh(ar_source)
             br_id, ar_id = br_source.id, ar_source.id
 
-        with patch(
-            "app.services.classification.classify_headline",
-            return_value=_classification(),
+        with (
+            patch(
+                "app.services.classification.get_pipeline_active_countries",
+                return_value=list(ALL_COUNTRIES),
+            ),
+            patch(
+                "app.services.classification.classify_headline",
+                return_value=_classification(),
+            ),
         ):
             result = await classify_pending_sources(limit=10, concurrency=2)
 

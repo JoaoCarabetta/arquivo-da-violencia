@@ -54,6 +54,12 @@ class Settings(BaseSettings):
     # Pipeline settings
     pipeline_max_workers: int = 10
     pipeline_batch_size: int = 50
+    # ISO 3166-1 alpha-2 codes ingest + headline classification should process.
+    # Empty list (default / unset) = all countries in ALL_COUNTRIES (current behavior).
+    # Prod and staging machines: PIPELINE_ACTIVE_COUNTRIES=["BR"] so OpenRouter
+    # credit is not spent on the other 11 South American countries.
+    # Loaded from env as JSON, same as cors_origins (pydantic-settings).
+    pipeline_active_countries: list[str] = []
 
     # Download settings
     download_timeout_seconds: float = 20.0
@@ -124,3 +130,22 @@ class Settings(BaseSettings):
 def get_settings() -> Settings:
     """Get cached settings instance."""
     return Settings()
+
+
+def get_pipeline_active_countries() -> list[str]:
+    """Return ISO 3166-1 alpha-2 codes ingest and classify should process.
+
+    Empty or absent ``pipeline_active_countries`` returns every code in
+    ``ALL_COUNTRIES`` so existing tests and unrestricted deploys keep the
+    12-country behavior. Configured values are stripped and uppercased.
+    """
+    from app.country_registry import ALL_COUNTRIES
+
+    configured = [
+        code.strip().upper()
+        for code in get_settings().pipeline_active_countries
+        if code and str(code).strip()
+    ]
+    if not configured:
+        return list(ALL_COUNTRIES)
+    return configured
