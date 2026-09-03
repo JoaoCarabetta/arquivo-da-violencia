@@ -3,6 +3,8 @@
 from unittest.mock import AsyncMock, patch
 
 import pytest
+from sqlalchemy.ext.asyncio import create_async_engine
+from sqlmodel import SQLModel
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.country_registry import ALL_COUNTRIES
@@ -47,10 +49,20 @@ class _EngineSessionContext:
 
 
 @pytest.fixture
-def classification_batch_db(async_engine):
-    maker = _EngineSessionMaker(async_engine)
+async def classification_batch_db(tmp_path):
+    # File-backed SQLite so parallel classify_source sessions share one DB.
+    # In-memory + StaticPool races with _reset_unfinished_classifying.
+    engine = create_async_engine(
+        f"sqlite+aiosqlite:///{tmp_path / 'active_countries.db'}",
+        echo=False,
+        future=True,
+    )
+    async with engine.begin() as conn:
+        await conn.run_sync(SQLModel.metadata.create_all)
+    maker = _EngineSessionMaker(engine)
     with patch("app.services.classification.async_session_maker", maker):
-        yield async_engine
+        yield engine
+    await engine.dispose()
 
 
 def _source(**kwargs):
