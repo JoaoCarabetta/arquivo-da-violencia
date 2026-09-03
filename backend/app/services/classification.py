@@ -15,6 +15,10 @@ from app.database import async_session_maker
 from app.models import SourceGoogleNews, SourceStatus
 
 
+class ClassificationModelCallError(Exception):
+    """Raised when the upstream LLM/model call fails (HTTP 402, 401, timeout, etc.)."""
+
+
 class ViolentDeathClassification(BaseModel):
     """Classification result for whether news is about a violent death."""
     
@@ -394,7 +398,9 @@ async def classify_source(source_id: int) -> bool:
                 {"id": source_id},
             )
             await session.commit()
-        return False
+        raise ClassificationModelCallError(
+            f"Model call failed for source {source_id}: {e}"
+        ) from e
 
     # Step 3: persist the result in a fresh short-lived session.
     passes_gate = classification.is_violent_death and classification.is_single_incident
@@ -487,6 +493,8 @@ async def classify_pending_sources(limit: int = 50, concurrency: int = 10) -> di
                 "violent_death": 0,
                 "discarded": 0,
                 "errors": 0,
+                "model_call_errors": 0,
+                "other_errors": 0,
             }
         
         # Atomically claim these sources by updating status to prevent race conditions
@@ -516,6 +524,8 @@ async def classify_pending_sources(limit: int = 50, concurrency: int = 10) -> di
             "violent_death": 0,
             "discarded": 0,
             "errors": 0,
+            "model_call_errors": 0,
+            "other_errors": 0,
         }
     
     # Semaphore to limit concurrency
@@ -541,26 +551,35 @@ async def classify_pending_sources(limit: int = 50, concurrency: int = 10) -> di
     
     violent_death_count = 0
     discarded_count = 0
-    error_count = 0
-    
+    model_call_error_count = 0
+    other_error_count = 0
+
     for result in results:
-        if isinstance(result, Exception):
+        if isinstance(result, ClassificationModelCallError):
+            logger.error(f"Classification model call failed: {result}")
+            model_call_error_count += 1
+        elif isinstance(result, Exception):
             logger.error(f"Classification failed with exception: {result}")
-            error_count += 1
+            other_error_count += 1
         elif result is True:
             violent_death_count += 1
         else:
             discarded_count += 1
-    
+
+    error_count = model_call_error_count + other_error_count
+
     logger.info(
         f"Classification complete: {violent_death_count} violent death, "
-        f"{discarded_count} discarded, {error_count} errors"
+        f"{discarded_count} discarded, {error_count} errors "
+        f"(model_call={model_call_error_count}, other={other_error_count})"
     )
-    
+
     return {
         "processed": len(source_ids),
         "violent_death": violent_death_count,
         "discarded": discarded_count,
         "errors": error_count,
+        "model_call_errors": model_call_error_count,
+        "other_errors": other_error_count,
     }
 
