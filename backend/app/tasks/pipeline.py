@@ -131,9 +131,20 @@ async def classify_task(ctx: dict, source_id: int) -> dict:
     """
     logger.info(f"[CLASSIFY] Starting for source_id: {source_id}")
     
-    from app.services.classification import classify_source
-    
-    is_violent_death = await classify_source(source_id)
+    from app.services.classification import ClassificationModelCallError, classify_source
+
+    try:
+        is_violent_death = await classify_source(source_id)
+    except ClassificationModelCallError as e:
+        logger.warning(
+            f"[CLASSIFY] source_id {source_id}: model call failed (row reset to queue): {e}"
+        )
+        return {
+            "status": "requeued",
+            "task": "classify",
+            "source_id": source_id,
+            "reason": "model_call_error",
+        }
     
     if is_violent_death:
         logger.info(f"[CLASSIFY] source_id {source_id}: VIOLENT DEATH - enqueueing download")
@@ -585,6 +596,8 @@ async def _run_classify_until_drained(
         "violent_death": 0,
         "discarded": 0,
         "errors": 0,
+        "model_call_errors": 0,
+        "other_errors": 0,
     }
     for batch in range(1, max_batches + 1):
         result = await classify_pending_sources(
