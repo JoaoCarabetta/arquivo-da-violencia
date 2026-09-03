@@ -19,6 +19,7 @@ from app.services.cities import (
     REQUESTS_PER_MINUTE,
     SHARDING_THRESHOLD,
 )
+from app.config import get_pipeline_active_countries
 from app.geography import Country
 from app.country_registry import ALL_COUNTRIES, get_country_config
 
@@ -575,26 +576,32 @@ async def ingest_all_countries(
     max_concurrent: int = 10,
 ) -> dict:
     """
-    Ingest news for all configured cities across all countries in the registry.
-    
-    Iterates the country registry and runs ingestion for all supported countries.
-    
+    Ingest news for configured cities across active countries.
+
+    Iterates ``get_pipeline_active_countries()`` (ALL_COUNTRIES when the
+    setting is empty). Country registry entries are not removed — inactive
+    codes are simply skipped.
+
     Args:
         when: Time filter (default "1h" for hourly ingestion)
         resolve_urls: Whether to resolve obfuscated URLs
         max_concurrent: Maximum concurrent city ingestions per country
-    
+
     Returns:
         Summary dict with statistics per country
     """
-    logger.info(f"Starting multi-country ingestion ({len(ALL_COUNTRIES)} countries)")
-    
+    active_countries = get_pipeline_active_countries()
+    logger.info(
+        f"Starting multi-country ingestion "
+        f"({len(active_countries)} of {len(ALL_COUNTRIES)} countries): {active_countries}"
+    )
+
     import time
     start_time = time.time()
-    
-    # Create ingestion tasks for all countries
+
+    # Create ingestion tasks for active countries only
     tasks = []
-    for country_code in ALL_COUNTRIES:
+    for country_code in active_countries:
         task = ingest_all_cities(
             cities=None,  # Use config cities
             when=when,
@@ -603,29 +610,32 @@ async def ingest_all_countries(
             country=country_code,
         )
         tasks.append(task)
-    
+
     # Run all countries in parallel
     results = await asyncio.gather(*tasks)
-    
+
     elapsed = time.time() - start_time
-    
+
     # Aggregate results
     country_results = {}
     total_entries = 0
     total_sources = 0
-    
-    for country_code, result in zip(ALL_COUNTRIES, results):
+
+    for country_code, result in zip(active_countries, results):
         country_results[country_code] = result
         total_entries += result["total_entries"]
         total_sources += result["total_sources_created"]
-    
+
     logger.info(f"\n{'='*60}")
-    logger.info(f"MULTI-COUNTRY INGESTION COMPLETE ({len(ALL_COUNTRIES)} countries)")
+    logger.info(
+        f"MULTI-COUNTRY INGESTION COMPLETE "
+        f"({len(active_countries)} countries): {active_countries}"
+    )
     logger.info(f"Total entries: {total_entries}")
     logger.info(f"Total sources: {total_sources}")
     logger.info(f"Time: {elapsed:.1f}s")
     logger.info(f"{'='*60}")
-    
+
     return {
         "total_entries": total_entries,
         "total_sources_created": total_sources,

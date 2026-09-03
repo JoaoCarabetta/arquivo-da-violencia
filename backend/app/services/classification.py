@@ -10,7 +10,7 @@ from sqlmodel import select
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 
 from app.services.classification_heuristics import apply_classification_heuristics
-from app.config import get_settings
+from app.config import get_pipeline_active_countries, get_settings
 from app.database import async_session_maker
 from app.models import SourceGoogleNews, SourceStatus
 
@@ -459,33 +459,57 @@ async def _reset_unfinished_classifying(source_ids: list[int]) -> int:
         return result.rowcount or 0
 
 
+def _sql_country_in_list(countries: list[str]) -> str:
+    """Quote ISO codes for a SQL IN clause; reject anything that is not AA."""
+    safe = []
+    for code in countries:
+        normalized = str(code).strip().upper()
+        if len(normalized) == 2 and normalized.isalpha():
+            safe.append(f"'{normalized}'")
+    if not safe:
+        return "'__none__'"
+    return ", ".join(safe)
+
+
 async def classify_pending_sources(limit: int = 50, concurrency: int = 10) -> dict:
     """
-    Batch classify all sources that are ready for classification (in parallel).
-    
+    Batch classify sources that are ready for classification (in parallel).
+
+    Only rows whose ``country`` is in ``pipeline_active_countries`` are
+    claimed. ``country IS NULL`` is treated as ``BR`` (legacy Brazil rows).
+    Inactive-country rows stay ``ready_for_classification`` — no discard,
+    no model call.
+
     Args:
         limit: Maximum number of sources to process
         concurrency: Maximum number of parallel classifications
-    
+
     Returns:
         Dict with classification statistics
     """
     import asyncio
-    
+    from sqlalchemy import text
+
+    active_countries = get_pipeline_active_countries()
+    country_in = _sql_country_in_list(active_countries)
+    logger.info(
+        f"Starting classification; active countries={active_countries}"
+    )
+
     # Use raw SQL to avoid SQLAlchemy enum caching issues
     async with async_session_maker() as session:
-        from sqlalchemy import text
         result = await session.execute(
-            text("""
-                SELECT id FROM source_google_news 
-                WHERE status = 'ready_for_classification' 
-                AND headline IS NOT NULL 
+            text(f"""
+                SELECT id FROM source_google_news
+                WHERE status = 'ready_for_classification'
+                AND headline IS NOT NULL
+                AND COALESCE(country, 'BR') IN ({country_in})
                 LIMIT :limit
             """),
             {"limit": limit}
         )
         candidate_ids = [row[0] for row in result.fetchall()]
-        
+
         if not candidate_ids:
             logger.info(f"Found 0 sources to classify")
             return {
@@ -496,14 +520,18 @@ async def classify_pending_sources(limit: int = 50, concurrency: int = 10) -> di
                 "model_call_errors": 0,
                 "other_errors": 0,
             }
-        
-        # Atomically claim these sources by updating status to prevent race conditions
+
+        # Atomically claim these sources by updating status to prevent race conditions.
+        # Country filter is repeated so a row from an inactive country cannot be
+        # claimed even if it slipped into candidate_ids.
         await session.execute(
-            text("""
-                UPDATE source_google_news 
+            text(f"""
+                UPDATE source_google_news
                 SET status = 'classifying', updated_at = CURRENT_TIMESTAMP
-                WHERE id IN ({}) AND status = 'ready_for_classification'
-            """.format(",".join(str(id) for id in candidate_ids)))
+                WHERE id IN ({",".join(str(id) for id in candidate_ids)})
+                AND status = 'ready_for_classification'
+                AND COALESCE(country, 'BR') IN ({country_in})
+            """)
         )
         await session.commit()
         
