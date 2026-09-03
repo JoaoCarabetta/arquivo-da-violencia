@@ -1,6 +1,6 @@
 """Tests for classification error handling vs content-gate discards (issue #215)."""
 
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from sqlmodel.ext.asyncio.session import AsyncSession
@@ -225,3 +225,36 @@ async def test_classify_pending_sources_mixed_discard_and_model_errors(
         async with AsyncSession(classification_batch_db) as session:
             row = await session.get(SourceGoogleNews, source.id)
         assert row.status == SourceStatus.ready_for_classification
+
+
+@pytest.mark.asyncio
+async def test_classify_task_requeues_on_model_call_error(classification_db):
+    from app.models.source_google_news import SourceStatus
+    from app.tasks.pipeline import classify_task
+
+    source = _source(
+        google_news_id="task-fail-1",
+        headline="Homem é morto a tiros em operação policial",
+    )
+    classification_db.add(source)
+    await classification_db.commit()
+    await classification_db.refresh(source)
+    source_id = source.id
+
+    ctx = {"redis": AsyncMock()}
+
+    with patch(
+        "app.services.classification.classify_headline",
+        side_effect=InsufficientCreditsError(),
+    ):
+        result = await classify_task(ctx, source_id)
+
+    assert result["status"] != "completed"
+    assert result["status"] == "requeued"
+    assert "is_violent_death" not in result
+    assert result["reason"] == "model_call_error"
+    assert result["task"] == "classify"
+    assert result["source_id"] == source_id
+
+    await classification_db.refresh(source)
+    assert source.status == SourceStatus.ready_for_classification

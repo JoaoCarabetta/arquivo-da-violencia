@@ -140,10 +140,10 @@ async def classify_task(ctx: dict, source_id: int) -> dict:
             f"[CLASSIFY] source_id {source_id}: model call failed (row reset to queue): {e}"
         )
         return {
-            "status": "completed",
+            "status": "requeued",
             "task": "classify",
             "source_id": source_id,
-            "is_violent_death": False,
+            "reason": "model_call_error",
         }
     
     if is_violent_death:
