@@ -16,6 +16,7 @@
 #   GITHUB_TOKEN=your-github-token  # For creating issues on failures
 #   GITHUB_REPO=owner/repo  # Repository for issues
 #   POSTGRES_PASSWORD=strong-password  # PostgreSQL password
+#   PIPELINE_ACTIVE_COUNTRIES=["BR"]   # ingest/classify Brazil only (issue #217)
 #
 # =============================================================================
 
@@ -91,6 +92,7 @@ services:
       - ENVIRONMENT=production
       - ENABLE_AUTH=true
       - CORS_ORIGINS=["http://localhost:5173","http://localhost:3000","http://localhost:80","https://arquivodaviolencia.com.br","https://www.arquivodaviolencia.com.br"]
+      - PIPELINE_ACTIVE_COUNTRIES=${PIPELINE_ACTIVE_COUNTRIES:-["BR"]}
       - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN:-}
       - TELEGRAM_CHAT_ID=${TELEGRAM_CHAT_ID:-}
       - HETZNER_API_TOKEN=${HETZNER_API_TOKEN:-}
@@ -140,6 +142,7 @@ services:
       - ENRICHMENT_MODEL=${ENRICHMENT_MODEL:-deepseek/deepseek-v4-flash}
       - GOOGLE_MAPS_API_KEY=${GOOGLE_MAPS_API_KEY:-}
       - ENABLE_CRON=${ENABLE_CRON:-false}
+      - PIPELINE_ACTIVE_COUNTRIES=${PIPELINE_ACTIVE_COUNTRIES:-["BR"]}
       - ENVIRONMENT=production
       - ENABLE_AUTH=true
       - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN:-}
