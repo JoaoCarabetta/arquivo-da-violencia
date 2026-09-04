@@ -1,5 +1,7 @@
 """Telegram/notify failure must not freeze or abort batch_dedup (#220)."""
 
+import asyncio
+import time
 from datetime import datetime
 from unittest.mock import AsyncMock, patch
 
@@ -12,7 +14,6 @@ from app.services.enrichment import (
     process_pending_deduplication,
 )
 from app.services.telegram import TelegramNotifier
-
 
 PENDING_COUNT = 10
 CITIES = [
@@ -115,6 +116,7 @@ async def test_create_unique_event_from_cluster_survives_notify_raise(async_sess
     await async_session.commit()
     await async_session.refresh(raw_event)
 
+    raw_event_id = raw_event.id
     with (
         patch(
             "app.services.enrichment.async_session_maker",
@@ -131,7 +133,7 @@ async def test_create_unique_event_from_cluster_survives_notify_raise(async_sess
     assert await _count_unique_events(async_session) == 1
     clustered = await async_session.execute(
         text("SELECT deduplication_status FROM raw_event WHERE id = :id"),
-        {"id": raw_event.id},
+        {"id": raw_event_id},
     )
     assert clustered.scalar_one() == "clustered"
 
@@ -141,9 +143,6 @@ async def test_create_unique_event_from_cluster_does_not_wait_on_slow_notify(
     async_session,
 ):
     """Slow Telegram must not serialize into UniqueEvent create for more than a short cap."""
-    import asyncio
-    import time
-
     raw_event = _pending_raw_events()[1]
     async_session.add(raw_event)
     await async_session.commit()

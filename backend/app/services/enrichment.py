@@ -11,6 +11,7 @@ Deduplication Strategy:
 4. Enrich UniqueEvents using all related sources via LLM
 """
 
+import asyncio
 import json
 import re
 from collections import Counter, defaultdict
@@ -29,6 +30,25 @@ from app.models import RawEvent, UniqueEvent
 from app.services.extraction_derived import derive_public_fields_from_data
 from app.services.telegram import notify_new_death
 from app.taxonomy import format_legacy_homicide_type, parse_legacy_homicide_type
+
+# Cap Telegram round-trips so a hung notify cannot burn the ARQ job budget (#220).
+NOTIFY_NEW_DEATH_TIMEOUT_SECONDS = 2.0
+
+
+async def _notify_new_death_best_effort(**kwargs) -> None:
+    """Best-effort Telegram notify; never raise into UniqueEvent create/batch."""
+    unique_event_id = kwargs.get("unique_event_id")
+    try:
+        await asyncio.wait_for(
+            notify_new_death(**kwargs),
+            timeout=NOTIFY_NEW_DEATH_TIMEOUT_SECONDS,
+        )
+    except Exception as exc:
+        logger.warning(
+            "[Create] Telegram notify failed for UniqueEvent {}: {}",
+            unique_event_id,
+            exc,
+        )
 
 
 def parse_datetime(value) -> datetime | None:
@@ -1189,6 +1209,20 @@ async def create_unique_event_from_cluster(cluster: list[RawEvent]) -> UniqueEve
                 {"raw_event_id": raw_event_id, "unique_event_id": unique_event_id}
             )
         
+        # Snapshot notify fields before commit so expired ORM attributes cannot
+        # block or fail the post-commit Telegram path (#220).
+        notify_kwargs = {
+            "unique_event_id": unique_event_id,
+            "title": best.title,
+            "city": best.city,
+            "state": best.state,
+            "event_date": best.event_date,
+            "victim_count": best.victim_count,
+            "victims_summary": victims_summary,
+            "homicide_type": best.homicide_type,
+            "source_count": len(cluster),
+        }
+
         await session.commit()
         
         logger.info(f"[Create] Created UniqueEvent {unique_event_id} from {len(cluster)} RawEvent(s): {raw_event_ids}")
@@ -1211,18 +1245,8 @@ async def create_unique_event_from_cluster(cluster: list[RawEvent]) -> UniqueEve
             needs_enrichment=row.needs_enrichment,
         )
         
-        # Send Telegram notification for new death
-        await notify_new_death(
-            unique_event_id=unique_event_id,
-            title=best.title,
-            city=best.city,
-            state=best.state,
-            event_date=best.event_date,
-            victim_count=best.victim_count,
-            victims_summary=victims_summary,
-            homicide_type=best.homicide_type,
-            source_count=len(cluster),
-        )
+        # Best-effort: Telegram must not abort or freeze UniqueEvent create.
+        await _notify_new_death_best_effort(**notify_kwargs)
         
         return unique_event
 
@@ -1752,7 +1776,6 @@ async def enrich_unique_event(unique_event_id: int) -> bool:
                 winning_payload = payload
         
         # Update UniqueEvent with enriched data (retry transient SQLite locks).
-        import asyncio
         from sqlalchemy.exc import OperationalError
 
         update_params = {
