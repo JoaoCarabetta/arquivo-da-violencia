@@ -435,9 +435,21 @@ sys.path.insert(0, "/app")
 from app.services.pipeline_health import (
     InProgressJob,
     WorkerLogs,
-    remediator_enqueue_followup,
     should_enqueue_classify_during_remediation,
 )
+# Prod API may not have this helper until a backend deploy. Inline fallback so
+# the synced health script still works against the running image (issue #224).
+try:
+    from app.services.pipeline_health import remediator_enqueue_followup
+except ImportError:
+    def remediator_enqueue_followup(classify_decision_output, had_no_pipeline, had_stale_ingest):
+        if "enqueue=True" in classify_decision_output:
+            return "classify"
+        if "enqueue=False" in classify_decision_output:
+            if had_no_pipeline or had_stale_ingest:
+                return "pipeline"
+            return "skip"
+        return "error"
 
 # Parse in-progress keys
 in_progress_raw = """$arq_in_progress_raw"""
