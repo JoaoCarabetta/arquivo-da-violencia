@@ -465,6 +465,7 @@ PY
         assert "had_stale_ingest=${had_stale_ingest_py}" in text
         assert "had_queue_jam=${had_queue_jam}," not in text
         assert "remediator_enqueue_followup" in text
+        assert "except ImportError:" in text
         assert "enqueue_classify_decision_failed" in text
         assert 'should_enqueue_classify="enqueue=error;reason=check_failed;action=error"' in text
         # Old bug: elif ran on bash flags even when Python decide failed (issue #224).
