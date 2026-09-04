@@ -29,11 +29,14 @@ class InProgressJob:
         # For cron jobs: arq:in-progress:cron:JOB_NAME:TIMESTAMP
         if len(parts) >= 4 and parts[2] == "cron":
             job_name = parts[3]
-            # Try to parse timestamp if present
+            # .isdigit() is not a valid Unix-seconds check; catch fromtimestamp
+            # failures so malformed Redis keys cannot crash the health check.
+            enqueued_at = None
             if len(parts) >= 5 and parts[4].isdigit():
-                enqueued_at = datetime.fromtimestamp(int(parts[4]), tz=timezone.utc)
-            else:
-                enqueued_at = None
+                try:
+                    enqueued_at = datetime.fromtimestamp(int(parts[4]), tz=timezone.utc)
+                except (ValueError, OverflowError, OSError):
+                    enqueued_at = None
         else:
             # Non-cron job: arq:in-progress:JOB_ID
             job_name = "unknown"
