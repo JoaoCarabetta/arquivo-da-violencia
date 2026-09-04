@@ -189,3 +189,38 @@ def should_enqueue_classify_during_remediation(
         return True, "no_pipeline_with_recent_ingest"
     
     return False, "no_condition_met"
+
+
+def bash_bool_to_python_literal(value: str) -> str:
+    """Convert a bash true/false string to a Python True/False literal.
+
+    ``scripts/check-pipeline-health.sh`` interpolates these into an unquoted
+    ``<<PY`` heredoc. Interpolating lowercase ``true``/``false`` is a
+    ``NameError`` (issue #224).
+    """
+    if value == "true":
+        return "True"
+    if value == "false":
+        return "False"
+    raise ValueError(f"expected bash true/false, got {value!r}")
+
+
+def remediator_enqueue_followup(
+    classify_decision_output: str,
+    had_no_pipeline: bool,
+    had_stale_ingest: bool,
+) -> str:
+    """Choose remediator follow-up from the classify-enqueue snippet output.
+
+    A failed or unparseable decision must not enqueue the pipeline (issue #224).
+    The pipeline branch runs only after a clean ``enqueue=False``.
+
+    Returns one of: ``classify``, ``pipeline``, ``skip``, ``error``.
+    """
+    if "enqueue=True" in classify_decision_output:
+        return "classify"
+    if "enqueue=False" in classify_decision_output:
+        if had_no_pipeline or had_stale_ingest:
+            return "pipeline"
+        return "skip"
+    return "error"

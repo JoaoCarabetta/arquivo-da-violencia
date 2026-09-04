@@ -1,14 +1,22 @@
 """Tests for pipeline health check and remediation logic."""
 
-import pytest
+import subprocess
 from datetime import datetime, timezone
+from pathlib import Path
+
+import pytest
 
 from app.services.pipeline_health import (
     InProgressJob,
     WorkerLogs,
-    should_treat_lock_as_stale,
+    bash_bool_to_python_literal,
+    remediator_enqueue_followup,
     should_enqueue_classify_during_remediation,
+    should_treat_lock_as_stale,
 )
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+HEALTH_SCRIPT = REPO_ROOT / "scripts" / "check-pipeline-health.sh"
 
 
 class TestInProgressJob:
@@ -316,3 +324,151 @@ class TestShouldEnqueueClassifyDuringRemediation:
         
         assert not should_enqueue
         assert reason == "active_ingest_with_progress"
+
+
+class TestBashBoolToPythonLiteral:
+    """Convert bash true/false so unquoted heredoc interpolation is valid Python (issue #224)."""
+
+    def test_false_becomes_python_false(self):
+        assert bash_bool_to_python_literal("false") == "False"
+
+    def test_true_becomes_python_true(self):
+        assert bash_bool_to_python_literal("true") == "True"
+
+    def test_rejects_other_values(self):
+        with pytest.raises(ValueError):
+            bash_bool_to_python_literal("False")
+
+
+class TestRemediatorEnqueueFollowup:
+    """
+    Issue #224: a failed classify-enqueue decide must not silently enqueue pipeline.
+
+    The elif had_no_pipeline || had_stale_ingest branch may run only after a clean
+    enqueue=False decision.
+    """
+
+    def test_error_decision_does_not_enqueue_pipeline_when_no_pipeline(self):
+        action = remediator_enqueue_followup(
+            "enqueue=error;reason=check_failed",
+            had_no_pipeline=True,
+            had_stale_ingest=False,
+        )
+        assert action == "error"
+
+    def test_error_decision_does_not_enqueue_pipeline_when_stale_ingest(self):
+        action = remediator_enqueue_followup(
+            "enqueue=error;reason=check_failed",
+            had_no_pipeline=False,
+            had_stale_ingest=True,
+        )
+        assert action == "error"
+
+    def test_empty_or_traceback_decision_is_error_not_pipeline(self):
+        traceback = "NameError: name 'false' is not defined\nenqueue=error;reason=check_failed"
+        assert (
+            remediator_enqueue_followup(
+                traceback, had_no_pipeline=True, had_stale_ingest=True
+            )
+            == "error"
+        )
+        assert remediator_enqueue_followup("", had_no_pipeline=True, had_stale_ingest=True) == "error"
+
+    def test_clean_false_with_no_pipeline_enqueues_pipeline(self):
+        action = remediator_enqueue_followup(
+            "enqueue=False;reason=no_condition_met",
+            had_no_pipeline=True,
+            had_stale_ingest=False,
+        )
+        assert action == "pipeline"
+
+    def test_clean_false_with_stale_ingest_enqueues_pipeline(self):
+        action = remediator_enqueue_followup(
+            "enqueue=False;reason=no_condition_met",
+            had_no_pipeline=False,
+            had_stale_ingest=True,
+        )
+        assert action == "pipeline"
+
+    def test_clean_false_without_pipeline_flags_skips(self):
+        action = remediator_enqueue_followup(
+            "enqueue=False;reason=no_condition_met",
+            had_no_pipeline=False,
+            had_stale_ingest=False,
+        )
+        assert action == "skip"
+
+    def test_clean_true_enqueues_classify(self):
+        action = remediator_enqueue_followup(
+            "enqueue=True;reason=queue_jammed",
+            had_no_pipeline=True,
+            had_stale_ingest=True,
+        )
+        assert action == "classify"
+
+
+class TestRemediatorBoolInterpolation:
+    """The unquoted <<PY heredoc must not see bash lowercase true/false (issue #224)."""
+
+    def test_py_bool_false_flags_do_not_nameerror(self):
+        """All three remediator flags as bash false interpolate as Python False."""
+        script = r"""
+        py_bool() { [ "$1" = true ] && echo True || echo False; }
+        had_queue_jam_py=$(py_bool false)
+        had_no_pipeline_py=$(py_bool false)
+        had_recent_ingest_py=$(py_bool false)
+        python3 - <<PY
+had_queue_jam = ${had_queue_jam_py}
+had_no_pipeline = ${had_no_pipeline_py}
+had_recent_ingest = ${had_recent_ingest_py}
+assert had_queue_jam is False
+assert had_no_pipeline is False
+assert had_recent_ingest is False
+print("ok")
+PY
+        """
+        result = subprocess.run(
+            ["bash", "-c", script],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        assert result.returncode == 0, result.stderr
+        assert result.stdout.strip() == "ok"
+        assert "NameError" not in result.stderr
+
+    def test_raw_bash_false_in_heredoc_nameerrors(self):
+        """Document the original bug: interpolating bash false is a Python NameError."""
+        script = r"""
+        had_queue_jam=false
+        python3 - <<PY
+had_queue_jam = ${had_queue_jam}
+print(had_queue_jam)
+PY
+        """
+        result = subprocess.run(
+            ["bash", "-c", script],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        assert result.returncode != 0
+        assert "NameError" in result.stderr
+        assert "false" in result.stderr
+
+    def test_health_script_interpolates_python_bool_literals(self):
+        text = HEALTH_SCRIPT.read_text()
+        assert 'py_bool() { [ "$1" = true ] && echo True || echo False; }' in text
+        assert "had_queue_jam=${had_queue_jam_py}" in text
+        assert "had_no_pipeline=${had_no_pipeline_py}" in text
+        assert "had_recent_ingest=${had_recent_ingest_py}" in text
+        assert "had_stale_ingest=${had_stale_ingest_py}" in text
+        assert "had_queue_jam=${had_queue_jam}," not in text
+        assert "remediator_enqueue_followup" in text
+        assert "enqueue_classify_decision_failed" in text
+        assert 'should_enqueue_classify="enqueue=error;reason=check_failed;action=error"' in text
+        # Old bug: elif ran on bash flags even when Python decide failed (issue #224).
+        assert (
+            'elif [ "$had_no_pipeline" = true ] || [ "$had_stale_ingest" = true ]; then'
+            not in text
+        )
