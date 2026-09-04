@@ -41,6 +41,26 @@ class TestInProgressJob:
         assert job.job_name == "unknown"
         assert job.enqueued_at is None
 
+    def test_parse_cron_job_key_with_out_of_range_timestamp(self):
+        """Malformed numeric junk in parts[4] must not crash the health check.
+
+        .isdigit() accepts huge digit strings that are not valid Unix-seconds
+        timestamps. datetime.fromtimestamp then raises ValueError (year out of
+        range) — production: year 58644 from Pipeline Health run 33817606339.
+        """
+        # Huge digit string: fromtimestamp raises ValueError (year out of range).
+        # Production (run 33817606339) failed with year 58644.
+        junk_ts = "1850000000000"
+        with pytest.raises((ValueError, OverflowError, OSError)):
+            datetime.fromtimestamp(int(junk_ts), tz=timezone.utc)
+
+        key = f"arq:in-progress:cron:ingest_cities_hourly:{junk_ts}"
+        job = InProgressJob.from_redis_key(key)
+
+        assert job.key == key
+        assert job.job_name == "ingest_cities_hourly"
+        assert job.enqueued_at is None
+
 
 class TestWorkerLogs:
     """Tests for WorkerLogs progress detection using ACTUAL log patterns."""
