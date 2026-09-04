@@ -70,7 +70,11 @@ class TelegramNotifier:
                 else:
                     logger.error(f"[Telegram] ❌ Failed: {response.status_code} - {response.text}")
                     return False
-                    
+
+        except TimeoutError as e:
+            # asyncio/httpx timeout — never raise to callers (#220).
+            logger.error(f"[Telegram] ❌ Timeout sending message: {e}")
+            return False
         except Exception as e:
             logger.error(f"[Telegram] ❌ Error sending message: {e}")
             return False
