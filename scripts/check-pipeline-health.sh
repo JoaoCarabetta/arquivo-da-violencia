@@ -102,6 +102,10 @@ echo_step() {
     fi
 }
 
+# Convert bash true/false to a Python True/False literal for unquoted <<PY
+# heredocs. Interpolating lowercase true/false is a NameError (issue #224).
+py_bool() { [ "$1" = true ] && echo True || echo False; }
+
 # --- Checks -------------------------------------------------------------------
 
 echo_step "🏥 Pipeline health check ($(date -u +%Y-%m-%dT%H:%M:%SZ))"
@@ -421,10 +425,31 @@ if [ "$REMEDIATE" = true ]; then
     fi
     # Use Python logic to decide whether to enqueue classify (considers active ingest)
     worker_logs_for_classify_check="$(docker logs "$WORKER_CONTAINER" --since "${PIPELINE_ACTIVITY_MINUTES}m" 2>&1 || true)"
-    should_enqueue_classify="$(docker compose $COMPOSE_PROD exec -T api python - <<PY
+    had_queue_jam_py="$(py_bool "$had_queue_jam")"
+    had_no_pipeline_py="$(py_bool "$had_no_pipeline")"
+    had_recent_ingest_py="$(py_bool "$had_recent_ingest")"
+    had_stale_ingest_py="$(py_bool "$had_stale_ingest")"
+    if ! should_enqueue_classify="$(docker compose $COMPOSE_PROD exec -T api python - <<PY
 import sys
 sys.path.insert(0, "/app")
-from app.services.pipeline_health import InProgressJob, WorkerLogs, should_enqueue_classify_during_remediation
+from app.services.pipeline_health import (
+    InProgressJob,
+    WorkerLogs,
+    should_enqueue_classify_during_remediation,
+)
+# Prod API may not have this helper until a backend deploy. Inline fallback so
+# the synced health script still works against the running image (issue #224).
+try:
+    from app.services.pipeline_health import remediator_enqueue_followup
+except ImportError:
+    def remediator_enqueue_followup(classify_decision_output, had_no_pipeline, had_stale_ingest):
+        if "enqueue=True" in classify_decision_output:
+            return "classify"
+        if "enqueue=False" in classify_decision_output:
+            if had_no_pipeline or had_stale_ingest:
+                return "pipeline"
+            return "skip"
+        return "error"
 
 # Parse in-progress keys
 in_progress_raw = """$arq_in_progress_raw"""
@@ -438,27 +463,41 @@ for line in in_progress_raw.strip().split('\n'):
 logs = WorkerLogs("""$worker_logs_for_classify_check""")
 
 # Check if we should enqueue classify
-should_enqueue, reason = should_enqueue_classify_during_remediation(
-    had_queue_jam=${had_queue_jam},
-    had_no_pipeline=${had_no_pipeline},
-    had_recent_ingest=${had_recent_ingest},
-    in_progress_jobs=jobs,
-    worker_logs=logs,
+try:
+    should_enqueue, reason = should_enqueue_classify_during_remediation(
+        had_queue_jam=${had_queue_jam_py},
+        had_no_pipeline=${had_no_pipeline_py},
+        had_recent_ingest=${had_recent_ingest_py},
+        in_progress_jobs=jobs,
+        worker_logs=logs,
+    )
+    decision = f"enqueue={should_enqueue};reason={reason}"
+except Exception:
+    decision = "enqueue=error;reason=check_failed"
+action = remediator_enqueue_followup(
+    decision,
+    had_no_pipeline=${had_no_pipeline_py},
+    had_stale_ingest=${had_stale_ingest_py},
 )
-print(f"enqueue={should_enqueue};reason={reason}")
+print(f"{decision};action={action}")
 PY
-)" || echo "enqueue=error;reason=check_failed"
-    
-    # Prefer classify when appropriate, but NOT when ingest is active
-    if echo "$should_enqueue_classify" | grep -q 'enqueue=True'; then
-        enqueue_reason="$(echo "$should_enqueue_classify" | sed -n 's/.*reason=\([^;]*\).*/\1/p')"
+)"; then
+        should_enqueue_classify="enqueue=error;reason=check_failed;action=error"
+    fi
+
+    # Prefer classify when appropriate, but NOT when ingest is active.
+    # Failed decide (action=error / missing) must not enqueue pipeline (issue #224).
+    classify_action="$(echo "$should_enqueue_classify" | sed -n 's/.*action=\([^;]*\).*/\1/p')"
+    enqueue_reason="$(echo "$should_enqueue_classify" | sed -n 's/.*reason=\([^;]*\).*/\1/p')"
+    if [ "$classify_action" = classify ]; then
         DETAILS+=("INFO: enqueue_classify_decision(reason=${enqueue_reason})")
         tier_a_enqueue_classify || true
-    elif [ "$had_no_pipeline" = true ] || [ "$had_stale_ingest" = true ]; then
-        # Only enqueue pipeline if classify was not appropriate
+    elif [ "$classify_action" = pipeline ]; then
+        # Only when Python decide succeeded and returned enqueue=False
         tier_a_enqueue_pipeline || true
+    elif [ "$classify_action" = error ] || [ -z "$classify_action" ]; then
+        DETAILS+=("WARN: enqueue_classify_decision_failed(reason=${enqueue_reason:-check_failed})")
     else
-        enqueue_reason="$(echo "$should_enqueue_classify" | sed -n 's/.*reason=\([^;]*\).*/\1/p')"
         DETAILS+=("INFO: skip_classify_enqueue(reason=${enqueue_reason})")
     fi
     if [ "$had_stuck" = true ]; then
