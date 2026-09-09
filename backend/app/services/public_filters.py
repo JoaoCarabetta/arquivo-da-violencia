@@ -11,6 +11,21 @@ _HOMICIDIO_SUBTYPES = SUBTYPES_BY_FAMILY["homicidio"]
 # Brazilian federative units (27 states + DF).
 BR_UFS = frozenset(BRAZILIAN_STATES)
 
+
+def is_brazilian_uf(state: str | None) -> bool:
+    """True when ``state`` is a Brazilian UF code (SP, RJ, …).
+
+    NULL, empty, full names, and foreign regions (Colúmbia Britânica, Síria)
+    do not pass. Matching is case-insensitive against ``BR_UFS``.
+    """
+    if state is None:
+        return False
+    normalized = state.strip().upper()
+    if not normalized:
+        return False
+    return normalized in BR_UFS
+
+
 # Chilean regions (regiones)
 CL_REGIONS = frozenset(CHILEAN_REGIONS)
 
