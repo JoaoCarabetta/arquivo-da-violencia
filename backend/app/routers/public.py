@@ -9,6 +9,7 @@ import math
 import csv
 import json  # For serializing merged_data
 import io
+import time
 
 from app.database import get_session
 from app.models.unique_event import UniqueEvent
@@ -22,6 +23,25 @@ from app.services.public_filters import (
 from app.geography import COUNTRY_NAMES
 
 router = APIRouter(prefix="/public", tags=["public"])
+
+# Simple cache for rankings endpoint (default 365d payload)
+# Invalidate on ingest or every 1 hour.
+# Version bump: unfiltered city ranking is Brazil-only (issue #231).
+_rankings_cache: dict[str, tuple[dict, float]] = {}
+RANKINGS_CACHE_TTL = 3600  # 1 hour in seconds
+RANKINGS_CACHE_VERSION = "br_cities"
+
+# UniqueEvent.country values treated as Brazil — same BR|Brasil pattern as
+# get_rankings build_query when country=BR. NULL/empty is excluded:
+# UniqueEvent.country defaults to "BR" on insert, so remaining NULLs are
+# unknown/foreign pollution rather than Brazil (issue #231).
+_BRAZIL_COUNTRY_VALUES = frozenset({"BR", "Brasil"})
+
+
+def _event_country_is_brazil(country: str | None) -> bool:
+    """True when UniqueEvent.country is canonical BR or legacy Brasil."""
+    return country in _BRAZIL_COUNTRY_VALUES
+
 
 # Rolling window shared by the map, export, and temporal-scope note.
 PUBLIC_MAP_DAYS = 365
@@ -476,7 +496,7 @@ async def get_security_force_stats(session: AsyncSession = Depends(get_session))
 async def get_rankings(
     session: AsyncSession = Depends(get_session),
     days: int = Query(365, ge=1, le=3650, description="Only events in the last N days"),
-    country: str | None = Query(None, description="Filter by country ISO (AR, BO, BR, CL, CO, EC, GY, PY, PE, SR, UY, VE) or omit for all SA"),
+    country: str | None = Query(None, description="Filter by country ISO (AR, BO, BR, CL, CO, EC, GY, PY, PE, SR, UY, VE) or omit for all SA. Unfiltered city ranking is Brazil-only (BR/Brasil)."),
     city_limit: int | None = Query(50, ge=1, le=10000, description="Limit number of cities returned (default 50 for fast load)"),
 ):
     """
@@ -484,7 +504,19 @@ async def get_rankings(
     by victim count and event count for a given time period.
     
     Includes delta vs previous equal period.
+
+    When ``country`` is omitted, the city list is Brazil-only (UniqueEvent.country
+    BR or legacy Brasil). Country rollup stays multi-country historical.
     """
+    # Check cache (before expensive aggregation). Versioned so the in-process
+    # TTL cache cannot serve the old unfiltered city payload (issue #231).
+    cache_key = f"rankings_{RANKINGS_CACHE_VERSION}_{days}_{country}_{city_limit}"
+    if cache_key in _rankings_cache:
+        cached_result, cached_time = _rankings_cache[cache_key]
+        if time.time() - cached_time < RANKINGS_CACHE_TTL:
+            return cached_result
+        del _rankings_cache[cache_key]
+
     now = datetime.utcnow()
     current_start = now - timedelta(days=days)
     prev_start = now - timedelta(days=days * 2)
@@ -555,16 +587,27 @@ async def get_rankings(
             aggregated[key]["events"] += 1
             aggregated[key]["victims"] += event.victim_count or 0
         return aggregated
+
+    def brazil_city_events(events):
+        """Homepage/unfiltered city ranking is Brazil-only (issue #231).
+
+        When ``country`` is omitted, only aggregate cities from UniqueEvents
+        whose country is BR or legacy Brasil. Explicit ``?country=`` keeps the
+        already-filtered event set (CL/AR/etc. city lists still work).
+        """
+        if country is not None:
+            return events
+        return [event for event in events if _event_country_is_brazil(event.country)]
     
     # Aggregate current period
-    cities_current = aggregate_by_field(current_events, "city")
+    cities_current = aggregate_by_field(brazil_city_events(current_events), "city")
     states_current = aggregate_by_field(current_events, "state")
     countries_current = aggregate_by_field(current_events, "country")
     types_current = aggregate_by_field(current_events, "homicide_type")
     methods_current = aggregate_by_field(current_events, "method_of_death")
     
     # Aggregate previous period
-    cities_prev = aggregate_by_field(prev_events, "city")
+    cities_prev = aggregate_by_field(brazil_city_events(prev_events), "city")
     states_prev = aggregate_by_field(prev_events, "state")
     countries_prev = aggregate_by_field(prev_events, "country")
     types_prev = aggregate_by_field(prev_events, "homicide_type")
@@ -597,7 +640,7 @@ async def get_rankings(
         rankings.sort(key=lambda x: x["victim_count"], reverse=True)
         return rankings
     
-    return {
+    response = {
         "period_days": days,
         "period_start": current_start.date().isoformat(),
         "period_end": now.date().isoformat(),
@@ -610,6 +653,8 @@ async def get_rankings(
         "homicide_types": format_rankings(types_current, types_prev, "type"),
         "methods": format_rankings(methods_current, methods_prev, "method"),
     }
+    _rankings_cache[cache_key] = (response, time.time())
+    return response
 
 
 
