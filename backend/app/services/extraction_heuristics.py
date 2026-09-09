@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import re
-from datetime import datetime
+from dataclasses import dataclass
+from datetime import date, datetime, timedelta
+
 from unidecode import unidecode
 
 from app.services.extraction_schemas import ViolentDeathEvent
@@ -273,20 +275,122 @@ def should_be_qualificado(text: str) -> bool:
     return False
 
 
+DEFAULT_FUTURE_DATE_SKEW_DAYS = 1
+NULL_DATE_PRECISION = "não informada"
+
+_REFERENCE_DATETIME_FORMATS = (
+    "%d/%m/%Y as %H:%M",
+    "%d/%m/%Y",
+    "%Y-%m-%d %H:%M:%S.%f",
+    "%Y-%m-%d %H:%M:%S",
+    "%Y-%m-%d",
+)
+
+
+@dataclass(frozen=True)
+class EventDateClampResult:
+    """Outcome of the future-vs-publish date clamp (issue #228)."""
+
+    date: str | None
+    date_precision: str | None
+    action: str  # keep | previous_year | null
+
+    @property
+    def changed(self) -> bool:
+        return self.action != "keep"
+
+
+def parse_reference_datetime(value: object) -> datetime | None:
+    """Parse published_at / created_at from datetime, ISO, or BR extract metadata."""
+    if value is None or value == "":
+        return None
+    if isinstance(value, datetime):
+        return value.replace(tzinfo=None) if value.tzinfo else value
+    if isinstance(value, date):
+        return datetime.combine(value, datetime.min.time())
+    if not isinstance(value, str):
+        return None
+    text = value.strip()
+    if not text:
+        return None
+    try:
+        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+        return parsed.replace(tzinfo=None) if parsed.tzinfo else parsed
+    except ValueError:
+        pass
+    ascii_text = unidecode(text)
+    for fmt in _REFERENCE_DATETIME_FORMATS:
+        try:
+            return datetime.strptime(ascii_text, fmt)
+        except ValueError:
+            continue
+    return None
+
+
+def _as_date(value: object) -> date | None:
+    if value is None or value == "":
+        return None
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, date):
+        return value
+    parsed = parse_reference_datetime(value)
+    return parsed.date() if parsed else None
+
+
+def resolve_publish_reference(metadata: dict | None) -> datetime | None:
+    """published_at, else created_at / fetched_at when publish is missing."""
+    if not metadata:
+        return None
+    for key in ("published_at", "created_at", "fetched_at"):
+        parsed = parse_reference_datetime(metadata.get(key))
+        if parsed:
+            return parsed
+    return None
+
+
 def _parse_published_at(metadata: dict | None) -> datetime | None:
     if not metadata:
         return None
-    published_at = metadata.get("published_at")
-    if not published_at:
-        return None
-    if isinstance(published_at, datetime):
-        return published_at
-    if isinstance(published_at, str):
-        try:
-            return datetime.fromisoformat(published_at.replace("Z", "+00:00"))
-        except ValueError:
-            return None
-    return None
+    return parse_reference_datetime(metadata.get("published_at"))
+
+
+def clamp_event_date_against_publish(
+    event_date: date | datetime | str | None,
+    reference: date | datetime | str | None,
+    *,
+    skew_days: int = DEFAULT_FUTURE_DATE_SKEW_DAYS,
+) -> EventDateClampResult:
+    """Reject event dates strictly after publish/created_at + skew.
+
+    Prefer the same month/day in the previous year when that date is still
+    plausible (≤ reference + skew); otherwise null the date.
+    """
+    event_d = _as_date(event_date)
+    if event_d is None:
+        return EventDateClampResult(date=None, date_precision=None, action="keep")
+    iso = event_d.isoformat()
+    ref_d = _as_date(reference)
+    if ref_d is None:
+        return EventDateClampResult(date=iso, date_precision=None, action="keep")
+    limit = ref_d + timedelta(days=skew_days)
+    if event_d <= limit:
+        return EventDateClampResult(date=iso, date_precision=None, action="keep")
+    try:
+        previous = event_d.replace(year=event_d.year - 1)
+    except ValueError:
+        previous = None
+    if previous is not None and previous <= limit:
+        return EventDateClampResult(
+            date=previous.isoformat(),
+            date_precision=None,
+            action="previous_year",
+        )
+    return EventDateClampResult(
+        date=None,
+        date_precision=NULL_DATE_PRECISION,
+        action="null",
+    )
 
 
 def fix_weekday_paren_day(
@@ -525,9 +629,28 @@ def apply_extraction_heuristics(
 
     fixed_date = infer_date_from_source(content, metadata, event.date_time.date)
     normalized_date = normalize_date_string(fixed_date or event.date_time.date)
-    if normalized_date != event.date_time.date:
-        dt = event.date_time.model_copy(update={"date": normalized_date})
-        updates["date_time"] = dt
+    clamped = clamp_event_date_against_publish(
+        normalized_date,
+        resolve_publish_reference(metadata),
+    )
+    dt_update: dict = {}
+    if clamped.action == "null":
+        dt_update["date"] = None
+        dt_update["date_precision"] = clamped.date_precision
+        dt_update["date_verification"] = event.date_time.date_verification.model_copy(
+            update={
+                "has_explicit_date": False,
+                "date_source": "none",
+                "verification_reasoning": (
+                    "event_date after publication; year rejected "
+                    "(issue #228 future-vs-publish clamp)"
+                ),
+            }
+        )
+    elif clamped.date != event.date_time.date:
+        dt_update["date"] = clamped.date
+    if dt_update:
+        updates["date_time"] = event.date_time.model_copy(update=dt_update)
 
     fatal_count = infer_fatal_victim_count(source)
     if fatal_count and event.victims.number_of_victims != fatal_count:
