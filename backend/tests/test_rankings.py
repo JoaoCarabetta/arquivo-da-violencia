@@ -330,6 +330,166 @@ async def test_unfiltered_city_ranking_excludes_foreign_cities_issue_231(
         assert "São Paulo" in br_cities
 
 
+def test_include_in_unfiltered_brazil_city_ranking_requires_uf():
+    """UF gate: country=Brasil is not enough without a Brazilian UF (issue #234)."""
+    from app.routers.public import include_in_unfiltered_brazil_city_ranking
+
+    assert include_in_unfiltered_brazil_city_ranking("BR", "SP")
+    assert include_in_unfiltered_brazil_city_ranking("Brasil", "RJ")
+    assert include_in_unfiltered_brazil_city_ranking("Brasil", "BA")
+    assert not include_in_unfiltered_brazil_city_ranking("Brasil", "Colúmbia Britânica")
+    assert not include_in_unfiltered_brazil_city_ranking("Brasil", "BC")
+    assert not include_in_unfiltered_brazil_city_ranking("Brasil", "Síria")
+    assert not include_in_unfiltered_brazil_city_ranking("Brasil", None)
+    assert not include_in_unfiltered_brazil_city_ranking("Brasil", "")
+    assert not include_in_unfiltered_brazil_city_ranking("CA", "SP")
+    assert not include_in_unfiltered_brazil_city_ranking(None, "SP")
+
+
+@pytest.mark.asyncio
+async def test_unfiltered_city_ranking_excludes_mislabeled_brasil_issue_234(
+    app, async_session
+):
+    """Mislabeled country=Brasil + foreign city/state must not appear (issue #234).
+
+    Production rows after #231/#233 still leaked because country was Brasil.
+    Real BR cities with a UF (São Paulo/SP, Salvador/BA, Rio/RJ) remain.
+    Explicit ?country=CL does not apply the BR UF gate.
+    """
+    from app.models.ibge_population import IBGEPopulation
+
+    now = datetime.utcnow()
+    current_start = now - timedelta(days=30)
+
+    events = [
+        create_ranking_event(
+            event_date=current_start + timedelta(days=1),
+            country="BR",
+            city="Rio de Janeiro",
+            state="RJ",
+            victim_count=4,
+        ),
+        create_ranking_event(
+            event_date=current_start + timedelta(days=2),
+            country="Brasil",
+            city="São Paulo",
+            state="SP",
+            victim_count=3,
+        ),
+        create_ranking_event(
+            event_date=current_start + timedelta(days=3),
+            country="Brasil",
+            city="Salvador",
+            state="BA",
+            victim_count=2,
+        ),
+        # Production pollution: labeled Brasil, foreign geography.
+        # IBGE pop > 100k so they would pass the city size floor without the UF gate.
+        create_ranking_event(
+            event_date=current_start + timedelta(days=4),
+            country="Brasil",
+            city="Tumbler Ridge",
+            state="Colúmbia Britânica",
+            victim_count=9,
+        ),
+        create_ranking_event(
+            event_date=current_start + timedelta(days=5),
+            country="Brasil",
+            city="Joanesburgo",
+            state="Gauteng",
+            victim_count=9,
+        ),
+        create_ranking_event(
+            event_date=current_start + timedelta(days=6),
+            country="Brasil",
+            city="Paramaribo",
+            state="Suriname",
+            victim_count=8,
+        ),
+        create_ranking_event(
+            event_date=current_start + timedelta(days=7),
+            country="Brasil",
+            city="Homs",
+            state="Síria",
+            victim_count=8,
+        ),
+        create_ranking_event(
+            event_date=current_start + timedelta(days=8),
+            country="CL",
+            city="Santiago",
+            state="Metropolitana",
+            victim_count=2,
+        ),
+    ]
+
+    populations = [
+        IBGEPopulation(
+            code_muni=9900011,
+            name_muni="Tumbler Ridge",
+            abbrev_state="BC",
+            population=200_000,
+            year=2022,
+        ),
+        IBGEPopulation(
+            code_muni=9900012,
+            name_muni="Joanesburgo",
+            abbrev_state="ZA",
+            population=5_000_000,
+            year=2022,
+        ),
+        IBGEPopulation(
+            code_muni=9900013,
+            name_muni="Paramaribo",
+            abbrev_state="SR",
+            population=250_000,
+            year=2022,
+        ),
+        IBGEPopulation(
+            code_muni=9900014,
+            name_muni="Homs",
+            abbrev_state="SY",
+            population=800_000,
+            year=2022,
+        ),
+    ]
+
+    for event in events:
+        async_session.add(event)
+    for pop in populations:
+        async_session.add(pop)
+    await async_session.commit()
+
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://test",
+    ) as client:
+        response = await client.get("/api/public/stats/rankings?days=30")
+        assert response.status_code == 200
+        data = response.json()
+
+        city_names = {c["city"] for c in data["cities"]}
+        forbidden = {"Tumbler Ridge", "Joanesburgo", "Paramaribo", "Homs", "Santiago"}
+        assert city_names.isdisjoint(forbidden), (
+            f"Unfiltered city ranking leaked mislabeled cities: {city_names & forbidden}"
+        )
+        assert "Rio de Janeiro" in city_names
+        assert "São Paulo" in city_names
+        assert "Salvador" in city_names
+
+        country_names = {c["country"] for c in data["countries"]}
+        assert "Brasil" in country_names
+        assert "Chile" in country_names
+        assert data["country_filter"] is None
+
+        # Explicit country=CL must not force the BR UF gate.
+        response_cl = await client.get("/api/public/stats/rankings?days=30&country=CL")
+        assert response_cl.status_code == 200
+        data_cl = response_cl.json()
+        cl_cities = {c["city"] for c in data_cl["cities"]}
+        assert "Santiago" in cl_cities
+        assert cl_cities.isdisjoint({"Tumbler Ridge", "Joanesburgo", "Paramaribo", "Homs"})
+
+
 @pytest.mark.asyncio
 async def test_rankings_country_filter_chile(app, async_session):
     """Test country filter for Chile only."""
