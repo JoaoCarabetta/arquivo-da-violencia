@@ -9,6 +9,16 @@ from app.models.unique_event import UniqueEvent
 from app.geography import BRAZILIAN_STATES
 
 
+@pytest.fixture(autouse=True)
+def clear_rankings_cache():
+    """Rankings responses live in a process-global TTL cache; isolate tests."""
+    from app.routers.public import _rankings_cache
+
+    _rankings_cache.clear()
+    yield
+    _rankings_cache.clear()
+
+
 def create_ranking_event(
     event_date: datetime,
     country: str = "Brasil",
@@ -173,6 +183,151 @@ async def test_rankings_country_filter_brazil(app, async_session):
         assert data["cities"][0]["city"] == "Rio de Janeiro"
         assert len(data["countries"]) == 1
         assert data["countries"][0]["country"] == "Brasil"
+
+
+@pytest.mark.asyncio
+async def test_unfiltered_city_ranking_excludes_foreign_cities_issue_231(
+    app, async_session
+):
+    """Unfiltered city ranking is Brazil-only even when country= is omitted (issue #231).
+
+    Tumbler Ridge / Joanesburgo / Paramaribo / Homs with non-BR country must not
+    appear. Real BR cities (Rio, SP) still appear. Country rollup stays multi-country.
+    """
+    from app.models.ibge_population import IBGEPopulation
+
+    now = datetime.utcnow()
+    current_start = now - timedelta(days=30)
+
+    events = [
+        create_ranking_event(
+            event_date=current_start + timedelta(days=1),
+            country="BR",
+            city="Rio de Janeiro",
+            state="RJ",
+            victim_count=4,
+        ),
+        create_ranking_event(
+            event_date=current_start + timedelta(days=2),
+            country="Brasil",
+            city="São Paulo",
+            state="SP",
+            victim_count=3,
+        ),
+        # Foreign / wrong-country pollution. IBGE pop > 100k + a BR UF so they
+        # would pass the city size floor without the Brazil country filter.
+        create_ranking_event(
+            event_date=current_start + timedelta(days=3),
+            country="CA",
+            city="Tumbler Ridge",
+            state="SP",
+            victim_count=20,
+        ),
+        create_ranking_event(
+            event_date=current_start + timedelta(days=4),
+            country="ZA",
+            city="Joanesburgo",
+            state="SP",
+            victim_count=9,
+        ),
+        create_ranking_event(
+            event_date=current_start + timedelta(days=5),
+            country="SR",
+            city="Paramaribo",
+            state="SP",
+            victim_count=9,
+        ),
+        create_ranking_event(
+            event_date=current_start + timedelta(days=6),
+            country="SY",
+            city="Homs",
+            state="SP",
+            victim_count=8,
+        ),
+        create_ranking_event(
+            event_date=current_start + timedelta(days=8),
+            country="CL",
+            city="Santiago",
+            state="SP",
+            victim_count=2,
+        ),
+    ]
+
+    populations = [
+        IBGEPopulation(
+            code_muni=9900001,
+            name_muni="Tumbler Ridge",
+            abbrev_state="SP",
+            population=200_000,
+            year=2022,
+        ),
+        IBGEPopulation(
+            code_muni=9900002,
+            name_muni="Joanesburgo",
+            abbrev_state="SP",
+            population=5_000_000,
+            year=2022,
+        ),
+        IBGEPopulation(
+            code_muni=9900003,
+            name_muni="Paramaribo",
+            abbrev_state="SP",
+            population=250_000,
+            year=2022,
+        ),
+        IBGEPopulation(
+            code_muni=9900004,
+            name_muni="Homs",
+            abbrev_state="SP",
+            population=800_000,
+            year=2022,
+        ),
+        IBGEPopulation(
+            code_muni=9900006,
+            name_muni="Santiago",
+            abbrev_state="SP",
+            population=6_000_000,
+            year=2022,
+        ),
+    ]
+
+    for event in events:
+        async_session.add(event)
+    for pop in populations:
+        async_session.add(pop)
+    await async_session.commit()
+
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://test",
+    ) as client:
+        response = await client.get("/api/public/stats/rankings?days=30")
+        assert response.status_code == 200
+        data = response.json()
+
+        city_names = {c["city"] for c in data["cities"]}
+        forbidden = {"Tumbler Ridge", "Joanesburgo", "Paramaribo", "Homs", "Santiago"}
+        assert city_names.isdisjoint(forbidden), (
+            f"Unfiltered city ranking leaked non-BR cities: {city_names & forbidden}"
+        )
+        assert "Rio de Janeiro" in city_names
+        assert "São Paulo" in city_names
+
+        # Country rollup stays historical / multi-country (out of scope for #231).
+        country_names = {c["country"] for c in data["countries"]}
+        assert "Brasil" in country_names
+        assert "Chile" in country_names
+        assert "Suriname" in country_names
+        assert data["country_filter"] is None
+
+        # Explicit country=BR still returns BR cities and not the foreign set.
+        response_br = await client.get("/api/public/stats/rankings?days=30&country=BR")
+        assert response_br.status_code == 200
+        data_br = response_br.json()
+        br_cities = {c["city"] for c in data_br["cities"]}
+        assert br_cities.isdisjoint(forbidden)
+        assert "Rio de Janeiro" in br_cities
+        assert "São Paulo" in br_cities
 
 
 @pytest.mark.asyncio
