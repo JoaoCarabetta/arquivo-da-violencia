@@ -1,8 +1,11 @@
 """Unit tests for extraction post-LLM heuristics."""
 
+from datetime import date, datetime
+
 from app.services.extraction_heuristics import (
     _norm,
     apply_extraction_heuristics,
+    clamp_event_date_against_publish,
     fix_same_day_relative_weekday,
     fix_weekday_paren_day,
     infer_fatal_victim_count,
@@ -236,3 +239,147 @@ def _source_norm(content: str, metadata: dict) -> str:
     from app.services.extraction_heuristics import _source_text
 
     return _source_text(content, metadata)
+
+
+def _october_event(*, city: str, state: str, event_date: str, year_explicit: bool) -> ViolentDeathEvent:
+    return _event(
+        location_info=Location(city=city, state=state),
+        date_time=DateTime(
+            date=event_date,
+            date_precision="exata",
+            date_verification=_date_verification(
+                has_explicit_date=True,
+                date_source="inferred_from_publication",
+                year_explicitly_mentioned=year_explicit,
+                date_text_quote="16 de outubro" if "16" in event_date else "12 de outubro",
+                verification_reasoning="LLM inferred calendar year from publication",
+            ),
+        ),
+    )
+
+
+def test_clamp_lins_october_after_august_publish_uses_previous_year():
+    result = clamp_event_date_against_publish("2026-10-16", "2026-08-20T12:00:00Z")
+    assert result.date == "2025-10-16"
+    assert result.action == "previous_year"
+
+
+def test_clamp_bh_october_after_august_publish_uses_previous_year():
+    result = clamp_event_date_against_publish("2026-10-12", datetime(2026, 8, 20, 12, 0, 0))
+    assert result.date == "2025-10-12"
+    assert result.action == "previous_year"
+
+
+def test_clamp_keeps_date_within_one_day_skew():
+    result = clamp_event_date_against_publish("2026-08-21", date(2026, 8, 20))
+    assert result.date == "2026-08-21"
+    assert result.action == "keep"
+
+
+def test_clamp_nulls_when_previous_year_still_after_publish():
+    result = clamp_event_date_against_publish("2027-01-20", "2026-01-05")
+    assert result.date is None
+    assert result.date_precision == "não informada"
+    assert result.action == "null"
+
+
+def test_apply_lins_16_de_outubro_not_future_of_august_publish():
+    """Issue #228: Lins UniqueEvent 11701 — '16 de outubro' + Aug 2026 publish."""
+    event = _october_event(
+        city="Lins",
+        state="SP",
+        event_date="2026-10-16",
+        year_explicit=False,
+    )
+    content = (
+        "Homem é morto a tiros em Lins. O crime aconteceu no dia 16 de outubro "
+        "no bairro Centro."
+    )
+    result = apply_extraction_heuristics(
+        event,
+        content,
+        {
+            "headline": "Homem é morto a tiros em Lins",
+            "published_at": "20/08/2026 às 12:00",
+        },
+    )
+    assert result.date_time.date != "2026-10-16"
+    assert result.date_time.date == "2025-10-16"
+
+
+def test_apply_bh_12_de_outubro_not_future_of_august_publish():
+    """Issue #228: Belo Horizonte UniqueEvent 11816 — '12 de outubro' + Aug 2026 publish."""
+    event = _october_event(
+        city="Belo Horizonte",
+        state="MG",
+        event_date="2026-10-12",
+        year_explicit=False,
+    )
+    content = (
+        "Vítima foi assassinada em Belo Horizonte no dia 12 de outubro, "
+        "segundo a Polícia Militar."
+    )
+    result = apply_extraction_heuristics(
+        event,
+        content,
+        {
+            "headline": "Homem é morto em Belo Horizonte",
+            "published_at": "2026-08-20T15:30:00Z",
+        },
+    )
+    assert result.date_time.date != "2026-10-12"
+    assert result.date_time.date == "2025-10-12"
+
+
+def test_apply_keeps_explicit_year_within_skew_of_publish():
+    event = _event(
+        date_time=DateTime(
+            date="2026-08-21",
+            date_precision="exata",
+            date_verification=_date_verification(
+                year_explicitly_mentioned=True,
+                date_text_quote="21 de agosto de 2026",
+            ),
+        ),
+    )
+    result = apply_extraction_heuristics(
+        event,
+        "Crime ocorreu em 21 de agosto de 2026.",
+        {"published_at": "2026-08-20T12:00:00Z"},
+    )
+    assert result.date_time.date == "2026-08-21"
+    assert result.date_time.date_precision == "exata"
+
+
+def test_apply_clamps_explicit_future_year_beyond_skew():
+    event = _october_event(
+        city="Lins",
+        state="SP",
+        event_date="2026-10-16",
+        year_explicit=True,
+    )
+    result = apply_extraction_heuristics(
+        event,
+        "O crime ocorreu em 16 de outubro de 2026 em Lins.",
+        {"published_at": "2026-08-20T12:00:00Z"},
+    )
+    assert result.date_time.date == "2025-10-16"
+
+
+def test_apply_nulls_when_previous_year_still_after_publish():
+    event = _event(
+        date_time=DateTime(
+            date="2027-01-20",
+            date_precision="exata",
+            date_verification=_date_verification(year_explicitly_mentioned=True),
+        ),
+    )
+    result = apply_extraction_heuristics(
+        event,
+        "O crime ocorreu em 20 de janeiro de 2027.",
+        {"created_at": "2026-01-05T08:00:00Z"},
+    )
+    assert result.date_time.date is None
+    assert result.date_time.date_precision == "não informada"
+    assert result.date_time.date_verification.has_explicit_date is False
+    assert result.date_time.date_verification.date_source == "none"

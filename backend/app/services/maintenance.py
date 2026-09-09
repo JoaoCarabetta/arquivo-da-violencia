@@ -1,6 +1,7 @@
 """Maintenance helpers for recovering the pipeline from stuck states."""
 
 import asyncio
+import json
 from datetime import date, datetime, timedelta
 from typing import Any
 
@@ -11,7 +12,6 @@ from app.config import get_settings
 from app.database import async_session_maker
 from app.services import diagnostics
 from app.services.enrichment import normalize_title
-
 
 # Map of transient "claimed" statuses back to the queue status they should
 # return to if a worker crashed / errored out mid-processing and left the row
@@ -723,3 +723,228 @@ async def backfill_null_resolved_urls(
         "failed": failed,
         "skipped": 0,
     }
+
+
+def _patch_extraction_date_payload(
+    payload: Any,
+    date_iso: str | None,
+    precision: str | None,
+) -> Any:
+    """Keep UniqueEvent.merged_data / RawEvent.extraction_data date fields in sync."""
+    if payload is None:
+        return None
+    if isinstance(payload, str):
+        try:
+            payload = json.loads(payload)
+        except json.JSONDecodeError:
+            return payload
+    if not isinstance(payload, dict):
+        return payload
+    date_time = payload.get("date_time")
+    if not isinstance(date_time, dict):
+        date_time = {}
+    new_dt = dict(date_time)
+    new_dt["date"] = date_iso
+    if precision is not None:
+        new_dt["date_precision"] = precision
+    if date_iso is None:
+        verification = dict(date_time.get("date_verification") or {})
+        verification["has_explicit_date"] = False
+        verification["date_source"] = "none"
+        new_dt["date_verification"] = verification
+    return {**payload, "date_time": new_dt}
+
+
+def _earliest_datetime(values: list[Any]) -> datetime | None:
+    from app.services.extraction_heuristics import parse_reference_datetime
+
+    parsed = [item for item in (parse_reference_datetime(value) for value in values) if item]
+    return min(parsed) if parsed else None
+
+
+async def remediate_future_event_dates(
+    *,
+    dry_run: bool = False,
+    country: str = "BR",
+) -> dict[str, Any]:
+    """Clamp Brazil UniqueEvent dates that sit after linked source publication.
+
+    Default writes the fix. Pass dry_run=True to report only.
+    """
+    from app.services.extraction_heuristics import (
+        clamp_event_date_against_publish,
+        parse_reference_datetime,
+    )
+
+    country_upper = (country or "BR").upper()
+    aliases = ("BR", "BRASIL") if country_upper in {"BR", "BRASIL"} else (country_upper,)
+
+    audit: dict[str, Any] = {
+        "dry_run": dry_run,
+        "country": country_upper,
+        "scanned": 0,
+        "updated": 0,
+        "would_update": 0,
+        "previous_year": 0,
+        "nulled": 0,
+        "skipped": 0,
+        "ids": [],
+    }
+
+    async with async_session_maker() as session:
+        placeholders = ", ".join(f":c{i}" for i in range(len(aliases)))
+        params = {f"c{i}": alias for i, alias in enumerate(aliases)}
+        result = await session.execute(
+            text(
+                f"""
+                SELECT
+                    ue.id AS unique_id,
+                    ue.event_date,
+                    ue.date_precision,
+                    ue.created_at,
+                    ue.merged_data,
+                    re.id AS raw_id,
+                    re.extraction_data,
+                    s.published_at,
+                    s.fetched_at
+                FROM unique_event ue
+                LEFT JOIN raw_event re ON re.unique_event_id = ue.id
+                LEFT JOIN source_google_news s ON s.id = re.source_google_news_id
+                WHERE ue.event_date IS NOT NULL
+                  AND (
+                    ue.country IS NULL
+                    OR ue.country = ''
+                    OR UPPER(ue.country) IN ({placeholders})
+                  )
+                """
+            ),
+            params,
+        )
+        grouped: dict[int, dict[str, Any]] = {}
+        for row in result.mappings().all():
+            uid = row["unique_id"]
+            bucket = grouped.setdefault(
+                uid,
+                {
+                    "event_date": row["event_date"],
+                    "date_precision": row["date_precision"],
+                    "created_at": row["created_at"],
+                    "merged_data": row["merged_data"],
+                    "raws": [],
+                    "published_at": [],
+                    "fetched_at": [],
+                },
+            )
+            if row["raw_id"] is not None:
+                bucket["raws"].append(
+                    {"id": row["raw_id"], "extraction_data": row["extraction_data"]}
+                )
+            if row["published_at"] is not None:
+                bucket["published_at"].append(row["published_at"])
+            if row["fetched_at"] is not None:
+                bucket["fetched_at"].append(row["fetched_at"])
+
+        audit["scanned"] = len(grouped)
+        pending: list[dict[str, Any]] = []
+        for uid, bucket in grouped.items():
+            reference = (
+                _earliest_datetime(bucket["published_at"])
+                or _earliest_datetime(bucket["fetched_at"])
+                or parse_reference_datetime(bucket["created_at"])
+            )
+            clamped = clamp_event_date_against_publish(bucket["event_date"], reference)
+            if not clamped.changed:
+                audit["skipped"] += 1
+                continue
+            new_precision = (
+                clamped.date_precision
+                if clamped.date_precision is not None
+                else bucket["date_precision"]
+            )
+            pending.append(
+                {
+                    "id": uid,
+                    "action": clamped.action,
+                    "event_date": (
+                        datetime.strptime(clamped.date, "%Y-%m-%d") if clamped.date else None
+                    ),
+                    "date_precision": new_precision,
+                    "merged_data": _patch_extraction_date_payload(
+                        bucket["merged_data"], clamped.date, new_precision
+                    ),
+                    "raws": [
+                        {
+                            "id": raw["id"],
+                            "extraction_data": _patch_extraction_date_payload(
+                                raw["extraction_data"], clamped.date, new_precision
+                            ),
+                        }
+                        for raw in bucket["raws"]
+                    ],
+                }
+            )
+            if clamped.action == "previous_year":
+                audit["previous_year"] += 1
+            elif clamped.action == "null":
+                audit["nulled"] += 1
+
+        audit["would_update"] = len(pending)
+        audit["ids"] = [item["id"] for item in pending[:50]]
+        if dry_run or not pending:
+            return audit
+
+        for item in pending:
+            merged = item["merged_data"]
+            if isinstance(merged, dict):
+                merged = json.dumps(merged)
+            await session.execute(
+                text(
+                    """
+                    UPDATE unique_event
+                    SET event_date = :event_date,
+                        date_precision = :date_precision,
+                        merged_data = :merged_data,
+                        updated_at = CURRENT_TIMESTAMP
+                    WHERE id = :id
+                    """
+                ),
+                {
+                    "id": item["id"],
+                    "event_date": item["event_date"],
+                    "date_precision": item["date_precision"],
+                    "merged_data": merged,
+                },
+            )
+            for raw in item["raws"]:
+                extraction = raw["extraction_data"]
+                if isinstance(extraction, dict):
+                    extraction = json.dumps(extraction)
+                await session.execute(
+                    text(
+                        """
+                        UPDATE raw_event
+                        SET event_date = :event_date,
+                            date_precision = :date_precision,
+                            extraction_data = :extraction_data,
+                            updated_at = CURRENT_TIMESTAMP
+                        WHERE id = :id
+                        """
+                    ),
+                    {
+                        "id": raw["id"],
+                        "event_date": item["event_date"],
+                        "date_precision": item["date_precision"],
+                        "extraction_data": extraction,
+                    },
+                )
+        await session.commit()
+        audit["updated"] = len(pending)
+        logger.info(
+            "[FUTURE-DATE] Updated {n} UniqueEvent(s) country={country} "
+            "(previous_year={py}, nulled={nu})",
+            n=audit["updated"],
+            country=country_upper,
+            py=audit["previous_year"],
+            nu=audit["nulled"],
+        )
+    return audit
