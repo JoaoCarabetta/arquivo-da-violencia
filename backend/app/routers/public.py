@@ -21,6 +21,7 @@ from app.services.public_filters import (
     apply_public_incident_filter,
     homicide_type_filter,
     homicide_types_filter,
+    is_brazilian_uf,
 )
 from app.geography import COUNTRY_NAMES, BRAZILIAN_STATES, BRAZILIAN_CAPITALS
 
@@ -28,10 +29,12 @@ router = APIRouter(prefix="/public", tags=["public"])
 
 # Simple cache for rankings endpoint (default 365d payload)
 # Invalidate on ingest or every 1 hour.
-# Version bump: unfiltered city ranking is Brazil-only (issue #231).
+# Version bump: unfiltered city ranking requires BR/Brasil + Brazilian UF
+# (issue #234). Previous key ``br_cities`` (issue #231) still served
+# mislabeled country=Brasil rows with foreign states.
 _rankings_cache: dict[str, tuple[dict, float]] = {}
 RANKINGS_CACHE_TTL = 3600  # 1 hour in seconds
-RANKINGS_CACHE_VERSION = "br_cities"
+RANKINGS_CACHE_VERSION = "br_cities_uf"
 
 # UniqueEvent.country values treated as Brazil — same BR|Brasil pattern as
 # get_rankings build_query when country=BR. NULL/empty is excluded:
@@ -43,6 +46,18 @@ _BRAZIL_COUNTRY_VALUES = frozenset({"BR", "Brasil"})
 def _event_country_is_brazil(country: str | None) -> bool:
     """True when UniqueEvent.country is canonical BR or legacy Brasil."""
     return country in _BRAZIL_COUNTRY_VALUES
+
+
+def include_in_unfiltered_brazil_city_ranking(
+    country: str | None, state: str | None
+) -> bool:
+    """Keep a city in the homepage ranking only with BR geography (issue #234).
+
+    Requires country in {BR, Brasil} **and** a Brazilian UF. NULL/empty/non-UF
+    states are excluded so mislabeled ``country=Brasil`` rows (Tumbler Ridge,
+    Joanesburgo, Paramaribo, Homs) cannot enter the unfiltered city list.
+    """
+    return _event_country_is_brazil(country) and is_brazilian_uf(state)
 
 
 # Rolling window shared by the map, export, and temporal-scope note.
@@ -498,7 +513,7 @@ async def get_security_force_stats(session: AsyncSession = Depends(get_session))
 async def get_rankings(
     session: AsyncSession = Depends(get_session),
     days: int = Query(365, ge=1, le=3650, description="Only events in the last N days"),
-    country: str | None = Query(None, description="Filter by country ISO (AR, BO, BR, CL, CO, EC, GY, PY, PE, SR, UY, VE) or omit for all SA. Unfiltered city ranking is Brazil-only (BR/Brasil)."),
+    country: str | None = Query(None, description="Filter by country ISO (AR, BO, BR, CL, CO, EC, GY, PY, PE, SR, UY, VE) or omit for all SA. Unfiltered city ranking is Brazil-only (BR/Brasil + UF)."),
     city_limit: int | None = Query(50, ge=1, le=10000, description="Limit number of cities returned (default 50 for fast load)"),
 ):
     """
@@ -507,8 +522,10 @@ async def get_rankings(
     
     Includes delta vs previous equal period, and rate per 100k for matched BR locations (cities and states).
 
-    When ``country`` is omitted, the city list is Brazil-only (UniqueEvent.country
-    BR or legacy Brasil). Country rollup stays multi-country historical.
+    When ``country`` is omitted, the city list is Brazil-only: UniqueEvent.country
+    BR or legacy Brasil **and** state in the Brazilian UF set. Country rollup
+    stays multi-country historical. Explicit ``?country=`` does not apply the
+    BR UF gate.
     """
     from app.services.ibge_population import (
         lookup_city_codes,
@@ -615,15 +632,20 @@ async def get_rankings(
         return aggregated
     
     def brazil_city_events(events):
-        """Homepage/unfiltered city ranking is Brazil-only (issue #231).
+        """Homepage/unfiltered city ranking is Brazil-only (issues #231/#234).
 
-        When ``country`` is omitted, only aggregate cities from UniqueEvents
-        whose country is BR or legacy Brasil. Explicit ``?country=`` keeps the
-        already-filtered event set (CL/AR/etc. city lists still work).
+        When ``country`` is omitted, keep a city only when country is BR/Brasil
+        **and** state is a Brazilian UF. NULL/empty/non-UF states are excluded.
+        Explicit ``?country=`` keeps the already-filtered event set (CL/AR/etc.
+        city lists still work; do not force the BR UF gate).
         """
         if country is not None:
             return events
-        return [event for event in events if _event_country_is_brazil(event.country)]
+        return [
+            event
+            for event in events
+            if include_in_unfiltered_brazil_city_ranking(event.country, event.state)
+        ]
 
     # Aggregate current period
     cities_current = aggregate_by_field(brazil_city_events(current_events), "city")
