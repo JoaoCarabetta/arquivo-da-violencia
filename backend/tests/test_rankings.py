@@ -406,15 +406,15 @@ async def test_unfiltered_city_ranking_excludes_mislabeled_brasil_issue_234(
         assert "Chile" in country_names
         assert data["country_filter"] is None
 
-        # Explicit country=CL must not force the BR UF gate: the CL event is
-        # counted. (Develop city size floor may still hide Santiago from the
-        # city list when IBGE lookup is skipped for non-BR country=.)
+        # Explicit country=CL must not force the BR UF gate. Master has no
+        # city size floor, so Santiago stays in the city list.
         response_cl = await client.get("/api/public/stats/rankings?days=30&country=CL")
         assert response_cl.status_code == 200
         data_cl = response_cl.json()
         assert data_cl["total_events"] == 1
         assert data_cl["total_victims"] == 2
         cl_cities = {c["city"] for c in data_cl["cities"]}
+        assert "Santiago" in cl_cities
         assert cl_cities.isdisjoint({"Tumbler Ridge", "Joanesburgo", "Paramaribo", "Homs"})
 
 
