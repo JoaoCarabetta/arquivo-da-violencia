@@ -948,3 +948,179 @@ async def remediate_future_event_dates(
             nu=audit["nulled"],
         )
     return audit
+
+
+# Production UniqueEvent ids confirmed as foreign geography labeled Brasil
+# (issue #234). Combined with the city denylist so a re-ingest with a new
+# id still matches.
+MISLABELED_BRAZIL_EVENT_IDS = frozenset({17, 837, 1061, 8240, 8258})
+
+_BRAZIL_COUNTRY_LABELS = frozenset({"BR", "Brasil"})
+
+# City → ISO country. Keys are lowercase, accent-stripped.
+MISLABELED_CITY_TO_COUNTRY = {
+    "tumbler ridge": "CA",
+    "joanesburgo": "ZA",
+    "johannesburg": "ZA",
+    "paramaribo": "SR",
+    "homs": "SY",
+}
+
+# State / region hints used when the city is unknown but the id is known.
+MISLABELED_STATE_TO_COUNTRY = {
+    "columbia britanica": "CA",
+    "british columbia": "CA",
+    "bc": "CA",
+    "siria": "SY",
+    "syria": "SY",
+    "gauteng": "ZA",
+    "suriname": "SR",
+}
+
+
+def _normalize_geo_token(value: str | None) -> str:
+    """Lowercase, strip, drop accents for city/state matching."""
+    import unicodedata
+
+    if not value:
+        return ""
+    text = unicodedata.normalize("NFD", value.strip().lower())
+    return "".join(ch for ch in text if unicodedata.category(ch) != "Mn")
+
+
+def infer_country_from_mislabeled_geography(
+    city: str | None, state: str | None
+) -> str | None:
+    """Return ISO country from known-bad city/state evidence, else None.
+
+    None means "clear country off Brasil" rather than guess.
+    """
+    city_key = _normalize_geo_token(city)
+    if city_key in MISLABELED_CITY_TO_COUNTRY:
+        return MISLABELED_CITY_TO_COUNTRY[city_key]
+    state_key = _normalize_geo_token(state)
+    if state_key in MISLABELED_STATE_TO_COUNTRY:
+        return MISLABELED_STATE_TO_COUNTRY[state_key]
+    return None
+
+
+def _is_brazil_country_label(country: str | None) -> bool:
+    return country in _BRAZIL_COUNTRY_LABELS
+
+
+async def remediate_mislabeled_brazil_cities(*, dry_run: bool = False) -> dict[str, Any]:
+    """Relabel UniqueEvents that are Brasil but have non-BR geography (issue #234).
+
+    Targets known ids (17, 837, 1061, 8240, 8258) and the city denylist
+    (Tumbler Ridge, Joanesburgo, Paramaribo, Homs). Sets the correct ISO
+    country from city/state evidence, or nulls country so the row leaves
+    BR rankings. Does not delete UniqueEvents.
+
+    Default writes the fix. Pass dry_run=True to report only.
+    """
+    from app.services.public_filters import is_brazilian_uf
+
+    audit: dict[str, Any] = {
+        "dry_run": dry_run,
+        "scanned": 0,
+        "updated": 0,
+        "would_update": 0,
+        "skipped": 0,
+        "nulled": 0,
+        "relabeled": 0,
+        "ids": [],
+        "changes": [],
+    }
+
+    id_placeholders = ", ".join(f":id{i}" for i, _ in enumerate(sorted(MISLABELED_BRAZIL_EVENT_IDS)))
+    city_placeholders = ", ".join(
+        f":city{i}" for i, _ in enumerate(sorted(MISLABELED_CITY_TO_COUNTRY))
+    )
+    params: dict[str, Any] = {
+        **{f"id{i}": event_id for i, event_id in enumerate(sorted(MISLABELED_BRAZIL_EVENT_IDS))},
+        **{f"city{i}": city for i, city in enumerate(sorted(MISLABELED_CITY_TO_COUNTRY))},
+    }
+
+    async with async_session_maker() as session:
+        result = await session.execute(
+            text(
+                f"""
+                SELECT id, city, state, country
+                FROM unique_event
+                WHERE (country = 'BR' OR country = 'Brasil')
+                  AND (
+                    id IN ({id_placeholders})
+                    OR lower(city) IN ({city_placeholders})
+                  )
+                """
+            ),
+            params,
+        )
+        rows = result.mappings().all()
+        audit["scanned"] = len(rows)
+
+        pending: list[dict[str, Any]] = []
+        for row in rows:
+            event_id = row["id"]
+            city = row["city"]
+            state = row["state"]
+            country = row["country"]
+            city_key = _normalize_geo_token(city)
+            on_denylist = city_key in MISLABELED_CITY_TO_COUNTRY
+            known_id = event_id in MISLABELED_BRAZIL_EVENT_IDS
+
+            if not _is_brazil_country_label(country):
+                audit["skipped"] += 1
+                continue
+
+            # Known id with real BR UF and not a denylist city: leave it.
+            if known_id and not on_denylist and is_brazilian_uf(state):
+                audit["skipped"] += 1
+                continue
+
+            if not on_denylist and not known_id:
+                audit["skipped"] += 1
+                continue
+
+            new_country = infer_country_from_mislabeled_geography(city, state)
+            pending.append(
+                {
+                    "id": event_id,
+                    "city": city,
+                    "state": state,
+                    "old_country": country,
+                    "new_country": new_country,
+                }
+            )
+
+        audit["would_update"] = len(pending)
+        audit["ids"] = [item["id"] for item in pending]
+        audit["changes"] = pending
+        audit["nulled"] = sum(1 for item in pending if item["new_country"] is None)
+        audit["relabeled"] = sum(1 for item in pending if item["new_country"] is not None)
+
+        if dry_run or not pending:
+            return audit
+
+        for item in pending:
+            await session.execute(
+                text(
+                    """
+                    UPDATE unique_event
+                    SET country = :country,
+                        updated_at = CURRENT_TIMESTAMP
+                    WHERE id = :id
+                    """
+                ),
+                {"id": item["id"], "country": item["new_country"]},
+            )
+        await session.commit()
+        audit["updated"] = len(pending)
+        logger.info(
+            "[MISLABELED-BR] Updated {n} UniqueEvent(s) "
+            "(relabeled={relabeled}, nulled={nulled})",
+            n=audit["updated"],
+            relabeled=audit["relabeled"],
+            nulled=audit["nulled"],
+        )
+    return audit
