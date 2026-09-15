@@ -10,6 +10,7 @@ Portal: https://www.ispdados.rj.gov.br/estatistica.html
 `fase`: 1 = parcial/preliminar, 2 = consolidado, 3 = consolidado com errata.
 """
 
+from datetime import datetime
 from pathlib import Path
 
 import pytest
@@ -31,7 +32,6 @@ from app.services.ispdados import (
     revision_from_fase,
 )
 from app.services.official_typology import map_natureza
-from datetime import datetime
 
 FIXTURE_PATH = Path(__file__).parent / "fixtures" / "ispdados_municipio_mensal.csv"
 
@@ -117,7 +117,6 @@ def test_parse_fixture_unpivots_mapped_skips_composites_and_window():
     text = FIXTURE_PATH.read_text(encoding="utf-8")
     records = parse_ispdados_csv(text, since="2025-09")
 
-    indicators = {(r["code_muni"], r["year_month"], r["indicator"]) for r in records}
     # Window: August 2025 dropped
     assert all(r["year_month"] >= "2025-09" for r in records)
     assert not any(r["year_month"] == "2025-08" for r in records)
@@ -415,7 +414,7 @@ async def test_coverage_download_oficial_ignores_rj(client, async_session, setup
 
     response = await client.get("/api/public/stats/coverage/download")
     assert response.status_code == 200
-    lines = response.text.strip().split("\n")
+    lines = [line.strip() for line in response.text.strip().splitlines()]
     rio_row = next(line for line in lines[1:] if line.startswith("3304557,"))
     # code,name,uf,oficial — Validador 10, not 10+100
     assert rio_row.endswith(",10")
