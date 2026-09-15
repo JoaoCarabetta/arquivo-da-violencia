@@ -1725,18 +1725,23 @@ async def get_coverage_stats(
         
         Sorted by official_victims descending.
     """
-    from app.services.coverage_data import get_coverage_data
+    from app.services.coverage_data import get_coverage_data, state_columns_enabled
     
     coverage = await get_coverage_data(session, search=q)
+    methodology = {
+        "official_bag": "homicídio doloso + feminicídio + roubo seguido de morte (latrocínio) + lesão corporal seguida de morte",
+        "arquivo_filter": "homicidio, incident, victim_count <= 10, country=BR, date >= 2025-09-01",
+        "coverage_calculation": "Arquivo victims / official victims (not capped, None when official=0)",
+        "note": "Municipalities with official=0 and Arquivo=0 are hidden",
+    }
+    if state_columns_enabled():
+        methodology["state_columns"] = (
+            "RJ ISPDados is a separate series (rj_victims) never summed into official_victims"
+        )
     
     return {
         "window_start": "2025-09",
-        "methodology": {
-            "official_bag": "homicídio doloso + feminicídio + roubo seguido de morte (latrocínio) + lesão corporal seguida de morte",
-            "arquivo_filter": "homicidio, incident, victim_count <= 10, country=BR, date >= 2025-09-01",
-            "coverage_calculation": "Arquivo victims / official victims (not capped, None when official=0)",
-            "note": "Municipalities with official=0 and Arquivo=0 are hidden"
-        },
+        "methodology": methodology,
         "municipalities": coverage
     }
 
@@ -1761,7 +1766,11 @@ async def download_official_universe(session: AsyncSession = Depends(get_session
     Sorted by oficial descending.
     """
     from app.services.coverage_data import COVERAGE_WINDOW_START, get_formulario_1_types
-    from app.models.official_violence_data import OfficialViolenceCount
+    from app.models.official_violence_data import (
+        OfficialRevision,
+        OfficialSourceId,
+        OfficialViolenceCount,
+    )
     from app.models.ibge_population import IBGEPopulation
     from io import StringIO
     import csv
@@ -1804,7 +1813,9 @@ async def download_official_universe(session: AsyncSession = Depends(get_session
         func.sum(OfficialViolenceCount.victim_count).label("official_victims")
     ).where(
         OfficialViolenceCount.indicator.in_(formulario_1_types),
-        OfficialViolenceCount.year_month >= min_year_month
+        OfficialViolenceCount.year_month >= min_year_month,
+        OfficialViolenceCount.source_id == OfficialSourceId.VALIDADOR,
+        OfficialViolenceCount.revision == OfficialRevision.CONSOLIDADO,
     ).group_by(OfficialViolenceCount.code_muni)
     
     official_result = await session.execute(official_query)
