@@ -31,6 +31,7 @@ from app.models.official_violence_data import (
 from app.models.unique_event import UniqueEvent
 from app.models.ibge_population import IBGEPopulation
 from app.services.public_filters import public_incident_criteria
+from app.services.official_typology import formulario_1_indicators
 
 
 # Coverage window: complete months from 2025-09 onwards
@@ -41,21 +42,10 @@ COVERAGE_WINDOW_START = datetime(2025, 9, 1)
 def get_formulario_1_types() -> list[str]:
     """
     Return the four Formulário 1 indicator types used in official municipal totals.
-    
-    These are the exclusive types summed for coverage calculation:
-    - homicidio_doloso
-    - feminicidio
-    - latrocinio
-    - lesao_corporal_seguida_morte
-    
+
     NOTE: morte_intervencao_policial is NOT included in this list.
     """
-    return [
-        "homicidio_doloso",
-        "feminicidio",
-        "latrocinio",
-        "lesao_corporal_seguida_morte",
-    ]
+    return formulario_1_indicators()
 
 
 async def get_coverage_data(
