@@ -20,7 +20,11 @@ Acceptance criteria from issue #176 and #183:
 import pytest
 from datetime import datetime
 
-from app.models.official_violence_data import OfficialViolenceCount
+from app.models.official_violence_data import (
+    OfficialRevision,
+    OfficialSourceId,
+    OfficialViolenceCount,
+)
 from app.models.unique_event import UniqueEvent
 from app.models.ibge_population import IBGEPopulation
 from app.services.coverage_data import get_coverage_data
@@ -614,3 +618,160 @@ async def test_hide_oficial_0_arquivo_0(async_session):
     # Verify Rio is absent
     rio_row = next((r for r in coverage if r["code"] == 3304557), None)
     assert rio_row is None, "Rio (official=0, Arquivo=0) should be hidden from coverage"
+
+
+async def _setup_revision_municipality(async_session, code_muni: int, name: str, uf: str):
+    """Minimal IBGE + Arquivo row so a municipality appears in coverage."""
+    async_session.add(
+        IBGEPopulation(
+            code_muni=code_muni,
+            code_state="35",
+            name_muni=name,
+            name_state="São Paulo",
+            abbrev_state=uf,
+            population=100000,
+            year=2022,
+        )
+    )
+    async_session.add(
+        UniqueEvent(
+            event_family="homicidio",
+            event_subtype="simples",
+            content_class="incident",
+            country="BR",
+            state=uf,
+            city=name,
+            municipality_code=code_muni,
+            event_date=datetime(2025, 9, 15),
+            victim_count=1,
+            latitude=-23.0,
+            longitude=-46.0,
+        )
+    )
+
+
+@pytest.mark.asyncio
+async def test_coverage_uses_consolidado_without_preliminar_flag(async_session):
+    """Issue #241: consolidado present → used, official_is_preliminar=False."""
+    code = 3550308
+    await _setup_revision_municipality(async_session, code, "São Paulo", "SP")
+    async_session.add(
+        OfficialViolenceCount(
+            code_muni=code,
+            year_month="2025-09",
+            indicator="homicidio_doloso",
+            victim_count=7,
+            source_id=OfficialSourceId.VALIDADOR,
+            revision=OfficialRevision.CONSOLIDADO,
+        )
+    )
+    await async_session.commit()
+
+    coverage = await get_coverage_data(async_session)
+    row = next(r for r in coverage if r["code"] == code)
+
+    assert row["official_victims"] == 7
+    assert row["official_is_preliminar"] is False
+
+
+@pytest.mark.asyncio
+async def test_coverage_uses_preliminar_when_only_revision(async_session):
+    """Issue #241: preliminar-only → used with explicit preliminar flag."""
+    code = 3505708
+    await _setup_revision_municipality(async_session, code, "Bauru", "SP")
+    async_session.add(
+        OfficialViolenceCount(
+            code_muni=code,
+            year_month="2025-09",
+            indicator="homicidio_doloso",
+            victim_count=4,
+            source_id=OfficialSourceId.VALIDADOR,
+            revision=OfficialRevision.PRELIMINAR,
+        )
+    )
+    await async_session.commit()
+
+    coverage = await get_coverage_data(async_session)
+    row = next(r for r in coverage if r["code"] == code)
+
+    assert row["official_victims"] == 4
+    assert row["official_is_preliminar"] is True
+
+
+@pytest.mark.asyncio
+async def test_coverage_prefers_consolidado_over_preliminar_same_key(async_session):
+    """Issue #241: both revisions for same municipality-month-indicator → consolidado wins."""
+    code = 3550308
+    await _setup_revision_municipality(async_session, code, "São Paulo", "SP")
+    for revision, count in (
+        (OfficialRevision.PRELIMINAR, 99),
+        (OfficialRevision.CONSOLIDADO, 8),
+    ):
+        async_session.add(
+            OfficialViolenceCount(
+                code_muni=code,
+                year_month="2025-09",
+                indicator="homicidio_doloso",
+                victim_count=count,
+                source_id=OfficialSourceId.VALIDADOR,
+                revision=revision,
+            )
+        )
+    await async_session.commit()
+
+    coverage = await get_coverage_data(async_session)
+    row = next(r for r in coverage if r["code"] == code)
+
+    assert row["official_victims"] == 8
+    assert row["official_is_preliminar"] is False
+
+
+@pytest.mark.asyncio
+async def test_coverage_filters_source_id_and_revision(async_session):
+    """
+    Issue #241 / #245: only validador rows participate; SSP sources and wrong
+    revision rows for the same key must not inflate totals.
+    """
+    code = 3550308
+    await _setup_revision_municipality(async_session, code, "São Paulo", "SP")
+
+    # Validador consolidado (should count)
+    async_session.add(
+        OfficialViolenceCount(
+            code_muni=code,
+            year_month="2025-09",
+            indicator="homicidio_doloso",
+            victim_count=5,
+            source_id=OfficialSourceId.VALIDADOR,
+            revision=OfficialRevision.CONSOLIDADO,
+        )
+    )
+    # State SSP column (must not count — later tickets)
+    async_session.add(
+        OfficialViolenceCount(
+            code_muni=code,
+            year_month="2025-09",
+            indicator="homicidio_doloso",
+            victim_count=500,
+            source_id=OfficialSourceId.SP,
+            revision=OfficialRevision.CONSOLIDADO,
+        )
+    )
+    # Preliminar for same key (consolidado already present — must not add)
+    async_session.add(
+        OfficialViolenceCount(
+            code_muni=code,
+            year_month="2025-09",
+            indicator="homicidio_doloso",
+            victim_count=200,
+            source_id=OfficialSourceId.VALIDADOR,
+            revision=OfficialRevision.PRELIMINAR,
+        )
+    )
+    await async_session.commit()
+
+    coverage = await get_coverage_data(async_session)
+    row = next(r for r in coverage if r["code"] == code)
+
+    assert row["official_victims"] == 5
+    assert row["official_is_preliminar"] is False

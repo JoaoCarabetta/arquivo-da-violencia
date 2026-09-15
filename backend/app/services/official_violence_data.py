@@ -366,7 +366,7 @@ async def ingest_official_violence_data(
 async def get_official_violence_totals(
     session: AsyncSession,
     code_munis: List[int],
-    min_year_month: str = "2025-09",
+    min_year_month: str = BANCOVDE_WINDOW_START,
     source_id: OfficialSourceId = OfficialSourceId.VALIDADOR,
     revision: OfficialRevision = OfficialRevision.CONSOLIDADO,
 ) -> List[Dict[str, Any]]:

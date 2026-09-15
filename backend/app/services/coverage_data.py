@@ -17,7 +17,8 @@ Official total = 4 Formulário 1 types only:
 DO NOT include morte por intervenção de agente do Estado in the municipal total.
 """
 
-from typing import Dict, List, Any, Optional
+from collections import defaultdict
+from typing import Dict, List, Any, Optional, Set, Tuple
 from datetime import datetime
 from sqlmodel import select, func
 from sqlmodel.ext.asyncio.session import AsyncSession
@@ -32,6 +33,7 @@ from app.models.unique_event import UniqueEvent
 from app.models.ibge_population import IBGEPopulation
 from app.services.public_filters import public_incident_criteria
 from app.services.official_typology import formulario_1_indicators
+from app.services.official_violence_data import BANCOVDE_WINDOW_START
 
 
 # Coverage window: complete months from 2025-09 onwards
@@ -48,9 +50,70 @@ def get_formulario_1_types() -> list[str]:
     return formulario_1_indicators()
 
 
+OfficialKey = Tuple[int, str, str]
+
+
+async def _load_validador_official_by_municipality(
+    session: AsyncSession,
+    formulario_1_types: list[str],
+    min_year_month: str,
+) -> Tuple[Dict[int, int], Set[int], Dict[int, bool]]:
+    """
+    Load Validador official counts with consolidado-over-preliminar preference.
+
+    For each municipality × month × indicator, use consolidado when present;
+    otherwise fall back to preliminar. State SSP sources (rj, mg, sp) are excluded.
+
+    Returns:
+        official_by_code: summed victim counts per municipality
+        official_published_codes: municipalities with any official row in window
+        official_is_preliminar_by_code: True when any selected row used preliminar
+    """
+    official_query = select(
+        OfficialViolenceCount.code_muni,
+        OfficialViolenceCount.year_month,
+        OfficialViolenceCount.indicator,
+        OfficialViolenceCount.revision,
+        OfficialViolenceCount.victim_count,
+    ).where(
+        OfficialViolenceCount.indicator.in_(formulario_1_types),
+        OfficialViolenceCount.year_month >= min_year_month,
+        OfficialViolenceCount.source_id == OfficialSourceId.VALIDADOR,
+    )
+
+    official_result = await session.execute(official_query)
+    official_rows = official_result.all()
+
+    by_key: Dict[OfficialKey, Dict[OfficialRevision, int]] = defaultdict(dict)
+    for row in official_rows:
+        key = (row.code_muni, row.year_month, row.indicator)
+        by_key[key][row.revision] = row.victim_count
+
+    official_by_code: Dict[int, int] = defaultdict(int)
+    official_published_codes: Set[int] = set()
+    official_is_preliminar_by_code: Dict[int, bool] = defaultdict(bool)
+
+    for (code_muni, _year_month, _indicator), revisions in by_key.items():
+        if OfficialRevision.CONSOLIDADO in revisions:
+            victim_count = revisions[OfficialRevision.CONSOLIDADO]
+            used_preliminar = False
+        elif OfficialRevision.PRELIMINAR in revisions:
+            victim_count = revisions[OfficialRevision.PRELIMINAR]
+            used_preliminar = True
+        else:
+            continue
+
+        official_by_code[code_muni] += victim_count
+        official_published_codes.add(code_muni)
+        if used_preliminar:
+            official_is_preliminar_by_code[code_muni] = True
+
+    return dict(official_by_code), official_published_codes, dict(official_is_preliminar_by_code)
+
+
 async def get_coverage_data(
     session: AsyncSession,
-    min_year_month: str = "2025-09",
+    min_year_month: str = BANCOVDE_WINDOW_START,
     search: Optional[str] = None
 ) -> List[Dict[str, Any]]:
     """
@@ -73,6 +136,8 @@ async def get_coverage_data(
         - uf: State abbreviation (e.g. "SP", "RJ")
         - official_victims: Official municipal total count (Formulário 1 types only)
         - official_published: Boolean - True if official data exists (even if sum=0), False if no data
+        - official_is_preliminar: Boolean - True when any month used preliminar because
+          consolidado was absent for that municipality-month-indicator key
         - arquivo_victims: Arquivo victim count (public filter)
         - coverage: Arquivo / official ratio (None when official=0)
         
@@ -90,31 +155,16 @@ async def get_coverage_data(
     "not published" (official_published=False) from "published zero" (official_published=True, official_victims=0).
     """
     
-    # 1. Get official counts (Formulário 1 types only) by municipality
-    # Sum the four exclusive Formulário 1 types at query time
+    # 1. Get official counts (Formulário 1 types only) by municipality.
+    # Validador source only; prefer consolidado, else preliminar with flag.
     formulario_1_types = get_formulario_1_types()
-    
-    official_query = select(
-        OfficialViolenceCount.code_muni,
-        func.sum(OfficialViolenceCount.victim_count).label("official_victims")
-    ).where(
-        OfficialViolenceCount.indicator.in_(formulario_1_types),
-        OfficialViolenceCount.year_month >= min_year_month,
-        OfficialViolenceCount.source_id == OfficialSourceId.VALIDADOR,
-        OfficialViolenceCount.revision == OfficialRevision.CONSOLIDADO,
-    ).group_by(OfficialViolenceCount.code_muni)
-    
-    official_result = await session.execute(official_query)
-    official_rows = official_result.all()
-    
-    # Track which municipalities have official data (even if sum=0)
-    official_by_code: Dict[int, int] = {}
-    official_published_codes: set[int] = set()
-    
-    for row in official_rows:
-        official_by_code[row.code_muni] = row.official_victims
-        official_published_codes.add(row.code_muni)
-    
+
+    official_by_code, official_published_codes, official_is_preliminar_by_code = (
+        await _load_validador_official_by_municipality(
+            session, formulario_1_types, min_year_month
+        )
+    )
+
     logger.info(f"Loaded official counts for {len(official_by_code)} municipalities")
     
     # 2. Get Arquivo victim counts by municipality_code
@@ -197,6 +247,7 @@ async def get_coverage_data(
             "uf": ibge.abbrev_state,
             "official_victims": official_count,
             "official_published": official_published,
+            "official_is_preliminar": official_is_preliminar_by_code.get(code, False),
             "arquivo_victims": arquivo_count,
             "coverage": coverage,
         })
