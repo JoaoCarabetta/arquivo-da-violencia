@@ -5,8 +5,8 @@ Revises: m2n3o4p5q6r7
 Create Date: 2026-09-15 23:00:00.000000
 
 Safety migration for Postgres: convert legacy officialsourceid/officialrevision
-enum columns to VARCHAR if SQLModel create_all created native enum types before
-sa_column overrides (issue #252).
+enum columns to lowercase VARCHAR if SQLModel create_all or ops patches created
+native enum types with uppercase labels (issue #252).
 """
 from typing import Sequence, Union
 
@@ -35,7 +35,7 @@ def _convert_column_to_varchar(bind, column_name: str, length: int) -> None:
             f"""
             ALTER TABLE official_violence_count
             ALTER COLUMN {column_name} TYPE VARCHAR({length})
-            USING {column_name}::text
+            USING lower({column_name}::text)
             """
         )
     )

@@ -180,6 +180,14 @@ def test_safety_migration_converts_postgres_enums():
                 """
             )
         )
+        conn.execute(
+            text(
+                """
+                INSERT INTO official_violence_count (source_id, revision)
+                VALUES ('RJ'::officialsourceid, 'PRELIMINAR'::officialrevision)
+                """
+            )
+        )
 
         context = MigrationContext.configure(conn)
         ops = Operations(context)
@@ -221,6 +229,11 @@ def test_safety_migration_converts_postgres_enums():
         ).scalar()
         assert source_enum is None
         assert revision_enum is None
+
+        rows = conn.execute(
+            text("SELECT source_id, revision FROM official_violence_count ORDER BY id")
+        ).all()
+        assert rows == [("validador", "consolidado"), ("rj", "preliminar")]
     finally:
         trans.rollback()
         conn.close()
