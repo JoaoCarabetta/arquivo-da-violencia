@@ -20,7 +20,11 @@ from sqlmodel import select, func
 from sqlmodel.ext.asyncio.session import AsyncSession
 from loguru import logger
 
-from app.models.official_violence_data import OfficialViolenceCount
+from app.models.official_violence_data import (
+    OfficialRevision,
+    OfficialSourceId,
+    OfficialViolenceCount,
+)
 
 
 # Mapping from VDE evento names to our indicator slugs
@@ -67,7 +71,9 @@ def _excel_serial_to_year_month(serial_date: float) -> str:
 async def ingest_official_violence_data(
     session: AsyncSession,
     vde_data: List[Dict[str, Any]],
-    source: str = "SINESP VDE"
+    source: str = "SINESP VDE",
+    source_id: OfficialSourceId = OfficialSourceId.VALIDADOR,
+    revision: OfficialRevision = OfficialRevision.CONSOLIDADO,
 ) -> None:
     """
     Ingest bancovde-YYYY.xlsx data (victim counts by municipality and month).
@@ -104,6 +110,8 @@ async def ingest_official_violence_data(
         session: Database session
         vde_data: List of bancovde data rows (dicts with 14 columns)
         source: Data source description
+        source_id: Official data source identity (default: validador)
+        revision: Data revision stage (default: consolidado)
     """
     if not vde_data:
         return
@@ -202,7 +210,9 @@ async def ingest_official_violence_data(
             query_existing = select(OfficialViolenceCount).where(
                 OfficialViolenceCount.code_muni == code_muni,
                 OfficialViolenceCount.year_month == year_month,
-                OfficialViolenceCount.indicator == indicator
+                OfficialViolenceCount.indicator == indicator,
+                OfficialViolenceCount.source_id == source_id,
+                OfficialViolenceCount.revision == revision,
             )
             result = await session.execute(query_existing)
             existing = result.scalar_one_or_none()
@@ -217,9 +227,11 @@ async def ingest_official_violence_data(
                     code_muni=code_muni,
                     year_month=year_month,
                     indicator=indicator,
+                    source_id=source_id,
+                    revision=revision,
                     victim_count=victim_count,
                     is_total=False,
-                    source=source
+                    source=source,
                 )
                 session.add(count_row)
 
@@ -230,7 +242,9 @@ async def ingest_official_violence_data(
 async def get_official_violence_totals(
     session: AsyncSession,
     code_munis: List[int],
-    min_year_month: str = "2025-09"
+    min_year_month: str = "2025-09",
+    source_id: OfficialSourceId = OfficialSourceId.VALIDADOR,
+    revision: OfficialRevision = OfficialRevision.CONSOLIDADO,
 ) -> List[Dict[str, Any]]:
     """
     Get official municipal totals (Formulário 1 types only) for municipalities.
@@ -245,6 +259,8 @@ async def get_official_violence_totals(
         session: Database session
         code_munis: List of IBGE municipal codes
         min_year_month: Minimum year-month (YYYY-MM) to include (default: 2025-09)
+        source_id: Official data source identity (default: validador)
+        revision: Data revision stage (default: consolidado)
 
     Returns:
         List of dicts with keys: code_muni, year_month, victim_count
@@ -266,7 +282,9 @@ async def get_official_violence_totals(
     ).where(
         OfficialViolenceCount.code_muni.in_(code_munis),
         OfficialViolenceCount.indicator.in_(formulario_1_types),
-        OfficialViolenceCount.year_month >= min_year_month
+        OfficialViolenceCount.year_month >= min_year_month,
+        OfficialViolenceCount.source_id == source_id,
+        OfficialViolenceCount.revision == revision,
     ).group_by(
         OfficialViolenceCount.code_muni,
         OfficialViolenceCount.year_month
