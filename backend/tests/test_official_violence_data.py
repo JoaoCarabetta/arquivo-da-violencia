@@ -24,6 +24,13 @@ FIXTURES_DIR = Path(__file__).parent / "fixtures" / "bancovde"
 BANCOVDE_SLICE_XLSX = FIXTURES_DIR / "bancovde_slice_2025.xlsx"
 
 
+def test_openpyxl_is_installed():
+    """Issue #255: bancovde parsing requires openpyxl in the backend image."""
+    import openpyxl
+
+    assert openpyxl.__version__
+
+
 def test_get_official_violence_totals_default_window_uses_bancovde_constant():
     """Issue #241: default min_year_month should reference BANCOVDE_WINDOW_START."""
     sig = inspect.signature(get_official_violence_totals)

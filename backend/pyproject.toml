@@ -34,6 +34,7 @@ dependencies = [
     "geobr>=0.2.0",
     "sidrapy>=0.1.0",
     "pandas>=2.0.0",
+    "openpyxl>=3.1.0",
     # Authentication
     "python-jose[cryptography]>=3.3.0",
     "passlib[bcrypt]>=1.7.4",
