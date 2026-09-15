@@ -2,9 +2,9 @@
 Official violence data service (Ministry of Justice VDE data).
 
 This module provides functions to:
-1. Ingest bancovde-YYYY.xlsx data (victim counts by municipality and month)
+1. Parse and ingest bancovde-YYYY.xlsx data (victim counts by municipality and month)
 2. Resolve municipality names to 7-digit IBGE codes via ibge_population table
-3. Calculate summed "mortes violentas intencionais" totals
+3. Calculate summed Formulário 1 totals (via formulario_1_indicators / map_natureza)
 4. Query official statistics with window filtering
 
 Data source: SINESP VDE (Validador de Dados Estatísticos)
@@ -12,9 +12,19 @@ URL pattern: https://www.gov.br/mj/pt-br/assuntos/sua-seguranca/seguranca-public
 
 File format: bancovde-2025.xlsx, sheet "2025", 14 columns
 Headers: ["uf","municipio","evento","data_referencia","agente","arma","faixa_etaria","feminino","masculino","nao_informado","total_vitima","total","total_peso","abrangencia"]
+
+Revision (preliminar vs consolidado):
+The gov.br bancovde workbook does NOT encode revision in its columns. The portal
+publishes one rolling snapshot per calendar year (bancovde-YYYY.xlsx). Operators
+assign revision at ingest time via the ``revision`` kwarg (or CLI ``--revision``):
+download the same file after preliminar consolidation → ingest with
+``revision=preliminar``; re-download after homologation → ingest with
+``revision=consolidado``. Both snapshots persist as separate rows keyed by the
+5-tuple (code_muni, year_month, indicator, source_id, revision).
 """
 
-from typing import Dict, List, Any
+from io import BytesIO
+from typing import Dict, List, Any, BinaryIO, Union
 from datetime import datetime, timedelta
 from sqlmodel import select, func
 from sqlmodel.ext.asyncio.session import AsyncSession
@@ -26,11 +36,30 @@ from app.models.official_violence_data import (
     OfficialViolenceCount,
 )
 from app.services.official_typology import (
-    INDICATOR_MAPPING,
-    MVI_INDICATORS,
     formulario_1_indicators,
     map_natureza,
 )
+
+# gov.br portal (NOT broken dados.mj CKAN)
+BANCOVDE_URL_TEMPLATE = (
+    "https://www.gov.br/mj/pt-br/assuntos/sua-seguranca/seguranca-publica/"
+    "estatistica/download/dnsp-base-de-dados/bancovde-{year}.xlsx/@@download/file"
+)
+
+# Expected bancovde-YYYY.xlsx headers (14 columns)
+BANCOVDE_EXPECTED_HEADERS = [
+    "uf", "municipio", "evento", "data_referencia", "agente", "arma",
+    "faixa_etaria", "feminino", "masculino", "nao_informado",
+    "total_vitima", "total", "total_peso", "abrangencia",
+]
+
+# v1 coverage window (issue #237 / #240)
+BANCOVDE_WINDOW_START = "2025-09"
+
+
+def bancovde_govbr_url(year: int) -> str:
+    """Return the gov.br download URL for bancovde-YYYY.xlsx."""
+    return BANCOVDE_URL_TEMPLATE.format(year=year)
 
 
 def _excel_serial_to_year_month(serial_date: float) -> str:
@@ -50,6 +79,117 @@ def _excel_serial_to_year_month(serial_date: float) -> str:
     excel_epoch = datetime(1899, 12, 30)
     date = excel_epoch + timedelta(days=int(serial_date))
     return date.strftime("%Y-%m")
+
+
+def parse_bancovde_workbook(
+    workbook_bytes: Union[bytes, BinaryIO],
+    year: int,
+    since_year_month: str = BANCOVDE_WINDOW_START,
+) -> List[Dict[str, Any]]:
+    """
+    Parse a bancovde-YYYY.xlsx workbook into row dicts.
+
+    Uses the gov.br file layout: sheet named after the calendar year, 14 columns,
+    Excel serial dates in ``data_referencia``. Rows before ``since_year_month`` are
+    dropped (default: 2025-09 inclusive window start).
+
+    Args:
+        workbook_bytes: Raw XLSX bytes or file-like object
+        year: Calendar year (selects sheet name, e.g. 2025 → sheet "2025")
+        since_year_month: Minimum YYYY-MM to keep (inclusive)
+
+    Returns:
+        List of row dicts keyed by column header names
+    """
+    from openpyxl import load_workbook
+
+    if isinstance(workbook_bytes, bytes):
+        source = BytesIO(workbook_bytes)
+    else:
+        source = workbook_bytes
+
+    wb = load_workbook(source, read_only=True, data_only=True)
+    sheet_name = str(year)
+
+    if sheet_name not in wb.sheetnames:
+        wb.close()
+        raise ValueError(
+            f"Sheet '{sheet_name}' not found in workbook. "
+            f"Available sheets: {wb.sheetnames}"
+        )
+
+    ws = wb[sheet_name]
+
+    headers: List[str] = []
+    for col_idx in range(1, len(BANCOVDE_EXPECTED_HEADERS) + 1):
+        cell = ws.cell(row=1, column=col_idx)
+        header_value = cell.value
+        if header_value is None:
+            headers.append(f"col_{col_idx}")
+        else:
+            headers.append(str(header_value).strip())
+
+    if headers != BANCOVDE_EXPECTED_HEADERS:
+        logger.warning(
+            "bancovde header mismatch for %s: expected %s, got %s",
+            sheet_name,
+            BANCOVDE_EXPECTED_HEADERS,
+            headers,
+        )
+
+    records: List[Dict[str, Any]] = []
+    skipped_count = 0
+
+    for row in ws.iter_rows(min_row=2, values_only=True):
+        record: Dict[str, Any] = {}
+        for col_idx, value in enumerate(row):
+            if col_idx >= len(headers):
+                break
+            record[headers[col_idx]] = value
+
+        data_ref = record.get("data_referencia")
+        if data_ref is None:
+            skipped_count += 1
+            continue
+
+        try:
+            year_month = _excel_serial_to_year_month(float(data_ref))
+        except (ValueError, TypeError):
+            skipped_count += 1
+            continue
+
+        if year_month < since_year_month:
+            skipped_count += 1
+            continue
+
+        records.append(record)
+
+    wb.close()
+    logger.info(
+        "Parsed bancovde-%s.xlsx: kept %s rows >= %s (skipped %s)",
+        year,
+        len(records),
+        since_year_month,
+        skipped_count,
+    )
+    return records
+
+
+async def download_bancovde_workbook(year: int) -> bytes:
+    """
+    Download bancovde-YYYY.xlsx from the gov.br portal.
+
+    Network I/O only — use parse_bancovde_workbook() for parsing in tests.
+    """
+    import httpx
+
+    url = bancovde_govbr_url(year)
+    logger.info("Downloading bancovde-%s.xlsx from %s", year, url)
+    async with httpx.AsyncClient(timeout=120.0) as client:
+        response = await client.get(url)
+        response.raise_for_status()
+    logger.info("Downloaded %s bytes", len(response.content))
+    return response.content
 
 
 async def ingest_official_violence_data(
