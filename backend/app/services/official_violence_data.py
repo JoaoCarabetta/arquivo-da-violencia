@@ -318,36 +318,50 @@ async def ingest_official_violence_data(
         key = (code_muni, year_month, indicator)
         grouped[key] = grouped.get(key, 0) + victim_count
 
-    # Convert to nested dict for storage
-    storage_grouped: Dict[tuple, Dict[str, int]] = {}
+    n_muni_months = await upsert_official_indicator_counts(
+        session,
+        grouped,
+        source_id=source_id,
+        revision=revision,
+        source=source,
+    )
+    logger.info(f"Ingested official violence data for {n_muni_months} municipality-months")
+
+
+async def upsert_official_indicator_counts(
+    session: AsyncSession,
+    grouped: Dict[tuple, int],
+    *,
+    source_id: OfficialSourceId,
+    revision: OfficialRevision,
+    source: str,
+) -> int:
+    """
+    Upsert official counts keyed by (code_muni, year_month, indicator).
+
+    Unique store key is the 5-tuple including source_id and revision (#238).
+    Returns the number of distinct municipality-months written.
+    """
+    municipality_months: set[tuple] = set()
+
     for (code_muni, year_month, indicator), victim_count in grouped.items():
-        key = (code_muni, year_month)
-        if key not in storage_grouped:
-            storage_grouped[key] = {}
-        storage_grouped[key][indicator] = victim_count
+        municipality_months.add((code_muni, year_month))
+        query_existing = select(OfficialViolenceCount).where(
+            OfficialViolenceCount.code_muni == code_muni,
+            OfficialViolenceCount.year_month == year_month,
+            OfficialViolenceCount.indicator == indicator,
+            OfficialViolenceCount.source_id == source_id,
+            OfficialViolenceCount.revision == revision,
+        )
+        result = await session.execute(query_existing)
+        existing = result.scalar_one_or_none()
 
-    # Insert/update rows (explicit upsert for idempotence)
-    for (code_muni, year_month), indicators in storage_grouped.items():
-        # Store individual indicators
-        for indicator, victim_count in indicators.items():
-            # Check if row exists
-            query_existing = select(OfficialViolenceCount).where(
-                OfficialViolenceCount.code_muni == code_muni,
-                OfficialViolenceCount.year_month == year_month,
-                OfficialViolenceCount.indicator == indicator,
-                OfficialViolenceCount.source_id == source_id,
-                OfficialViolenceCount.revision == revision,
-            )
-            result = await session.execute(query_existing)
-            existing = result.scalar_one_or_none()
-
-            if existing:
-                # Update existing row
-                existing.victim_count = victim_count
-                existing.updated_at = datetime.utcnow()
-            else:
-                # Insert new row
-                count_row = OfficialViolenceCount(
+        if existing:
+            existing.victim_count = victim_count
+            existing.updated_at = datetime.utcnow()
+        else:
+            session.add(
+                OfficialViolenceCount(
                     code_muni=code_muni,
                     year_month=year_month,
                     indicator=indicator,
@@ -357,10 +371,10 @@ async def ingest_official_violence_data(
                     is_total=False,
                     source=source,
                 )
-                session.add(count_row)
+            )
 
     await session.commit()
-    logger.info(f"Ingested official violence data for {len(storage_grouped)} municipality-months")
+    return len(municipality_months)
 
 
 async def get_official_violence_totals(
