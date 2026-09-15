@@ -25,28 +25,12 @@ from app.models.official_violence_data import (
     OfficialSourceId,
     OfficialViolenceCount,
 )
-
-
-# Mapping from VDE evento names to our indicator slugs
-# These strings must match the exact casing in bancovde-YYYY.xlsx
-INDICATOR_MAPPING = {
-    "Homicídio doloso": "homicidio_doloso",
-    "Feminicídio": "feminicidio",
-    "Roubo seguido de morte (latrocínio)": "latrocinio",
-    "Lesão corporal seguida de morte": "lesao_corporal_seguida_morte",
-    "Morte por intervenção de Agente do Estado": "morte_intervencao_policial",
-}
-
-# Indicators that comprise the official municipal total (Formulário 1 types only)
-# Spec (issue #183): homicídio doloso + feminicídio + latrocínio (roubo seguido de morte)
-# + lesão corporal seguida de morte ONLY.
-# Do NOT include morte por intervenção de agente do Estado in the municipal bag.
-MVI_INDICATORS = [
-    "homicidio_doloso",
-    "feminicidio",
-    "latrocinio",
-    "lesao_corporal_seguida_morte",
-]
+from app.services.official_typology import (
+    INDICATOR_MAPPING,
+    MVI_INDICATORS,
+    formulario_1_indicators,
+    map_natureza,
+)
 
 
 def _excel_serial_to_year_month(serial_date: float) -> str:
@@ -159,13 +143,13 @@ async def ingest_official_violence_data(
             logger.debug(f"Could not resolve IBGE code for {municipio}/{uf}, skipping")
             continue
 
-        # Parse evento
+        # Parse evento via shared typology map
         evento = row.get("evento", "").strip()
-        if evento not in INDICATOR_MAPPING:
-            # Ignore other eventos
+        mapped = map_natureza(evento)
+        if mapped["kind"] == "unmapped":
             continue
 
-        indicator = INDICATOR_MAPPING[evento]
+        indicator = mapped["indicator"]
 
         # Parse date
         data_ref = row.get("data_referencia")
@@ -268,12 +252,7 @@ async def get_official_violence_totals(
     if not code_munis:
         return []
     
-    formulario_1_types = [
-        "homicidio_doloso",
-        "feminicidio",
-        "latrocinio",
-        "lesao_corporal_seguida_morte",
-    ]
+    formulario_1_types = formulario_1_indicators()
 
     query = select(
         OfficialViolenceCount.code_muni,

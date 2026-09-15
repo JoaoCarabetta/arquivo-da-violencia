@@ -427,6 +427,37 @@ async def test_unmatched_municipality_dropped(async_session, setup_ibge_data):
 
 
 @pytest.mark.asyncio
+async def test_unmapped_evento_skipped(async_session, setup_ibge_data):
+    """Unmapped naturezas are skipped during ingest (issue #239)."""
+    vde_fixture = [
+        {
+            "uf": "SP",
+            "municipio": "SÃO PAULO",
+            "evento": "Suicídio",
+            "data_referencia": 45901,
+            "agente": "",
+            "arma": "",
+            "faixa_etaria": "",
+            "feminino": 0,
+            "masculino": 5,
+            "nao_informado": 0,
+            "total_vitima": 5,
+            "total": 0,
+            "total_peso": 0,
+            "abrangencia": "",
+        },
+    ]
+
+    await ingest_official_violence_data(async_session, vde_fixture)
+
+    query = select(OfficialViolenceCount)
+    result = await async_session.execute(query)
+    counts = result.scalars().all()
+
+    assert len(counts) == 0
+
+
+@pytest.mark.asyncio
 async def test_source_revision_uniqueness(async_session, setup_ibge_data):
     """
     Same municipality × month × indicator with different source_id or revision
