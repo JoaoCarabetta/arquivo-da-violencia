@@ -163,6 +163,8 @@ async def get_coverage_data(
         - rj_victims / rj_published / rj_preliminar: ISPDados column (never summed
           into official_victims). Emitted only when state_columns_enabled()
           (staging/dev); production JSON omits these keys entirely.
+        - mg_victims / mg_published / mg_preliminar: SEJUSP Crimes Violentos column
+          (never summed into official_victims). Same staging-only emission as rj_*.
         
         Sorted by official_victims descending.
     
@@ -191,10 +193,13 @@ async def get_coverage_data(
 
     logger.info(f"Loaded official counts for {len(official_by_code)} municipalities")
 
-    # 1b. RJ ISPDados as a distinct coverage column (never summed into Validador)
+    # 1b. State SSP series as distinct coverage columns (never summed into Validador)
     rj_by_code: Dict[int, int] = {}
     rj_published_codes: set[int] = set()
     rj_is_preliminar_by_code: Dict[int, bool] = {}
+    mg_by_code: Dict[int, int] = {}
+    mg_published_codes: Set[int] = set()
+    mg_is_preliminar_by_code: Dict[int, bool] = {}
     if include_state_columns:
         rj_by_code, rj_published_codes, rj_is_preliminar_by_code = (
             await _load_source_bag_by_municipality(
@@ -205,6 +210,15 @@ async def get_coverage_data(
             )
         )
         logger.info(f"Loaded RJ ISPDados counts for {len(rj_by_code)} municipalities")
+        mg_by_code, mg_published_codes, mg_is_preliminar_by_code = (
+            await _load_source_bag_by_municipality(
+                session,
+                OfficialSourceId.MG,
+                formulario_1_types,
+                min_year_month,
+            )
+        )
+        logger.info(f"Loaded MG Crimes Violentos counts for {len(mg_by_code)} municipalities")
     
     # 2. Get Arquivo victim counts by municipality_code
     # Public incident filter: homicidio, incident, victim_count <= 10
@@ -236,10 +250,10 @@ async def get_coverage_data(
     
     logger.info(f"Loaded Arquivo counts for {len(arquivo_by_code)} municipalities")
     
-    # 3. Union: Validador > 0 OR Arquivo > 0 OR (staging) RJ ISPDados > 0
+    # 3. Union: Validador > 0 OR Arquivo > 0 OR (staging) RJ / MG > 0
     all_codes = set(official_by_code.keys()) | set(arquivo_by_code.keys())
     if include_state_columns:
-        all_codes |= set(rj_by_code.keys())
+        all_codes |= set(rj_by_code.keys()) | set(mg_by_code.keys())
     
     if not all_codes:
         logger.warning("No municipalities found with official or Arquivo data")
@@ -266,10 +280,11 @@ async def get_coverage_data(
         arquivo_count = arquivo_by_code.get(code, 0)
         official_published = code in official_published_codes
         rj_count = rj_by_code.get(code, 0)
-        
-        # Hide Validador 0 + Arquivo 0 (+ RJ 0 on staging)
+        mg_count = mg_by_code.get(code, 0)
+
+        # Hide Validador 0 + Arquivo 0 (+ RJ 0 + MG 0 on staging)
         if official_count == 0 and arquivo_count == 0:
-            if not include_state_columns or rj_count == 0:
+            if not include_state_columns or (rj_count == 0 and mg_count == 0):
                 continue
         
         # Calculate coverage (None when official=0 to avoid divide-by-zero)
@@ -298,6 +313,9 @@ async def get_coverage_data(
             row["rj_victims"] = rj_count
             row["rj_published"] = code in rj_published_codes
             row["rj_preliminar"] = rj_is_preliminar_by_code.get(code, False)
+            row["mg_victims"] = mg_count
+            row["mg_published"] = code in mg_published_codes
+            row["mg_preliminar"] = mg_is_preliminar_by_code.get(code, False)
         coverage_rows.append(row)
     
     # 6. Sort by official_victims descending (spec requirement)

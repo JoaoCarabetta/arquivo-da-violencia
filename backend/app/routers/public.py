@@ -1736,7 +1736,8 @@ async def get_coverage_stats(
     }
     if state_columns_enabled():
         methodology["state_columns"] = (
-            "RJ ISPDados is a separate series (rj_victims) never summed into official_victims"
+            "RJ ISPDados (rj_victims) and MG SEJUSP Crimes Violentos (mg_victims) "
+            "are separate series never summed into official_victims"
         )
     
     return {
