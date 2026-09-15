@@ -1,4 +1,7 @@
-"""Issue #252: OfficialSourceId/OfficialRevision must use VARCHAR, not PG native enums."""
+"""Issue #252/#254: OfficialSourceId/OfficialRevision must use VARCHAR, not PG native enums.
+
+Issue #254: enum columns with DEFAULT block DROP TYPE unless migration drops defaults first.
+"""
 
 import sys
 from pathlib import Path
@@ -149,7 +152,7 @@ def _postgres_engine_or_skip():
 
 
 def test_safety_migration_converts_postgres_enums():
-    """If broken create_all left PG enum types, migration converts to VARCHAR."""
+    """Enum columns with DEFAULT must migrate without manual DROP DEFAULT dance (#254)."""
     engine = _postgres_engine_or_skip()
     conn = engine.connect()
     trans = conn.begin()
@@ -180,6 +183,7 @@ def test_safety_migration_converts_postgres_enums():
                 """
             )
         )
+        conn.execute(text("INSERT INTO official_violence_count DEFAULT VALUES"))
         conn.execute(
             text(
                 """
@@ -220,6 +224,29 @@ def test_safety_migration_converts_postgres_enums():
 
         assert source_type.data_type == "character varying"
         assert revision_type.data_type == "character varying"
+
+        source_default = conn.execute(
+            text(
+                """
+                SELECT column_default
+                FROM information_schema.columns
+                WHERE table_name = 'official_violence_count'
+                  AND column_name = 'source_id'
+                """
+            )
+        ).scalar()
+        revision_default = conn.execute(
+            text(
+                """
+                SELECT column_default
+                FROM information_schema.columns
+                WHERE table_name = 'official_violence_count'
+                  AND column_name = 'revision'
+                """
+            )
+        ).scalar()
+        assert "validador" in source_default
+        assert "consolidado" in revision_default
 
         source_enum = conn.execute(
             text("SELECT 1 FROM pg_type WHERE typname = 'officialsourceid'")

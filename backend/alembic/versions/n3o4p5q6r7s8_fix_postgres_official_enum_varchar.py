@@ -7,6 +7,12 @@ Create Date: 2026-09-15 23:00:00.000000
 Safety migration for Postgres: convert legacy officialsourceid/officialrevision
 enum columns to lowercase VARCHAR if SQLModel create_all or ops patches created
 native enum types with uppercase labels (issue #252).
+
+When enum types exist, order is critical (issue #254):
+  1. DROP DEFAULT on source_id / revision (defaults depend on enum types)
+  2. ALTER COLUMN … TYPE VARCHAR USING lower(…::text)
+  3. SET DEFAULT to lowercase strings ('validador', 'consolidado')
+  4. DROP TYPE officialsourceid / officialrevision
 """
 from typing import Sequence, Union
 
@@ -29,7 +35,17 @@ def _enum_type_exists(bind, type_name: str) -> bool:
     )
 
 
-def _convert_column_to_varchar(bind, column_name: str, length: int) -> None:
+def _convert_column_to_varchar(
+    bind, column_name: str, length: int, lowercase_default: str
+) -> None:
+    # 1. DROP DEFAULT — column defaults reference enum types and block DROP TYPE.
+    op.execute(
+        sa.text(
+            f"ALTER TABLE official_violence_count "
+            f"ALTER COLUMN {column_name} DROP DEFAULT"
+        )
+    )
+    # 2. Convert enum values to lowercase VARCHAR.
     op.execute(
         sa.text(
             f"""
@@ -37,6 +53,13 @@ def _convert_column_to_varchar(bind, column_name: str, length: int) -> None:
             ALTER COLUMN {column_name} TYPE VARCHAR({length})
             USING lower({column_name}::text)
             """
+        )
+    )
+    # 3. Restore lowercase string default (matches m2n3o4p5q6r7 server_default).
+    op.execute(
+        sa.text(
+            f"ALTER TABLE official_violence_count "
+            f"ALTER COLUMN {column_name} SET DEFAULT '{lowercase_default}'"
         )
     )
 
@@ -52,11 +75,12 @@ def upgrade() -> None:
         return
 
     if source_enum:
-        _convert_column_to_varchar(bind, "source_id", 20)
+        _convert_column_to_varchar(bind, "source_id", 20, "validador")
+        # 4. DROP TYPE — safe once defaults no longer reference the enum.
         op.execute(sa.text("DROP TYPE IF EXISTS officialsourceid"))
 
     if revision_enum:
-        _convert_column_to_varchar(bind, "revision", 20)
+        _convert_column_to_varchar(bind, "revision", 20, "consolidado")
         op.execute(sa.text("DROP TYPE IF EXISTS officialrevision"))
 
 
