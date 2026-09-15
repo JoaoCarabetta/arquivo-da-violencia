@@ -1,9 +1,27 @@
 """Official violence data model (Ministry of Justice VDE data)."""
 
 from datetime import datetime
+from enum import Enum
 from typing import Optional
 
 from sqlmodel import Field, SQLModel, UniqueConstraint
+
+
+class OfficialSourceId(str, Enum):
+    """Official data source identity."""
+
+    VALIDADOR = "validador"
+    RJ = "rj"
+    MG = "mg"
+    SP = "sp"
+
+
+class OfficialRevision(str, Enum):
+    """Official data revision stage."""
+
+    PRELIMINAR = "preliminar"
+    CONSOLIDADO = "consolidado"
+
 
 class OfficialViolenceCount(SQLModel, table=True):
     """
@@ -19,12 +37,19 @@ class OfficialViolenceCount(SQLModel, table=True):
     2. Feminicídio
     3. Latrocínio (roubo seguido de morte)
     4. Lesão corporal seguida de morte
-    
+
     Note: Morte por intervenção do Estado is stored but NOT included in the municipal total.
     """
     __tablename__ = "official_violence_count"
     __table_args__ = (
-        UniqueConstraint("code_muni", "year_month", "indicator", name="uq_official_violence_key"),
+        UniqueConstraint(
+            "code_muni",
+            "year_month",
+            "indicator",
+            "source_id",
+            "revision",
+            name="uq_official_violence_key",
+        ),
     )
 
     id: Optional[int] = Field(default=None, primary_key=True)
@@ -47,6 +72,18 @@ class OfficialViolenceCount(SQLModel, table=True):
         index=True,
         max_length=50,
         description="Indicator slug (e.g. 'homicidio_doloso', 'feminicidio', 'mortes_violentas_intencionais')"
+    )
+
+    # Source identity and revision
+    source_id: OfficialSourceId = Field(
+        default=OfficialSourceId.VALIDADOR,
+        index=True,
+        description="Official data source (validador, rj, mg, sp)"
+    )
+    revision: OfficialRevision = Field(
+        default=OfficialRevision.CONSOLIDADO,
+        index=True,
+        description="Data revision stage (preliminar or consolidado)"
     )
 
     # Value
@@ -75,6 +112,8 @@ class OfficialViolenceCount(SQLModel, table=True):
                 "code_muni": 3550308,
                 "year_month": "2025-09",
                 "indicator": "homicidio_doloso",
+                "source_id": "validador",
+                "revision": "consolidado",
                 "victim_count": 53,
                 "is_total": False,
                 "source": "SINESP VDE - Formulário 1"

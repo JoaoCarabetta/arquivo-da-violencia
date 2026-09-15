@@ -3,7 +3,11 @@
 import pytest
 from sqlmodel import select
 
-from app.models.official_violence_data import OfficialViolenceCount
+from app.models.official_violence_data import (
+    OfficialRevision,
+    OfficialSourceId,
+    OfficialViolenceCount,
+)
 from app.models.ibge_population import IBGEPopulation
 from app.services.official_violence_data import (
     ingest_official_violence_data,
@@ -420,4 +424,134 @@ async def test_unmatched_municipality_dropped(async_session, setup_ibge_data):
 
     # Should have zero rows (unmatched municipality dropped)
     assert len(counts) == 0
+
+
+@pytest.mark.asyncio
+async def test_source_revision_uniqueness(async_session, setup_ibge_data):
+    """
+    Same municipality × month × indicator with different source_id or revision
+    creates separate rows (issue #238).
+    """
+    vde_fixture = [
+        {
+            "uf": "SP",
+            "municipio": "SÃO PAULO",
+            "evento": "Homicídio doloso",
+            "data_referencia": 45901,
+            "agente": "",
+            "arma": "",
+            "faixa_etaria": "",
+            "feminino": 0,
+            "masculino": 10,
+            "nao_informado": 0,
+            "total_vitima": 10,
+            "total": 0,
+            "total_peso": 0,
+            "abrangencia": "",
+        },
+    ]
+
+    await ingest_official_violence_data(
+        async_session,
+        vde_fixture,
+        source_id=OfficialSourceId.VALIDADOR,
+        revision=OfficialRevision.CONSOLIDADO,
+    )
+    await ingest_official_violence_data(
+        async_session,
+        vde_fixture,
+        source_id=OfficialSourceId.RJ,
+        revision=OfficialRevision.CONSOLIDADO,
+    )
+    await ingest_official_violence_data(
+        async_session,
+        vde_fixture,
+        source_id=OfficialSourceId.VALIDADOR,
+        revision=OfficialRevision.PRELIMINAR,
+    )
+
+    query = select(OfficialViolenceCount).where(
+        OfficialViolenceCount.code_muni == 3550308,
+        OfficialViolenceCount.year_month == "2025-09",
+        OfficialViolenceCount.indicator == "homicidio_doloso",
+    )
+    result = await async_session.execute(query)
+    counts = result.scalars().all()
+
+    assert len(counts) == 3
+    keys = {(c.source_id, c.revision) for c in counts}
+    assert keys == {
+        (OfficialSourceId.VALIDADOR, OfficialRevision.CONSOLIDADO),
+        (OfficialSourceId.RJ, OfficialRevision.CONSOLIDADO),
+        (OfficialSourceId.VALIDADOR, OfficialRevision.PRELIMINAR),
+    }
+
+
+@pytest.mark.asyncio
+async def test_five_key_upsert(async_session, setup_ibge_data):
+    """
+    Re-ingesting with the same 5-key tuple updates victim_count instead of duplicating.
+    """
+    vde_fixture_v1 = [
+        {
+            "uf": "RJ",
+            "municipio": "RIO DE JANEIRO",
+            "evento": "Homicídio doloso",
+            "data_referencia": 45901,
+            "agente": "",
+            "arma": "",
+            "faixa_etaria": "",
+            "feminino": 0,
+            "masculino": 15,
+            "nao_informado": 0,
+            "total_vitima": 15,
+            "total": 0,
+            "total_peso": 0,
+            "abrangencia": "",
+        },
+    ]
+    vde_fixture_v2 = [
+        {
+            "uf": "RJ",
+            "municipio": "RIO DE JANEIRO",
+            "evento": "Homicídio doloso",
+            "data_referencia": 45901,
+            "agente": "",
+            "arma": "",
+            "faixa_etaria": "",
+            "feminino": 0,
+            "masculino": 20,
+            "nao_informado": 0,
+            "total_vitima": 20,
+            "total": 0,
+            "total_peso": 0,
+            "abrangencia": "",
+        },
+    ]
+
+    await ingest_official_violence_data(
+        async_session,
+        vde_fixture_v1,
+        source_id=OfficialSourceId.SP,
+        revision=OfficialRevision.PRELIMINAR,
+    )
+    await ingest_official_violence_data(
+        async_session,
+        vde_fixture_v2,
+        source_id=OfficialSourceId.SP,
+        revision=OfficialRevision.PRELIMINAR,
+    )
+
+    query = select(OfficialViolenceCount).where(
+        OfficialViolenceCount.code_muni == 3304557,
+        OfficialViolenceCount.year_month == "2025-09",
+        OfficialViolenceCount.indicator == "homicidio_doloso",
+        OfficialViolenceCount.source_id == OfficialSourceId.SP,
+        OfficialViolenceCount.revision == OfficialRevision.PRELIMINAR,
+    )
+    result = await async_session.execute(query)
+    counts = result.scalars().all()
+
+    assert len(counts) == 1
+    assert counts[0].victim_count == 20
 

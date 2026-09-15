@@ -23,7 +23,11 @@ from sqlmodel import select, func
 from sqlmodel.ext.asyncio.session import AsyncSession
 from loguru import logger
 
-from app.models.official_violence_data import OfficialViolenceCount
+from app.models.official_violence_data import (
+    OfficialRevision,
+    OfficialSourceId,
+    OfficialViolenceCount,
+)
 from app.models.unique_event import UniqueEvent
 from app.models.ibge_population import IBGEPopulation
 from app.services.public_filters import public_incident_criteria
@@ -105,7 +109,9 @@ async def get_coverage_data(
         func.sum(OfficialViolenceCount.victim_count).label("official_victims")
     ).where(
         OfficialViolenceCount.indicator.in_(formulario_1_types),
-        OfficialViolenceCount.year_month >= min_year_month
+        OfficialViolenceCount.year_month >= min_year_month,
+        OfficialViolenceCount.source_id == OfficialSourceId.VALIDADOR,
+        OfficialViolenceCount.revision == OfficialRevision.CONSOLIDADO,
     ).group_by(OfficialViolenceCount.code_muni)
     
     official_result = await session.execute(official_query)
