@@ -25,7 +25,7 @@ download the same file after preliminar consolidation → ingest with
 
 from io import BytesIO
 from typing import Dict, List, Any, BinaryIO, Union
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from sqlmodel import select, func
 from sqlmodel.ext.asyncio.session import AsyncSession
 from loguru import logger
@@ -77,8 +77,31 @@ def _excel_serial_to_year_month(serial_date: float) -> str:
     """
     # Excel epoch is 1899-12-30
     excel_epoch = datetime(1899, 12, 30)
-    date = excel_epoch + timedelta(days=int(serial_date))
-    return date.strftime("%Y-%m")
+    parsed_date = excel_epoch + timedelta(days=int(serial_date))
+    return parsed_date.strftime("%Y-%m")
+
+
+def _data_referencia_to_year_month(value: Any) -> str | None:
+    """
+    Normalize bancovde ``data_referencia`` cell values to YYYY-MM.
+
+    openpyxl with ``data_only=True`` may return Excel serial numbers (int/float)
+    or native ``datetime``/``date`` objects depending on how the workbook was
+    saved and evaluated.
+    """
+    if value is None:
+        return None
+
+    if isinstance(value, datetime):
+        return value.strftime("%Y-%m")
+
+    if isinstance(value, date):
+        return value.strftime("%Y-%m")
+
+    try:
+        return _excel_serial_to_year_month(float(value))
+    except (ValueError, TypeError):
+        return None
 
 
 def parse_bancovde_workbook(
@@ -90,7 +113,8 @@ def parse_bancovde_workbook(
     Parse a bancovde-YYYY.xlsx workbook into row dicts.
 
     Uses the gov.br file layout: sheet named after the calendar year, 14 columns,
-    Excel serial dates in ``data_referencia``. Rows before ``since_year_month`` are
+    Excel serial or datetime/date values in ``data_referencia``. Rows before
+    ``since_year_month`` are
     dropped (default: 2025-09 inclusive window start).
 
     Args:
@@ -148,13 +172,8 @@ def parse_bancovde_workbook(
             record[headers[col_idx]] = value
 
         data_ref = record.get("data_referencia")
-        if data_ref is None:
-            skipped_count += 1
-            continue
-
-        try:
-            year_month = _excel_serial_to_year_month(float(data_ref))
-        except (ValueError, TypeError):
+        year_month = _data_referencia_to_year_month(data_ref)
+        if year_month is None:
             skipped_count += 1
             continue
 
@@ -293,14 +312,9 @@ async def ingest_official_violence_data(
 
         # Parse date
         data_ref = row.get("data_referencia")
-        if not data_ref:
-            logger.debug(f"Missing data_referencia in row, skipping")
-            continue
-
-        try:
-            year_month = _excel_serial_to_year_month(float(data_ref))
-        except (ValueError, TypeError) as e:
-            logger.warning(f"Invalid data_referencia {data_ref}: {e}")
+        year_month = _data_referencia_to_year_month(data_ref)
+        if year_month is None:
+            logger.debug(f"Invalid or missing data_referencia in row: {data_ref!r}, skipping")
             continue
 
         # Parse victim count
