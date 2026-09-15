@@ -1,5 +1,6 @@
 """Tests for official violence data service (Ministry of Justice VDE data)."""
 
+import inspect
 from pathlib import Path
 
 import pytest
@@ -21,6 +22,13 @@ from app.services.official_violence_data import (
 
 FIXTURES_DIR = Path(__file__).parent / "fixtures" / "bancovde"
 BANCOVDE_SLICE_XLSX = FIXTURES_DIR / "bancovde_slice_2025.xlsx"
+
+
+def test_get_official_violence_totals_default_window_uses_bancovde_constant():
+    """Issue #241: default min_year_month should reference BANCOVDE_WINDOW_START."""
+    sig = inspect.signature(get_official_violence_totals)
+    assert sig.parameters["min_year_month"].default == BANCOVDE_WINDOW_START
+
 
 # dump headers from bancovde-2025.xlsx:
 # ["uf","municipio","evento","data_referencia","agente","arma","faixa_etaria","feminino","masculino","nao_informado","total_vitima","total","total_peso","abrangencia"]

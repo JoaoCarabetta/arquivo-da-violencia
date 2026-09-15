@@ -1719,6 +1719,7 @@ async def get_coverage_stats(
         - uf: State abbreviation
         - official_victims: Official municipal total count (Formulário 1 types only)
         - official_published: Boolean - True if official data exists (even if sum=0)
+        - official_is_preliminar: Boolean - True when preliminar Validador data was used
         - arquivo_victims: Arquivo victim count
         - coverage: Arquivo / official ratio (None when official=0)
         
