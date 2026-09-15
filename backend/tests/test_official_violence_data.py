@@ -1,5 +1,7 @@
 """Tests for official violence data service (Ministry of Justice VDE data)."""
 
+from pathlib import Path
+
 import pytest
 from sqlmodel import select
 
@@ -10,9 +12,15 @@ from app.models.official_violence_data import (
 )
 from app.models.ibge_population import IBGEPopulation
 from app.services.official_violence_data import (
+    BANCOVDE_WINDOW_START,
+    bancovde_govbr_url,
     ingest_official_violence_data,
     get_official_violence_totals,
+    parse_bancovde_workbook,
 )
+
+FIXTURES_DIR = Path(__file__).parent / "fixtures" / "bancovde"
+BANCOVDE_SLICE_XLSX = FIXTURES_DIR / "bancovde_slice_2025.xlsx"
 
 # dump headers from bancovde-2025.xlsx:
 # ["uf","municipio","evento","data_referencia","agente","arma","faixa_etaria","feminino","masculino","nao_informado","total_vitima","total","total_peso","abrangencia"]
@@ -585,4 +593,166 @@ async def test_five_key_upsert(async_session, setup_ibge_data):
 
     assert len(counts) == 1
     assert counts[0].victim_count == 20
+
+
+def test_bancovde_govbr_url_uses_portal_not_ckan():
+    """Ingest path targets the working gov.br portal (issue #240)."""
+    url = bancovde_govbr_url(2025)
+    assert "gov.br/mj" in url
+    assert "bancovde-2025.xlsx" in url
+    assert "dados.mj" not in url
+
+
+def test_parse_bancovde_workbook_filters_window_from_fixture():
+    """Parse fixture xlsx without network; window starts at 2025-09."""
+    assert BANCOVDE_SLICE_XLSX.exists(), "Run fixture generator or commit bancovde_slice_2025.xlsx"
+
+    rows = parse_bancovde_workbook(
+        BANCOVDE_SLICE_XLSX.read_bytes(),
+        year=2025,
+        since_year_month=BANCOVDE_WINDOW_START,
+    )
+
+    # 9 source rows in fixture; 1 is Aug 2025 (45870) → filtered out
+    assert len(rows) == 8
+
+    from app.services.official_violence_data import _excel_serial_to_year_month
+
+    parsed_months = sorted(
+        {_excel_serial_to_year_month(float(r["data_referencia"])) for r in rows}
+    )
+    assert parsed_months == ["2025-09", "2025-10"]
+    assert all(
+        _excel_serial_to_year_month(float(r["data_referencia"])) >= BANCOVDE_WINDOW_START
+        for r in rows
+    )
+
+
+@pytest.mark.asyncio
+async def test_ingest_from_bancovde_xlsx_fixture(async_session, setup_ibge_data):
+    """End-to-end ingest→store from fixture workbook slice (issue #240)."""
+    rows = parse_bancovde_workbook(
+        BANCOVDE_SLICE_XLSX.read_bytes(),
+        year=2025,
+        since_year_month=BANCOVDE_WINDOW_START,
+    )
+
+    await ingest_official_violence_data(
+        async_session,
+        rows,
+        source_id=OfficialSourceId.VALIDADOR,
+        revision=OfficialRevision.CONSOLIDADO,
+    )
+
+    query = select(OfficialViolenceCount).order_by(
+        OfficialViolenceCount.code_muni,
+        OfficialViolenceCount.year_month,
+        OfficialViolenceCount.indicator,
+    )
+    result = await async_session.execute(query)
+    counts = result.scalars().all()
+
+    sp_sep = [
+        c
+        for c in counts
+        if c.code_muni == 3550308 and c.year_month == "2025-09"
+    ]
+    assert len(sp_sep) == 5  # 4 Formulário 1 + intervenção
+
+    homicidio = next(c for c in sp_sep if c.indicator == "homicidio_doloso")
+    assert homicidio.victim_count == 53  # 30 + 23
+
+    intervencao = next(
+        c for c in sp_sep if c.indicator == "morte_intervencao_policial"
+    )
+    assert intervencao.victim_count == 13
+
+    formulario_1_sum = sum(
+        c.victim_count
+        for c in sp_sep
+        if c.indicator
+        in {
+            "homicidio_doloso",
+            "feminicidio",
+            "latrocinio",
+            "lesao_corporal_seguida_morte",
+        }
+    )
+    assert formulario_1_sum == 64
+
+    rj_oct = next(
+        c
+        for c in counts
+        if c.code_muni == 3304557
+        and c.year_month == "2025-10"
+        and c.indicator == "homicidio_doloso"
+    )
+    assert rj_oct.victim_count == 40
+
+
+@pytest.mark.asyncio
+async def test_preliminar_and_consolidado_from_same_fixture(async_session, setup_ibge_data):
+    """
+    Workbook has no revision column; both stages persist via ingest revision kwarg.
+
+    Same bancovde snapshot ingested twice with different revision values creates
+    separate rows (issue #240 acceptance #4).
+    """
+    rows = parse_bancovde_workbook(
+        BANCOVDE_SLICE_XLSX.read_bytes(),
+        year=2025,
+        since_year_month=BANCOVDE_WINDOW_START,
+    )
+
+    prelim_rows = [
+        {
+            **row,
+            "total_vitima": int(float(row["total_vitima"])) + 1
+            if row.get("evento") == "Homicídio doloso" and row.get("uf") == "SP"
+            else row["total_vitima"],
+        }
+        for row in rows
+    ]
+
+    await ingest_official_violence_data(
+        async_session,
+        prelim_rows,
+        source_id=OfficialSourceId.VALIDADOR,
+        revision=OfficialRevision.PRELIMINAR,
+    )
+    await ingest_official_violence_data(
+        async_session,
+        rows,
+        source_id=OfficialSourceId.VALIDADOR,
+        revision=OfficialRevision.CONSOLIDADO,
+    )
+
+    query = select(OfficialViolenceCount).where(
+        OfficialViolenceCount.code_muni == 3550308,
+        OfficialViolenceCount.year_month == "2025-09",
+        OfficialViolenceCount.indicator == "homicidio_doloso",
+        OfficialViolenceCount.source_id == OfficialSourceId.VALIDADOR,
+    )
+    result = await async_session.execute(query)
+    counts = result.scalars().all()
+
+    assert len(counts) == 2
+    by_revision = {c.revision: c.victim_count for c in counts}
+    assert by_revision[OfficialRevision.PRELIMINAR] == 55  # 31 + 24 from bumped rows
+    assert by_revision[OfficialRevision.CONSOLIDADO] == 53
+
+    prelim_totals = await get_official_violence_totals(
+        async_session,
+        code_munis=[3550308],
+        min_year_month=BANCOVDE_WINDOW_START,
+        revision=OfficialRevision.PRELIMINAR,
+    )
+    consol_totals = await get_official_violence_totals(
+        async_session,
+        code_munis=[3550308],
+        min_year_month=BANCOVDE_WINDOW_START,
+        revision=OfficialRevision.CONSOLIDADO,
+    )
+    assert prelim_totals[0]["victim_count"] == 66  # 55 + 3 + 6 + 2
+    assert consol_totals[0]["victim_count"] == 64
 
