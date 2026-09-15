@@ -357,13 +357,23 @@ async def test_rj_does_not_change_validador_when_only_isp_exists(
     assert rio["coverage"] is None
 
 
+RJ_COVERAGE_KEYS = ("rj_victims", "rj_published", "rj_preliminar")
+
+
 @pytest.mark.asyncio
-async def test_production_does_not_surface_rj_series(
-    async_session, setup_rj_ibge, monkeypatch
-):
-    """Staging-only: production coverage must not expose or union ISPDados."""
-    monkeypatch.setattr(
-        "app.services.coverage_data.state_columns_enabled", lambda: False
+async def test_staging_emits_rj_coverage_keys(async_session, setup_rj_ibge):
+    """Staging/dev coverage rows include the distinct RJ series keys (#242 nit)."""
+    async_session.add(
+        OfficialViolenceCount(
+            code_muni=RIO,
+            year_month="2025-09",
+            indicator="homicidio_doloso",
+            source_id=OfficialSourceId.VALIDADOR,
+            revision=OfficialRevision.CONSOLIDADO,
+            victim_count=10,
+            is_total=False,
+            source="SINESP VDE",
+        )
     )
     async_session.add(
         OfficialViolenceCount(
@@ -380,7 +390,71 @@ async def test_production_does_not_surface_rj_series(
     await async_session.commit()
 
     coverage = await get_coverage_data(async_session)
-    assert not any(r["code"] == RIO for r in coverage)
+    rio = next(r for r in coverage if r["code"] == RIO)
+    assert rio["official_victims"] == 10
+    for key in RJ_COVERAGE_KEYS:
+        assert key in rio
+    assert rio["rj_victims"] == 100
+    assert rio["rj_published"] is True
+    assert rio["rj_preliminar"] is False
+
+
+@pytest.mark.asyncio
+async def test_production_omits_rj_coverage_keys(
+    async_session, setup_rj_ibge, monkeypatch
+):
+    """Production JSON omits rj_* keys entirely and never unions ISPDados (#242 nit)."""
+    monkeypatch.setattr(
+        "app.services.coverage_data.state_columns_enabled", lambda: False
+    )
+    async_session.add(
+        OfficialViolenceCount(
+            code_muni=RIO,
+            year_month="2025-09",
+            indicator="homicidio_doloso",
+            source_id=OfficialSourceId.VALIDADOR,
+            revision=OfficialRevision.CONSOLIDADO,
+            victim_count=10,
+            is_total=False,
+            source="SINESP VDE",
+        )
+    )
+    async_session.add(
+        OfficialViolenceCount(
+            code_muni=RIO,
+            year_month="2025-09",
+            indicator="homicidio_doloso",
+            source_id=OfficialSourceId.RJ,
+            revision=OfficialRevision.CONSOLIDADO,
+            victim_count=100,
+            is_total=False,
+            source="ISPDados",
+        )
+    )
+    async_session.add(
+        OfficialViolenceCount(
+            code_muni=NITEROI,
+            year_month="2025-09",
+            indicator="homicidio_doloso",
+            source_id=OfficialSourceId.RJ,
+            revision=OfficialRevision.CONSOLIDADO,
+            victim_count=8,
+            is_total=False,
+            source="ISPDados",
+        )
+    )
+    await async_session.commit()
+
+    coverage = await get_coverage_data(async_session)
+    rio = next(r for r in coverage if r["code"] == RIO)
+    assert rio["official_victims"] == 10
+    for key in RJ_COVERAGE_KEYS:
+        assert key not in rio, f"production payload must omit {key}"
+
+    assert not any(r["code"] == NITEROI for r in coverage)
+    for row in coverage:
+        for key in RJ_COVERAGE_KEYS:
+            assert key not in row
 
 
 @pytest.mark.asyncio
