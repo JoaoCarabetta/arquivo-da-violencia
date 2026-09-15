@@ -13,6 +13,8 @@ to tag the snapshot stage at ingest time (see official_violence_data module docs
 
 Usage:
     python scripts/load_official_violence_data.py [--year YYYY] [--since YYYY-MM] [--revision preliminar|consolidado]
+
+Requires openpyxl (declared runtime dependency in pyproject.toml for bancovde .xlsx parsing).
 """
 
 import asyncio
