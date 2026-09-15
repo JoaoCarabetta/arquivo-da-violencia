@@ -4,6 +4,7 @@ from datetime import datetime
 from enum import Enum
 from typing import Optional
 
+from sqlalchemy import Column, String
 from sqlmodel import Field, SQLModel, UniqueConstraint
 
 
@@ -74,16 +75,16 @@ class OfficialViolenceCount(SQLModel, table=True):
         description="Indicator slug (e.g. 'homicidio_doloso', 'feminicidio', 'mortes_violentas_intencionais')"
     )
 
-    # Source identity and revision
+    # Source identity and revision (stored as VARCHAR — avoids native Postgres enum drift)
     source_id: OfficialSourceId = Field(
         default=OfficialSourceId.VALIDADOR,
-        index=True,
-        description="Official data source (validador, rj, mg, sp)"
+        sa_column=Column(String(20), nullable=False, index=True),
+        description="Official data source (validador, rj, mg, sp)",
     )
     revision: OfficialRevision = Field(
         default=OfficialRevision.CONSOLIDADO,
-        index=True,
-        description="Data revision stage (preliminar or consolidado)"
+        sa_column=Column(String(20), nullable=False, index=True),
+        description="Data revision stage (preliminar or consolidado)",
     )
 
     # Value
