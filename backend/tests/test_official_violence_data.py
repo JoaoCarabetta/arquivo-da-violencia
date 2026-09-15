@@ -1,6 +1,7 @@
 """Tests for official violence data service (Ministry of Justice VDE data)."""
 
 import inspect
+from datetime import date, datetime
 from pathlib import Path
 
 import pytest
@@ -14,6 +15,7 @@ from app.models.official_violence_data import (
 from app.models.ibge_population import IBGEPopulation
 from app.services.official_violence_data import (
     BANCOVDE_WINDOW_START,
+    _data_referencia_to_year_month,
     bancovde_govbr_url,
     ingest_official_violence_data,
     get_official_violence_totals,
@@ -22,6 +24,7 @@ from app.services.official_violence_data import (
 
 FIXTURES_DIR = Path(__file__).parent / "fixtures" / "bancovde"
 BANCOVDE_SLICE_XLSX = FIXTURES_DIR / "bancovde_slice_2025.xlsx"
+BANCOVDE_SLICE_DATETIME_XLSX = FIXTURES_DIR / "bancovde_slice_2025_datetime.xlsx"
 
 
 def test_openpyxl_is_installed():
@@ -618,6 +621,27 @@ def test_bancovde_govbr_url_uses_portal_not_ckan():
     assert "dados.mj" not in url
 
 
+def test_data_referencia_to_year_month_excel_serial():
+    """Issue #258: float/int Excel serial dates map to YYYY-MM."""
+    assert _data_referencia_to_year_month(45901) == "2025-09"
+    assert _data_referencia_to_year_month(45901.0) == "2025-09"
+    assert _data_referencia_to_year_month(45870) == "2025-08"
+    assert _data_referencia_to_year_month(45931) == "2025-10"
+
+
+def test_data_referencia_to_year_month_datetime_and_date():
+    """Issue #258: openpyxl data_only=True may return datetime/date cells."""
+    assert _data_referencia_to_year_month(datetime(2025, 9, 1)) == "2025-09"
+    assert _data_referencia_to_year_month(datetime(2025, 9, 15, 12, 30)) == "2025-09"
+    assert _data_referencia_to_year_month(date(2025, 10, 1)) == "2025-10"
+
+
+def test_data_referencia_to_year_month_invalid_returns_none():
+    assert _data_referencia_to_year_month(None) is None
+    assert _data_referencia_to_year_month("not-a-date") is None
+    assert _data_referencia_to_year_month("") is None
+
+
 def test_parse_bancovde_workbook_filters_window_from_fixture():
     """Parse fixture xlsx without network; window starts at 2025-09."""
     assert BANCOVDE_SLICE_XLSX.exists(), "Run fixture generator or commit bancovde_slice_2025.xlsx"
@@ -631,14 +655,37 @@ def test_parse_bancovde_workbook_filters_window_from_fixture():
     # 9 source rows in fixture; 1 is Aug 2025 (45870) → filtered out
     assert len(rows) == 8
 
-    from app.services.official_violence_data import _excel_serial_to_year_month
-
     parsed_months = sorted(
-        {_excel_serial_to_year_month(float(r["data_referencia"])) for r in rows}
+        {_data_referencia_to_year_month(r["data_referencia"]) for r in rows}
     )
     assert parsed_months == ["2025-09", "2025-10"]
     assert all(
-        _excel_serial_to_year_month(float(r["data_referencia"])) >= BANCOVDE_WINDOW_START
+        _data_referencia_to_year_month(r["data_referencia"]) >= BANCOVDE_WINDOW_START
+        for r in rows
+    )
+
+
+def test_parse_bancovde_workbook_accepts_datetime_cells():
+    """Issue #258: datetime data_referencia cells must not be skipped."""
+    assert BANCOVDE_SLICE_DATETIME_XLSX.exists(), (
+        "Run fixture generator or commit bancovde_slice_2025_datetime.xlsx"
+    )
+
+    rows = parse_bancovde_workbook(
+        BANCOVDE_SLICE_DATETIME_XLSX.read_bytes(),
+        year=2025,
+        since_year_month=BANCOVDE_WINDOW_START,
+    )
+
+    # Same 9 source rows as serial fixture; Aug 2025 filtered out
+    assert len(rows) == 8
+
+    parsed_months = sorted(
+        {_data_referencia_to_year_month(r["data_referencia"]) for r in rows}
+    )
+    assert parsed_months == ["2025-09", "2025-10"]
+    assert all(
+        _data_referencia_to_year_month(r["data_referencia"]) >= BANCOVDE_WINDOW_START
         for r in rows
     )
 
