@@ -36,7 +36,7 @@ ensure_prod_postgres
 remove_orphan_staging_postgres
 
 echo ""
-echo "⏳ Stopping staging api/worker..."
+echo "⏳ Stopping staging API (and worker if present)..."
 docker compose $COMPOSE_STAGING stop api worker || true
 
 echo ""
@@ -58,22 +58,18 @@ docker compose $COMPOSE_PROD exec -T postgres \
 echo "   Restore complete"
 
 echo ""
-echo "🔄 Starting staging api/worker..."
-docker compose $COMPOSE_STAGING up -d api worker
+echo "🔄 Starting staging API (worker stays stopped — no ingest/classify)..."
+# shellcheck disable=SC2086
+docker compose $COMPOSE_STAGING up -d $(backend_runtime_services staging)
 
 echo ""
-echo "🏥 Waiting for staging containers to be healthy..."
+echo "🏥 Waiting for staging API to be healthy..."
 if ! wait_for_api_health 8001 90; then
     echo "❌ Staging API health check failed"
     docker logs staging-arquivo-api --tail 20 2>&1 || true
     exit 1
 fi
-
-if ! wait_for_worker_health staging-arquivo-worker 90; then
-    echo "❌ Staging worker health check failed"
-    docker logs staging-arquivo-worker --tail 20 2>&1 || true
-    exit 1
-fi
+echo "   ⏸️ Skipping worker health check (staging worker stays stopped)"
 
 echo ""
 echo "📊 Row counts (staging):"

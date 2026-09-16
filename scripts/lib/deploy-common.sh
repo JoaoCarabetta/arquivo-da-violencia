@@ -93,6 +93,22 @@ preflight_api_config() {
     return 1
 }
 
+# Compose services to start after a backend deploy (or staging DB sync).
+# Staging standing rule: staging-arquivo-worker stays STOPPED (loaders done;
+# no ingest/classify). Starting it races with ops removing the container and
+# fails worker health checks (GHA around PRs #261/#262). Production unchanged.
+backend_runtime_services() {
+    if [ "${1:-}" = "staging" ]; then
+        echo "api"
+    else
+        echo "api worker"
+    fi
+}
+
+backend_waits_for_worker() {
+    [ "${1:-}" != "staging" ]
+}
+
 wait_for_api_health() {
     local port="$1"
     local max_attempts="${2:-90}"
