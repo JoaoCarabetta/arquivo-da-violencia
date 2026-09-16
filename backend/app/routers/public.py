@@ -1,6 +1,5 @@
 """Public API router for public-facing website."""
 
-import asyncio
 from datetime import datetime, timedelta
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from fastapi.responses import StreamingResponse
@@ -50,6 +49,11 @@ _BRAZIL_COUNTRY_VALUES = frozenset({"BR", "Brasil"})
 def _event_country_is_brazil(country: str | None) -> bool:
     """True when UniqueEvent.country is canonical BR or legacy Brasil."""
     return country in _BRAZIL_COUNTRY_VALUES
+
+
+def _normalized_brazilian_uf_sql():
+    """Uppercased trimmed state column — matches ``is_brazilian_uf`` semantics in SQL."""
+    return func.upper(func.trim(UniqueEvent.state))
 
 
 def include_in_unfiltered_brazil_city_ranking(
@@ -605,7 +609,7 @@ async def _rankings_aggregate_by_field(
     if brazil_city_gate:
         query = query.where(
             or_(UniqueEvent.country == "BR", UniqueEvent.country == "Brasil"),
-            UniqueEvent.state.in_(BR_UFS),
+            _normalized_brazilian_uf_sql().in_(BR_UFS),
         )
 
     query = query.group_by(*group_cols)
@@ -679,45 +683,37 @@ async def get_rankings(
         session, current_start, now, country
     )
 
-    (
-        cities_current,
-        states_current,
-        countries_current,
-        types_current,
-        methods_current,
-    ), (
-        cities_prev,
-        states_prev,
-        countries_prev,
-        types_prev,
-        methods_prev,
-    ) = await asyncio.gather(
-        asyncio.gather(
-            _rankings_aggregate_by_field(
-                session, current_start, now, country, "city", brazil_city_gate=brazil_city_gate
-            ),
-            _rankings_aggregate_by_field(session, current_start, now, country, "state"),
-            _rankings_aggregate_by_field(session, current_start, now, country, "country"),
-            _rankings_aggregate_by_field(
-                session, current_start, now, country, "homicide_type"
-            ),
-            _rankings_aggregate_by_field(
-                session, current_start, now, country, "method_of_death"
-            ),
-        ),
-        asyncio.gather(
-            _rankings_aggregate_by_field(
-                session, prev_start, prev_end, country, "city", brazil_city_gate=brazil_city_gate
-            ),
-            _rankings_aggregate_by_field(session, prev_start, prev_end, country, "state"),
-            _rankings_aggregate_by_field(session, prev_start, prev_end, country, "country"),
-            _rankings_aggregate_by_field(
-                session, prev_start, prev_end, country, "homicide_type"
-            ),
-            _rankings_aggregate_by_field(
-                session, prev_start, prev_end, country, "method_of_death"
-            ),
-        ),
+    # AsyncSession is not concurrent-safe — run aggregates serially on one session.
+    cities_current = await _rankings_aggregate_by_field(
+        session, current_start, now, country, "city", brazil_city_gate=brazil_city_gate
+    )
+    states_current = await _rankings_aggregate_by_field(
+        session, current_start, now, country, "state"
+    )
+    countries_current = await _rankings_aggregate_by_field(
+        session, current_start, now, country, "country"
+    )
+    types_current = await _rankings_aggregate_by_field(
+        session, current_start, now, country, "homicide_type"
+    )
+    methods_current = await _rankings_aggregate_by_field(
+        session, current_start, now, country, "method_of_death"
+    )
+
+    cities_prev = await _rankings_aggregate_by_field(
+        session, prev_start, prev_end, country, "city", brazil_city_gate=brazil_city_gate
+    )
+    states_prev = await _rankings_aggregate_by_field(
+        session, prev_start, prev_end, country, "state"
+    )
+    countries_prev = await _rankings_aggregate_by_field(
+        session, prev_start, prev_end, country, "country"
+    )
+    types_prev = await _rankings_aggregate_by_field(
+        session, prev_start, prev_end, country, "homicide_type"
+    )
+    methods_prev = await _rankings_aggregate_by_field(
+        session, prev_start, prev_end, country, "method_of_death"
     )
     
     # Lookup population data for BR cities and states

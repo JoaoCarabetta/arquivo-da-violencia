@@ -875,6 +875,43 @@ async def test_rankings_days_365_uf_gate_and_aggregation(app, async_session):
 
 
 @pytest.mark.asyncio
+async def test_rankings_uf_gate_sql_case_insensitive(app, async_session):
+    """SQL city gate must match is_brazilian_uf (trim + upper), not case-sensitive IN."""
+    now = datetime.utcnow()
+
+    events = [
+        create_ranking_event(
+            event_date=now - timedelta(days=5),
+            country="Brasil",
+            city="Rio de Janeiro",
+            state="rj",
+            victim_count=2,
+        ),
+        create_ranking_event(
+            event_date=now - timedelta(days=6),
+            country="Brasil",
+            city="Curitiba",
+            state=" PR ",
+            victim_count=1,
+        ),
+    ]
+
+    for event in events:
+        async_session.add(event)
+    await async_session.commit()
+
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://test",
+    ) as client:
+        response = await client.get("/api/public/stats/rankings?days=30")
+        assert response.status_code == 200
+        city_names = {c["city"] for c in response.json()["cities"]}
+        assert "Rio de Janeiro" in city_names
+        assert "Curitiba" in city_names
+
+
+@pytest.mark.asyncio
 async def test_rankings_victim_vs_event_counts(app, async_session):
     """Test that rankings correctly distinguish victim count from event count."""
     now = datetime.utcnow()
