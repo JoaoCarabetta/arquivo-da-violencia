@@ -1,5 +1,6 @@
 """Public API router for public-facing website."""
 
+import asyncio
 from datetime import datetime, timedelta
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from fastapi.responses import StreamingResponse
@@ -35,7 +36,9 @@ router = APIRouter(prefix="/public", tags=["public"])
 # mislabeled country=Brasil rows with foreign states.
 _rankings_cache: dict[str, tuple[dict, float]] = {}
 RANKINGS_CACHE_TTL = 3600  # 1 hour in seconds
-RANKINGS_CACHE_VERSION = "sql_agg_v1"
+RANKINGS_CACHE_VERSION = "sql_agg_v2"
+# Max distinct cities to resolve IBGE population for (top victims + capitals).
+_RANKINGS_MAX_CITY_POP_LOOKUP = 250
 
 # UniqueEvent.country values treated as Brazil — same BR|Brasil pattern as
 # get_rankings build_query when country=BR. NULL/empty is excluded:
@@ -676,36 +679,45 @@ async def get_rankings(
         session, current_start, now, country
     )
 
-    cities_current = await _rankings_aggregate_by_field(
-        session, current_start, now, country, "city", brazil_city_gate=brazil_city_gate
-    )
-    states_current = await _rankings_aggregate_by_field(
-        session, current_start, now, country, "state"
-    )
-    countries_current = await _rankings_aggregate_by_field(
-        session, current_start, now, country, "country"
-    )
-    types_current = await _rankings_aggregate_by_field(
-        session, current_start, now, country, "homicide_type"
-    )
-    methods_current = await _rankings_aggregate_by_field(
-        session, current_start, now, country, "method_of_death"
-    )
-
-    cities_prev = await _rankings_aggregate_by_field(
-        session, prev_start, prev_end, country, "city", brazil_city_gate=brazil_city_gate
-    )
-    states_prev = await _rankings_aggregate_by_field(
-        session, prev_start, prev_end, country, "state"
-    )
-    countries_prev = await _rankings_aggregate_by_field(
-        session, prev_start, prev_end, country, "country"
-    )
-    types_prev = await _rankings_aggregate_by_field(
-        session, prev_start, prev_end, country, "homicide_type"
-    )
-    methods_prev = await _rankings_aggregate_by_field(
-        session, prev_start, prev_end, country, "method_of_death"
+    (
+        cities_current,
+        states_current,
+        countries_current,
+        types_current,
+        methods_current,
+    ), (
+        cities_prev,
+        states_prev,
+        countries_prev,
+        types_prev,
+        methods_prev,
+    ) = await asyncio.gather(
+        asyncio.gather(
+            _rankings_aggregate_by_field(
+                session, current_start, now, country, "city", brazil_city_gate=brazil_city_gate
+            ),
+            _rankings_aggregate_by_field(session, current_start, now, country, "state"),
+            _rankings_aggregate_by_field(session, current_start, now, country, "country"),
+            _rankings_aggregate_by_field(
+                session, current_start, now, country, "homicide_type"
+            ),
+            _rankings_aggregate_by_field(
+                session, current_start, now, country, "method_of_death"
+            ),
+        ),
+        asyncio.gather(
+            _rankings_aggregate_by_field(
+                session, prev_start, prev_end, country, "city", brazil_city_gate=brazil_city_gate
+            ),
+            _rankings_aggregate_by_field(session, prev_start, prev_end, country, "state"),
+            _rankings_aggregate_by_field(session, prev_start, prev_end, country, "country"),
+            _rankings_aggregate_by_field(
+                session, prev_start, prev_end, country, "homicide_type"
+            ),
+            _rankings_aggregate_by_field(
+                session, prev_start, prev_end, country, "method_of_death"
+            ),
+        ),
     )
     
     # Lookup population data for BR cities and states
@@ -720,13 +732,31 @@ async def get_rankings(
     if has_br_events:
         # Lookup city populations
         if cities_current:
-            # Build list of (city, state) pairs from city keys (which are now tuples)
+            # Resolve IBGE population only for top victims + capitals (not every
+            # distinct city in a 365d window — issue #260).
+            lookup_keys: list[tuple] = []
+            seen_keys: set[tuple] = set()
+            for city_key in cities_current:
+                city_name = city_key[0]
+                if city_name in BRAZILIAN_CAPITALS and city_key not in seen_keys:
+                    lookup_keys.append(city_key)
+                    seen_keys.add(city_key)
+            for city_key in sorted(
+                cities_current.keys(),
+                key=lambda key: cities_current[key]["victims"],
+                reverse=True,
+            ):
+                if city_key in seen_keys:
+                    continue
+                lookup_keys.append(city_key)
+                seen_keys.add(city_key)
+                if len(lookup_keys) >= _RANKINGS_MAX_CITY_POP_LOOKUP:
+                    break
+
             city_list = []
             state_list = []
-            for city_key in cities_current.keys():
-                # city_key is (city, state) tuple
-                city, state = city_key
-                if state:  # Only include cities with known states
+            for city, state in lookup_keys:
+                if state:
                     city_list.append(city)
                     state_list.append(state)
             

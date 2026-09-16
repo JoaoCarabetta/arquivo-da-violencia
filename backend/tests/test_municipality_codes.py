@@ -7,7 +7,11 @@ from sqlalchemy import text
 
 from app.models.unique_event import UniqueEvent
 from app.models.ibge_population import IBGEPopulation
-from app.services.ibge_population import load_ibge_population_fixture, lookup_city_codes
+from app.services.ibge_population import (
+    load_ibge_population_fixture,
+    lookup_city_codes,
+    lookup_state_codes,
+)
 from app.services.geocoding import geocode_unique_event
 
 
@@ -101,6 +105,22 @@ async def test_lookup_city_codes_handles_ambiguous_cities(async_session):
     assert result_rj[("Teste", "RJ")] == 3300001
     
     # Both lookups should succeed because city+state pairs are unique
+
+
+@pytest.mark.asyncio
+async def test_lookup_state_codes_batched(async_session):
+    """lookup_state_codes resolves all UFs in one query (issue #260)."""
+    await load_ibge_population_fixture(async_session)
+
+    result = await lookup_state_codes(
+        async_session,
+        ["SP", "Rio de Janeiro", "RJ", "SP", "São Paulo"],
+    )
+
+    assert result["SP"] == "35"
+    assert result["RJ"] == "33"
+    assert result["Rio de Janeiro"] == "33"
+    assert result["São Paulo"] == "35"
 
 
 @pytest.mark.asyncio
