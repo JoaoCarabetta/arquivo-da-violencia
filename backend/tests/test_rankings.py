@@ -791,6 +791,90 @@ async def test_rankings_different_periods(app, async_session):
 
 
 @pytest.mark.asyncio
+async def test_rankings_days_365_uf_gate_and_aggregation(app, async_session):
+    """days=365 must aggregate in SQL and keep BR/Brasil+UF city gate (issue #260)."""
+    from app.models.ibge_population import IBGEPopulation
+
+    now = datetime.utcnow()
+
+    events = [
+        create_ranking_event(
+            event_date=now - timedelta(days=10),
+            country="BR",
+            city="Rio de Janeiro",
+            state="RJ",
+            victim_count=2,
+        ),
+        create_ranking_event(
+            event_date=now - timedelta(days=200),
+            country="Brasil",
+            city="São Paulo",
+            state="SP",
+            victim_count=3,
+        ),
+        create_ranking_event(
+            event_date=now - timedelta(days=340),
+            country="Brasil",
+            city="Salvador",
+            state="BA",
+            victim_count=1,
+        ),
+        # Mislabeled Brasil + foreign state — must not appear in unfiltered cities.
+        create_ranking_event(
+            event_date=now - timedelta(days=120),
+            country="Brasil",
+            city="Joanesburgo",
+            state="Gauteng",
+            victim_count=5,
+        ),
+        create_ranking_event(
+            event_date=now - timedelta(days=300),
+            country="CL",
+            city="Santiago",
+            state="Metropolitana",
+            victim_count=4,
+        ),
+    ]
+
+    populations = [
+        IBGEPopulation(
+            code_muni=9900365,
+            name_muni="Joanesburgo",
+            abbrev_state="SP",
+            population=5_000_000,
+            year=2022,
+        ),
+    ]
+
+    for event in events:
+        async_session.add(event)
+    for pop in populations:
+        async_session.add(pop)
+    await async_session.commit()
+
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://test",
+    ) as client:
+        response = await client.get("/api/public/stats/rankings?days=365")
+        assert response.status_code == 200
+        data = response.json()
+
+        assert data["period_days"] == 365
+        assert data["total_events"] == 5
+        assert data["total_victims"] == 15
+
+        city_names = {c["city"] for c in data["cities"]}
+        assert "Joanesburgo" not in city_names
+        assert "Santiago" not in city_names
+        assert {"Rio de Janeiro", "São Paulo", "Salvador"}.issubset(city_names)
+
+        country_names = {c["country"] for c in data["countries"]}
+        assert "Brasil" in country_names
+        assert "Chile" in country_names
+
+
+@pytest.mark.asyncio
 async def test_rankings_victim_vs_event_counts(app, async_session):
     """Test that rankings correctly distinguish victim count from event count."""
     now = datetime.utcnow()

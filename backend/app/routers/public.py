@@ -4,7 +4,7 @@ from datetime import datetime, timedelta
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func, and_
+from sqlalchemy import select, func, and_, or_
 import math
 import csv
 import json  # For serializing merged_data
@@ -19,6 +19,7 @@ from app.models.source_google_news import SourceGoogleNews
 from app.models.ibge_population import IBGEPopulation
 from app.services.public_filters import (
     apply_public_incident_filter,
+    BR_UFS,
     homicide_type_filter,
     homicide_types_filter,
     is_brazilian_uf,
@@ -34,7 +35,7 @@ router = APIRouter(prefix="/public", tags=["public"])
 # mislabeled country=Brasil rows with foreign states.
 _rankings_cache: dict[str, tuple[dict, float]] = {}
 RANKINGS_CACHE_TTL = 3600  # 1 hour in seconds
-RANKINGS_CACHE_VERSION = "br_cities_uf"
+RANKINGS_CACHE_VERSION = "sql_agg_v1"
 
 # UniqueEvent.country values treated as Brazil — same BR|Brasil pattern as
 # get_rankings build_query when country=BR. NULL/empty is excluded:
@@ -509,6 +510,123 @@ async def get_security_force_stats(session: AsyncSession = Depends(get_session))
     }
 
 
+def _normalize_country_for_rankings(country_code: str | None) -> str | None:
+    """Normalize country codes to display names, treating legacy 'Brasil' as BR."""
+    if not country_code:
+        return None
+    if country_code == "Brasil":
+        country_code = "BR"
+    return COUNTRY_NAMES.get(country_code.upper(), country_code)
+
+
+def _apply_rankings_country_filter(query, country: str | None):
+    """Apply optional country ISO filter (same rules as legacy build_query)."""
+    if not country:
+        return query
+    country_upper = country.upper()
+    if country_upper == "BRASIL":
+        country_upper = "BR"
+    if country_upper == "BR":
+        return query.where(
+            (UniqueEvent.country == "BR") | (UniqueEvent.country == "Brasil")
+        )
+    return query.where(UniqueEvent.country == country_upper)
+
+
+def _apply_rankings_period_filters(query, start: datetime, end: datetime, country: str | None):
+    """Public homicide archive rows within [start, end] for rankings."""
+    query = apply_public_incident_filter(
+        query.where(
+            UniqueEvent.event_date.isnot(None),
+            UniqueEvent.event_date >= start,
+            UniqueEvent.event_date <= end,
+        ),
+        country=country,
+    )
+    return _apply_rankings_country_filter(query, country)
+
+
+async def _rankings_period_totals(
+    session: AsyncSession, start: datetime, end: datetime, country: str | None
+) -> tuple[int, int]:
+    """Return (total_victims, total_events) for a rankings window."""
+    query = _apply_rankings_period_filters(
+        select(
+            func.count(UniqueEvent.id).label("events"),
+            func.coalesce(func.sum(func.coalesce(UniqueEvent.victim_count, 0)), 0).label(
+                "victims"
+            ),
+        ),
+        start,
+        end,
+        country,
+    )
+    row = (await session.execute(query)).one()
+    return int(row.victims), int(row.events)
+
+
+async def _rankings_aggregate_by_field(
+    session: AsyncSession,
+    start: datetime,
+    end: datetime,
+    country: str | None,
+    field_name: str,
+    *,
+    brazil_city_gate: bool = False,
+) -> dict:
+    """SQL GROUP BY aggregation for one rankings dimension."""
+    if field_name == "city":
+        group_cols = (UniqueEvent.city, UniqueEvent.state)
+        select_cols = (
+            UniqueEvent.city,
+            UniqueEvent.state,
+            func.count(UniqueEvent.id).label("events"),
+            func.coalesce(func.sum(func.coalesce(UniqueEvent.victim_count, 0)), 0).label(
+                "victims"
+            ),
+        )
+    else:
+        group_col = getattr(UniqueEvent, field_name)
+        group_cols = (group_col,)
+        select_cols = (
+            group_col,
+            func.count(UniqueEvent.id).label("events"),
+            func.coalesce(func.sum(func.coalesce(UniqueEvent.victim_count, 0)), 0).label(
+                "victims"
+            ),
+        )
+
+    query = _apply_rankings_period_filters(select(*select_cols), start, end, country)
+    query = query.where(group_cols[0].isnot(None), group_cols[0] != "")
+
+    if brazil_city_gate:
+        query = query.where(
+            or_(UniqueEvent.country == "BR", UniqueEvent.country == "Brasil"),
+            UniqueEvent.state.in_(BR_UFS),
+        )
+
+    query = query.group_by(*group_cols)
+    rows = (await session.execute(query)).all()
+
+    aggregated: dict = {}
+    for row in rows:
+        if field_name == "city":
+            city, state = row[0], row[1]
+            if not city:
+                continue
+            key = (city, state) if state else (city, None)
+        elif field_name == "country":
+            key = _normalize_country_for_rankings(row[0])
+            if not key:
+                continue
+        else:
+            key = row[0]
+            if not key:
+                continue
+        aggregated[key] = {"events": int(row.events), "victims": int(row.victims)}
+    return aggregated
+
+
 @router.get("/stats/rankings")
 async def get_rankings(
     session: AsyncSession = Depends(get_session),
@@ -550,120 +668,45 @@ async def get_rankings(
     current_start = now - timedelta(days=days)
     prev_start = now - timedelta(days=days * 2)
     prev_end = current_start
-    
-    # Build base query with date filters
-    def build_query(start: datetime, end: datetime):
-        query = apply_public_incident_filter(
-            select(UniqueEvent).where(
-                UniqueEvent.event_date.isnot(None),
-                UniqueEvent.event_date >= start,
-                UniqueEvent.event_date <= end,
-            ),
-            country=country  # Pass country for state filtering
-        )
-        if country:
-            country_upper = country.upper()
-            # Handle legacy "Brasil" → BR
-            if country_upper == "BRASIL":
-                country_upper = "BR"
-            
-            # Filter by country for any registry ISO
-            if country_upper == "BR":
-                # BR matches both canonical "BR" and legacy "Brasil"
-                query = query.where(
-                    (UniqueEvent.country == "BR") | (UniqueEvent.country == "Brasil")
-                )
-            else:
-                # All other countries: match ISO code exactly
-                query = query.where(UniqueEvent.country == country_upper)
-        return query
-    
-    current_query = build_query(current_start, now)
-    prev_query = build_query(prev_start, prev_end)
-    
-    # Fetch all events for current and previous periods
-    current_result = await session.execute(current_query)
-    current_events = current_result.scalars().all()
-    
-    prev_result = await session.execute(prev_query)
-    prev_events = prev_result.scalars().all()
-    
-    # Helper to aggregate rankings
-    def normalize_country_for_display(country_code: str | None) -> str | None:
-        """Normalize country codes to display names, treating legacy 'Brasil' as BR."""
-        if not country_code:
-            return None
-        # Treat legacy "Brasil" as "BR"
-        if country_code == "Brasil":
-            country_code = "BR"
-        # Map country codes to display names
-        return COUNTRY_NAMES.get(country_code.upper(), country_code)
-    
-    def aggregate_by_field(events, field_name):
-        """Aggregate events by a field, counting victims and events.
-        
-        For cities, keys by (city, state) tuple to keep same-named cities in different states distinct.
-        """
-        aggregated = {}
-        
-        for event in events:
-            if field_name == "city":
-                # Key by (city, state) tuple to distinguish same-named cities
-                city = event.city
-                state = event.state
-                if not city:
-                    continue
-                key = (city, state) if state else (city, None)
-            else:
-                key = getattr(event, field_name)
-                if not key:
-                    continue
-                # Normalize country field for aggregation
-                if field_name == "country":
-                    key = normalize_country_for_display(key)
-                    if not key:
-                        continue
-            
-            if key not in aggregated:
-                aggregated[key] = {"events": 0, "victims": 0}
-            aggregated[key]["events"] += 1
-            aggregated[key]["victims"] += event.victim_count or 0
-        
-        return aggregated
-    
-    def brazil_city_events(events):
-        """Homepage/unfiltered city ranking is Brazil-only (issues #231/#234).
 
-        When ``country`` is omitted, keep a city only when country is BR/Brasil
-        **and** state is a Brazilian UF. NULL/empty/non-UF states are excluded.
-        Explicit ``?country=`` keeps the already-filtered event set (CL/AR/etc.
-        city lists still work; do not force the BR UF gate).
-        """
-        if country is not None:
-            return events
-        return [
-            event
-            for event in events
-            if include_in_unfiltered_brazil_city_ranking(event.country, event.state)
-        ]
+    # Unfiltered city ranking: BR/Brasil + Brazilian UF only (issues #231/#234).
+    brazil_city_gate = country is None
 
-    # Aggregate current period
-    cities_current = aggregate_by_field(brazil_city_events(current_events), "city")
-    states_current = aggregate_by_field(current_events, "state")
-    countries_current = aggregate_by_field(current_events, "country")
-    types_current = aggregate_by_field(current_events, "homicide_type")
-    methods_current = aggregate_by_field(current_events, "method_of_death")
-    
-    # Aggregate previous period
-    cities_prev = aggregate_by_field(brazil_city_events(prev_events), "city")
-    states_prev = aggregate_by_field(prev_events, "state")
-    countries_prev = aggregate_by_field(prev_events, "country")
-    types_prev = aggregate_by_field(prev_events, "homicide_type")
-    methods_prev = aggregate_by_field(prev_events, "method_of_death")
-    
-    # Calculate totals for share percentages
-    total_victims = sum(e.victim_count or 0 for e in current_events)
-    total_events = len(current_events)
+    total_victims, total_events = await _rankings_period_totals(
+        session, current_start, now, country
+    )
+
+    cities_current = await _rankings_aggregate_by_field(
+        session, current_start, now, country, "city", brazil_city_gate=brazil_city_gate
+    )
+    states_current = await _rankings_aggregate_by_field(
+        session, current_start, now, country, "state"
+    )
+    countries_current = await _rankings_aggregate_by_field(
+        session, current_start, now, country, "country"
+    )
+    types_current = await _rankings_aggregate_by_field(
+        session, current_start, now, country, "homicide_type"
+    )
+    methods_current = await _rankings_aggregate_by_field(
+        session, current_start, now, country, "method_of_death"
+    )
+
+    cities_prev = await _rankings_aggregate_by_field(
+        session, prev_start, prev_end, country, "city", brazil_city_gate=brazil_city_gate
+    )
+    states_prev = await _rankings_aggregate_by_field(
+        session, prev_start, prev_end, country, "state"
+    )
+    countries_prev = await _rankings_aggregate_by_field(
+        session, prev_start, prev_end, country, "country"
+    )
+    types_prev = await _rankings_aggregate_by_field(
+        session, prev_start, prev_end, country, "homicide_type"
+    )
+    methods_prev = await _rankings_aggregate_by_field(
+        session, prev_start, prev_end, country, "method_of_death"
+    )
     
     # Lookup population data for BR cities and states
     city_population_data = {}
