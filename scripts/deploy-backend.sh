@@ -7,6 +7,10 @@
 #
 # Staging shares the production Postgres instance (arquivo-postgres) and uses
 # the arquivo_staging database. Never start a second Postgres container.
+#
+# Staging standing rule: do not start staging-arquivo-worker (no ingest/classify).
+# Recreate/start the API only and skip worker health wait. Production still
+# starts the worker.
 # =============================================================================
 
 set -euo pipefail
@@ -76,8 +80,13 @@ echo "🔄 Running database migrations..."
 docker compose $COMPOSE_FILES run --rm --no-deps api alembic upgrade head
 
 echo ""
-echo "🔄 Starting API and worker..."
-docker compose $COMPOSE_FILES up -d --no-deps api worker
+if [ "$ENVIRONMENT" = "staging" ]; then
+    echo "🔄 Starting API (staging worker stays stopped — no ingest/classify)..."
+else
+    echo "🔄 Starting API and worker..."
+fi
+# shellcheck disable=SC2086
+docker compose $COMPOSE_FILES up -d --no-deps $(backend_runtime_services "$ENVIRONMENT")
 
 if [ "$ENVIRONMENT" = "production" ]; then
     echo "🔄 Starting node_exporter (best-effort)..."
@@ -92,10 +101,14 @@ if ! wait_for_api_health "$API_PORT" 90; then
     exit 1
 fi
 
-if ! wait_for_worker_health "$WORKER_CONTAINER" 90; then
-    echo "❌ Worker health check failed"
-    docker logs --tail=30 "$WORKER_CONTAINER" 2>&1 || true
-    exit 1
+if backend_waits_for_worker "$ENVIRONMENT"; then
+    if ! wait_for_worker_health "$WORKER_CONTAINER" 90; then
+        echo "❌ Worker health check failed"
+        docker logs --tail=30 "$WORKER_CONTAINER" 2>&1 || true
+        exit 1
+    fi
+else
+    echo "   ⏸️ Skipping worker health check (staging worker stays stopped)"
 fi
 
 echo ""

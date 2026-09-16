@@ -79,7 +79,10 @@ services:
     profiles: ["disabled"]
 
   # ---------------------------------------------------------------------------
-  # Worker - Staging instance
+  # Worker - Staging instance (kept STOPPED by deploy/sync scripts)
+  # Standing ops rule: loaders are done; no ingest/classify on staging.
+  # Start manually with: docker compose -p staging -f docker-compose.yml
+  #   -f docker-compose.staging.yml up -d worker
   # ---------------------------------------------------------------------------
   worker:
     image: ghcr.io/joaocarabetta/arquivo-da-violencia/backend:develop
