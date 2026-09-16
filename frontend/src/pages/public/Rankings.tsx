@@ -584,14 +584,16 @@ export function Rankings() {
     setCityLimit(50);
   };
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isSuccess: rankingsReady } = useQuery({
     queryKey: ['rankings', period, country, cityLimit],
     queryFn: () => fetchRankings({ days: period, country: country || undefined, cityLimit }),
   });
 
+  // Issue #260: defer coverage until rankings finish (avoid parallel cold load).
   const { data: coverageData, isLoading: isCoverageLoading } = useQuery({
     queryKey: ['coverageStats'],
     queryFn: fetchCoverageStats,
+    enabled: rankingsReady && !!data,
   });
 
   const periodOptions: { value: PeriodOption; label: string }[] = [

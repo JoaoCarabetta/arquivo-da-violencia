@@ -14,6 +14,7 @@ Production loads full IBGE dataset once from geobr + SIDRA.
 import unicodedata
 import re
 from typing import Dict, Optional, Tuple
+from sqlalchemy import func
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 from loguru import logger
@@ -270,6 +271,7 @@ async def lookup_city_codes(
     - Accepts full state names (e.g. "Rio de Janeiro" not just "RJ")
     - If city is present but state is missing, assigns code if city name is unique
     - DF administrative regions (Taguatinga, Ceilândia, etc.) map to Brasília 5300108
+    - Batched DB reads: one query per distinct UF (issue #260), not per city
     
     Does NOT:
     - Invent cities when city is null
@@ -286,69 +288,82 @@ async def lookup_city_codes(
     """
     if not cities:
         return {}
-    
-    result = {}
-    
-    # Load all municipalities once for efficiency (when we need to check uniqueness)
-    all_munis = None
-    
-    # Process each (city, state) pair
+
+    parsed_pairs: list[tuple[str, str | None, str, str | None]] = []
+    states_needed: set[str] = set()
+    needs_global_uniqueness = False
+    needs_brasilia_code = False
+
     for orig_city, orig_state in zip(cities, states):
-        # Skip if no city (do not invent)
         if not orig_city:
             continue
-        
-        # Normalize inputs
+
         norm_city = normalize_text(orig_city)
         if not norm_city:
             continue
-        
+
         norm_state = normalize_state(orig_state)
-        
-        # Check DF administrative regions first
-        if norm_state == "DF" and norm_city in DF_ADMINISTRATIVE_REGIONS:
-            # Map to Brasília
-            query = select(IBGEPopulation).where(
-                IBGEPopulation.code_muni == 5300108
-            )
-            db_result = await session.execute(query)
-            pop = db_result.scalar_one_or_none()
-            if pop:
-                result[(orig_city, orig_state)] = 5300108
-                continue
-        
-        # If we have a state, do city+state lookup
+        parsed_pairs.append((orig_city, orig_state, norm_city, norm_state))
+
         if norm_state:
-            # Get all municipalities with this state
-            query = select(IBGEPopulation).where(
-                IBGEPopulation.abbrev_state == norm_state
+            states_needed.add(norm_state)
+            if norm_state == "DF" and norm_city in DF_ADMINISTRATIVE_REGIONS:
+                needs_brasilia_code = True
+        else:
+            needs_global_uniqueness = True
+
+    if not parsed_pairs:
+        return {}
+
+    munis_by_state: dict[str, list[IBGEPopulation]] = {}
+    if states_needed:
+        query = select(IBGEPopulation).where(
+            IBGEPopulation.abbrev_state.in_(states_needed)
+        )
+        state_munis = (await session.execute(query)).scalars().all()
+        for muni in state_munis:
+            munis_by_state.setdefault(muni.abbrev_state, []).append(muni)
+
+    has_brasilia_code = any(
+        m.code_muni == 5300108 for ms in munis_by_state.values() for m in ms
+    )
+    if needs_brasilia_code and not has_brasilia_code:
+        brasilia_row = (
+            await session.execute(
+                select(IBGEPopulation).where(IBGEPopulation.code_muni == 5300108)
             )
-            db_result = await session.execute(query)
-            state_munis = db_result.scalars().all()
-            
-            # Find matching city (normalized)
-            for muni in state_munis:
+        ).scalar_one_or_none()
+        has_brasilia_code = brasilia_row is not None
+        if brasilia_row:
+            munis_by_state.setdefault(brasilia_row.abbrev_state, []).append(
+                brasilia_row
+            )
+
+    all_munis: list[IBGEPopulation] | None = None
+    if needs_global_uniqueness:
+        all_munis = (await session.execute(select(IBGEPopulation))).scalars().all()
+
+    result: Dict[Tuple[str, str | None], int] = {}
+    for orig_city, orig_state, norm_city, norm_state in parsed_pairs:
+        if norm_state == "DF" and norm_city in DF_ADMINISTRATIVE_REGIONS:
+            if has_brasilia_code:
+                result[(orig_city, orig_state)] = 5300108
+            continue
+
+        if norm_state:
+            for muni in munis_by_state.get(norm_state, []):
                 if normalize_text(muni.name_muni) == norm_city:
                     result[(orig_city, orig_state)] = muni.code_muni
                     break
-        else:
-            # No state provided - check if city name is unique
-            # Load all municipalities once (lazy load)
-            if all_munis is None:
-                query = select(IBGEPopulation)
-                db_result = await session.execute(query)
-                all_munis = db_result.scalars().all()
-            
+        elif all_munis is not None:
             matches = [
-                muni for muni in all_munis
+                muni
+                for muni in all_munis
                 if normalize_text(muni.name_muni) == norm_city
             ]
-            
-            # Only assign code if exactly one match (unique city name)
             if len(matches) == 1:
                 result[(orig_city, orig_state)] = matches[0].code_muni
-            # If multiple matches or no matches, skip (ambiguous or not found)
-    
+
     return result
 
 
@@ -357,36 +372,55 @@ async def lookup_state_codes(
     states: list[str]
 ) -> Dict[str, str]:
     """
-    Lookup IBGE state codes for a list of state abbreviations.
+    Lookup IBGE state codes for a list of state abbreviations or full names.
+    
+    Uses a single batched GROUP BY query (issue #260) instead of one query per UF.
     
     Args:
         session: Database session
-        states: List of state abbreviations (e.g. "SP", "RJ")
+        states: List of state abbreviations (e.g. "SP", "RJ") or full names
     
     Returns:
-        Dictionary mapping state abbreviation to code_state (e.g. "SP" → "35")
+        Dictionary mapping original state key to code_state (e.g. "SP" → "35")
     """
     if not states:
         return {}
-    
-    result = {}
-    
+
+    abbrev_by_original: dict[str, str] = {}
+    abbrevs_needed: set[str] = set()
+
     for state in states:
         if not state:
             continue
-        
-        # Query for any municipality in that state to get code_state
-        query = select(IBGEPopulation).where(
-            IBGEPopulation.abbrev_state == state
-        ).limit(1)
-        
-        db_result = await session.execute(query)
-        pop = db_result.scalar_one_or_none()
-        
-        if pop and pop.code_state:
-            result[state] = pop.code_state
-    
-    return result
+        abbrev = normalize_state(state)
+        if not abbrev:
+            continue
+        abbrev_by_original[state] = abbrev
+        abbrevs_needed.add(abbrev)
+
+    if not abbrevs_needed:
+        return {}
+
+    query = (
+        select(
+            IBGEPopulation.abbrev_state,
+            func.min(IBGEPopulation.code_state).label("code_state"),
+        )
+        .where(IBGEPopulation.abbrev_state.in_(abbrevs_needed))
+        .group_by(IBGEPopulation.abbrev_state)
+    )
+    rows = (await session.execute(query)).all()
+    abbrev_to_code = {
+        row.abbrev_state: row.code_state
+        for row in rows
+        if row.code_state
+    }
+
+    return {
+        original: abbrev_to_code[abbrev]
+        for original, abbrev in abbrev_by_original.items()
+        if abbrev in abbrev_to_code
+    }
 
 
 async def get_state_populations(
