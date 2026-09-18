@@ -363,4 +363,11 @@ if [[ -f "$cert_path" ]]; then
   fi
 fi
 
+# Metrics snapshot through the MCP (non-fatal; values only, never the token)
+if bash "$OBS_DIR/mcp-snapshot.sh"; then
+  :
+else
+  log "WARN: mcp-snapshot failed"
+fi
+
 log "Deploy complete — https://${DOMAIN}/d/arquivo-pipeline | MCP: https://${DOMAIN}/mcp"
