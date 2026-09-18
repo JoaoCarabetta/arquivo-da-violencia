@@ -120,19 +120,27 @@ ensure_waha() {
   die "WAHA did not become healthy"
 }
 
+ok_dash() { [[ $1 =~ ^(200|301|302|401)$ ]]; }
+
 verify() {
-  local loop_code public_code mcp_code
+  local loop_code public_code mcp_code i
   loop_code=$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:${WAHA_PORT}/dashboard" || true)
-  public_code=$(curl -s -o /dev/null -w '%{http_code}' "https://${HOST_NAME}/dashboard" || true)
+  public_code=000
+  for i in $(seq 1 8); do
+    public_code=$(curl -s -o /dev/null -w '%{http_code}' "https://${HOST_NAME}/dashboard" || true)
+    ok_dash "$public_code" && break
+    sleep 2
+  done
   mcp_code=$(curl -s -o /dev/null -w '%{http_code}' -X POST "https://${HOST_NAME}/mcp" \
     -H "Content-Type: application/json" -d '{}' || true)
-  log "loopback /dashboard HTTP ${loop_code} (expect 200/301/302)"
-  log "public /dashboard HTTP ${public_code} (expect 200/301/302)"
+  log "loopback /dashboard HTTP ${loop_code} (expect 200/301/302/401)"
+  log "public /dashboard HTTP ${public_code} (expect 200/301/302/401)"
   log "public /mcp without key HTTP ${mcp_code} (expect 401)"
   curl -sf http://127.0.0.1:8000/health >/dev/null && log "prod-api=ok" || log "prod-api=FAIL"
   curl -sf http://127.0.0.1:8001/health >/dev/null && log "staging-api=ok" || log "staging-api=FAIL"
   curl -sf http://127.0.0.1:3131/health >/dev/null && log "gbrain=ok" || log "gbrain=FAIL"
-  [[ $public_code =~ ^(200|301|302)$ ]] || die "public dashboard not reachable (HTTP ${public_code})"
+  ok_dash "$loop_code" || die "loopback dashboard not reachable (HTTP ${loop_code})"
+  ok_dash "$public_code" || die "public dashboard not reachable (HTTP ${public_code})"
 }
 
 log "DASHBOARD_URL=https://${HOST_NAME}/dashboard"
