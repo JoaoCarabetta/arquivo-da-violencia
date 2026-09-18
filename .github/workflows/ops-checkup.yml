@@ -1,0 +1,75 @@
+# Daily host + observability checkup. Complements pipeline-health.yml (every 30m,
+# pipeline only) and Prometheus critical alerts (Cursor agent).
+# Safe disk prune on ARV; MCP snapshot on the obs VPS; wake Telegram/Cursor
+# only if disk stays critical after prune.
+name: Daily ops checkup
+
+on:
+  schedule:
+    - cron: '0 11 * * *'   # 11:00 UTC / 08:00 BRT
+  workflow_dispatch:
+    inputs:
+      remediate:
+        description: 'Prune unused docker/journals/old dumps when disk ≥ 75%'
+        required: false
+        default: true
+        type: boolean
+
+concurrency:
+  group: ops-checkup
+  cancel-in-progress: false
+
+jobs:
+  arv-disk:
+    name: ARV disk check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: |
+            scripts/check-host-disk.sh
+          sparse-checkout-cone-mode: false
+
+      - name: Sync disk script to ARV
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          source: scripts/check-host-disk.sh
+          target: /root/arquivo-da-violencia
+          overwrite: true
+
+      - name: Check (and maybe prune) ARV disk
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          command_timeout: 15m
+          script: |
+            set -uo pipefail
+            cd /root/arquivo-da-violencia
+            export PIPELINE_HEALTH_WEBHOOK_AUTH="${{ secrets.CURSOR_AUTOMATION_TOKEN }}"
+            ARGS="--json --notify"
+            if [ "${{ github.event_name }}" = "schedule" ] \
+              || [ "${{ inputs.remediate }}" = "true" ] \
+              || [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+              ARGS="$ARGS --remediate"
+            fi
+            bash scripts/check-host-disk.sh $ARGS
+
+  obs-snapshot:
+    name: Observability MCP snapshot
+    runs-on: ubuntu-latest
+    steps:
+      - name: Snapshot metrics through MCP
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.OBS_VPS_HOST }}
+          username: ${{ secrets.OBS_VPS_USER }}
+          key: ${{ secrets.OBS_VPS_SSH_KEY }}
+          command_timeout: 10m
+          script: |
+            set -euo pipefail
+            bash /opt/arquivo-observability/mcp-snapshot.sh

@@ -8,7 +8,8 @@ Operational guide for the production pipeline health checker and how an agent
 | Piece | Location | Role |
 |-------|----------|------|
 | Health script | `scripts/check-pipeline-health.sh` | Runs on VPS; exits 1 when unhealthy |
-| GitHub Action | `.github/workflows/pipeline-health.yml` | SSH every 30 min, `--notify` on failure |
+| GitHub Action | `.github/workflows/pipeline-health.yml` | SSH every 30 min, `--notify` + `--remediate` |
+| Daily ops | `.github/workflows/ops-checkup.yml` | 11:00 UTC — ARV disk prune + obs MCP snapshot |
 | Worker monitor | `backend/app/services/worker_monitor.py` | Telegram when worker heartbeat stops |
 | Pipeline API | `GET /api/pipeline/status` (admin) | Worker alive, cron flag, queue depth |
 | **Prometheus alerts** | `infra/observability/prometheus/rules/` | Continuous metric-based detection (30s) |
@@ -115,6 +116,23 @@ docker compose -p prod restart worker
 | `stuck_sources` | Reset transient statuses |
 
 Do **not** restart the worker for queue jam alone — that clears the heartbeat and can cascade into WorkerDown / remediates thrashing.
+
+### Daily host disk (ARV)
+
+`scripts/check-host-disk.sh --remediate` (scheduled by `ops-checkup.yml`):
+
+- Warns at ≥75%, fails at ≥90% (same thresholds as Prometheus).
+- Safe cleanup only: dangling docker images, builder cache older than 48h,
+  journald to 200 MB, `/root/backups` files older than 7 days, container
+  `*-json.log` files over 200 MB truncated to 20 MB.
+- **Never** deletes `arquivo-postgres-data`, Redis volumes, `/var/lib/gbrain`,
+  or `/var/www/carabetta.xyz` tiles.
+
+If still ≥90% after prune, Telegram + Cursor webhook fire. The lasting fix is
+growing the Hetzner **primary disk 40 → 80 GB** (already included in the `cx33`
+plan; the box was created/rescaled with “keep disk size”). That is a short
+reboot + `growpart`/`resize2fs`, not a new volume or object store. Volumes
+(~€0.08/GB·mo) and object storage are for dumps/tiles later, not the live DB.
 
 ### Tier B — Code fix → PR to `develop`
 
