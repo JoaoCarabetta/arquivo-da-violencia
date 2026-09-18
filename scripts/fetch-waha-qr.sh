@@ -31,8 +31,8 @@ for name in personal second; do
   dest="${QR_DIR}/${name}.png"
   ok=0
   for i in $(seq 1 20); do
-    if curl -sf -H "X-Api-Key: $(api_key)" \
-        "http://127.0.0.1:${WAHA_PORT}/api/${name}/auth/qr" \
+    if curl -sf -H "X-Api-Key: $(api_key)" -H "Accept: image/png" \
+        "http://127.0.0.1:${WAHA_PORT}/api/${name}/auth/qr?format=image" \
         -o "$dest"; then
       # reject tiny/error JSON saved as png
       if file "$dest" | grep -qi 'PNG\|JPEG\|image'; then
