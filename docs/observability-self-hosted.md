@@ -221,6 +221,49 @@ Expected on prod after deploy:
 | Host metrics missing for prod | Prod `node_exporter` not running (`docker compose -p prod ps`) or UFW `:9100` not open for obs IP |
 | TLS/nginx broken after redeploy | Cert exists but HTTP-only config installed — `deploy-remote.sh` picks HTTPS config when cert is present |
 
+## Agent access (MCP)
+
+AI agents (Cursor cloud/IDE, Claude Code/Desktop, Grok Bot) can query metrics,
+dashboards, and alert rules through a hosted, **read-only**
+[mcp-grafana](https://github.com/grafana/mcp-grafana) instance on the obs VPS.
+
+| | |
+|---|---|
+| MCP URL | `https://observability.carabetta.xyz/mcp` (streamable HTTP) |
+| Auth | `Authorization: Bearer <MCP_GRAFANA_SERVER_TOKEN>` |
+| Token location | `/opt/arquivo-observability/.env` on the obs VPS (0600, never in git) |
+| Grafana identity | service account `mcp-agents`, role Viewer (`GRAFANA_SERVICE_ACCOUNT_TOKEN`) |
+| Tools | `search,datasource,prometheus,alerting,dashboard,navigation` — writes disabled (`--disable-write`) |
+| Container | `obs-mcp-grafana`, bound to `127.0.0.1:8000`, nginx `location /mcp` in front |
+
+Client config (Cursor `mcp.json` shape):
+
+```json
+{
+  "mcpServers": {
+    "arquivo-obs": {
+      "url": "https://observability.carabetta.xyz/mcp",
+      "headers": { "Authorization": "Bearer <token from obs .env>" }
+    }
+  }
+}
+```
+
+Both tokens are bootstrapped and preserved by `deploy-remote.sh`: the server
+token is generated once (`openssl rand`), the Grafana service-account token is
+minted via the Grafana API on first deploy. Deploys fail if the endpoint stops
+enforcing auth or the tool chain breaks (see MCP smoke checks in
+[`deploy-remote.sh`](../infra/observability/deploy-remote.sh)).
+
+**Rotation:** delete the `mcp-agents` token in Grafana (Administration → Service
+accounts) and/or blank the relevant line in `/opt/arquivo-observability/.env`,
+then rerun the deploy — missing tokens are regenerated. Update agent clients
+with the new bearer afterwards.
+
+Verify: `bash scripts/check-observability.sh --prod` (includes unauth-401 and
+authed tools/list + datasource-chain checks). The Cloudflare DNS record for
+`observability` must stay **DNS-only** — proxying would break MCP streaming.
+
 ## Related: product analytics
 
 User/product metrics (page views, clicks, filters) use **Umami** on the same

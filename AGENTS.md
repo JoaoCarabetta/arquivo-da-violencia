@@ -147,6 +147,7 @@ Pipeline metrics: Prometheus + Grafana on a dedicated VPS (`62.238.12.182`).
 | Resource | URL |
 |----------|-----|
 | Grafana dashboard | https://observability.carabetta.xyz/d/arquivo-pipeline |
+| MCP for agents (read-only, bearer auth) | https://observability.carabetta.xyz/mcp |
 | Stack directory on obs VPS | `/opt/arquivo-observability` |
 
 - **Manual deploy:** `bash infra/observability/deploy.sh` (see [docs/observability-self-hosted.md](docs/observability-self-hosted.md))
