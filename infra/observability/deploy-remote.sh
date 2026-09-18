@@ -326,8 +326,12 @@ else
   die "MCP list_datasources failed — Grafana service account token may be invalid"
 fi
 
+# Pin the domain to loopback: this tests the exact public vhost (TLS + nginx +
+# mcp) without depending on the box's resolver, which can hold a stale negative
+# answer right after the DNS record is (re)created.
+resolve_pin=(--resolve "${DOMAIN}:443:127.0.0.1")
 if [[ -f "$cert_path" ]]; then
-  public_unauth="$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 -X POST "https://${DOMAIN}/mcp" \
+  public_unauth="$(curl -s "${resolve_pin[@]}" -o /dev/null -w '%{http_code}' --max-time 20 -X POST "https://${DOMAIN}/mcp" \
     -H 'Content-Type: application/json' -H 'Accept: application/json, text/event-stream' \
     -d '{"jsonrpc":"2.0","id":0,"method":"ping"}' || true)"
   if [[ "$public_unauth" == "401" ]]; then
@@ -336,7 +340,7 @@ if [[ -f "$cert_path" ]]; then
     die "MCP public endpoint returned '${public_unauth}' — expected 401 (check nginx /mcp location)"
   fi
 
-  public_init="$(curl -s --max-time 20 -X POST "https://${DOMAIN}/mcp" \
+  public_init="$(curl -s "${resolve_pin[@]}" --max-time 20 -X POST "https://${DOMAIN}/mcp" \
     -H 'Content-Type: application/json' -H 'Accept: application/json, text/event-stream' \
     "${mcp_auth[@]}" \
     -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"deploy-smoke-public","version":"1.0"}}}' || true)"
