@@ -145,10 +145,10 @@ if $PROD; then
       fi
       promql_resp=$(curl -s --max-time 30 -X POST "$mcp_url" "${mcp_hdrs[@]}" "${session_hdr[@]}" \
         -d '{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"query_prometheus","arguments":{"datasourceUid":"prometheus","expr":"pipeline_worker_alive{service=\"api\"}","endTime":"now","queryType":"instant"}}}' || true)
-      if echo "$promql_resp" | grep -q '"value"'; then
+      if echo "$promql_resp" | grep -q '__name__'; then
         pass "MCP query_prometheus returns live pipeline metric"
       else
-        fail "MCP query_prometheus returned no value"
+        fail "MCP query_prometheus returned no series"
       fi
     else
       fail "MCP initialize failed with bearer token"

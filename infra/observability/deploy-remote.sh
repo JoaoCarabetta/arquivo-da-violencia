@@ -329,10 +329,13 @@ fi
 promql_resp="$(curl -s --max-time 30 -X POST "$mcp_local" \
   "${mcp_headers[@]}" "${mcp_auth[@]}" "${session_header[@]}" \
   -d '{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"query_prometheus","arguments":{"datasourceUid":"prometheus","expr":"pipeline_worker_alive{service=\"api\"}","endTime":"now","queryType":"instant"}}}' || true)"
-if echo "$promql_resp" | grep -q '"value"'; then
+# The tool result is JSON escaped inside MCP text content; __name__ only
+# appears in successful instant-vector data.
+if echo "$promql_resp" | grep -q '__name__'; then
   log "MCP query_prometheus OK (live pipeline metric returned)"
 else
-  die "MCP query_prometheus returned no value for pipeline_worker_alive"
+  log "query_prometheus response (truncated): $(echo "$promql_resp" | head -c 300)"
+  die "MCP query_prometheus returned no series for pipeline_worker_alive"
 fi
 
 # Pin the domain to loopback: this tests the exact public vhost (TLS + nginx +
