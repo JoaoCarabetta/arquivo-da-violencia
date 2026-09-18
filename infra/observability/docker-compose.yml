@@ -62,7 +62,7 @@ services:
   # Tokens are managed by deploy-remote.sh: MCP_GRAFANA_SERVER_TOKEN gates callers,
   # GRAFANA_SERVICE_ACCOUNT_TOKEN is a Grafana Viewer service account (never admin).
   mcp-grafana:
-    image: grafana/mcp-grafana:v1.5.1
+    image: grafana/mcp-grafana:1.5.1
     container_name: obs-mcp-grafana
     restart: unless-stopped
     depends_on:
