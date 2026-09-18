@@ -143,6 +143,13 @@ if $PROD; then
       else
         fail "MCP list_datasources failed (service account token?)"
       fi
+      promql_resp=$(curl -s --max-time 30 -X POST "$mcp_url" "${mcp_hdrs[@]}" "${session_hdr[@]}" \
+        -d '{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"query_prometheus","arguments":{"datasourceUid":"prometheus","expr":"pipeline_worker_alive{service=\"api\"}","endTime":"now","queryType":"instant"}}}' || true)
+      if echo "$promql_resp" | grep -q '"value"'; then
+        pass "MCP query_prometheus returns live pipeline metric"
+      else
+        fail "MCP query_prometheus returned no value"
+      fi
     else
       fail "MCP initialize failed with bearer token"
     fi
