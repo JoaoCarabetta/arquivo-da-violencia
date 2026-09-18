@@ -184,6 +184,7 @@ scripts/*
 !scripts/preflight-auth.py
 !scripts/bootstrap-waha.sh
 !scripts/expose-waha-dashboard.sh
+!scripts/repair-waha-worker.sh
 !scripts/fetch-waha-qr.sh
 !scripts/lib/
 !scripts/lib/deploy-common.sh

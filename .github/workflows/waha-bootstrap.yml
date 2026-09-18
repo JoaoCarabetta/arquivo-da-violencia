@@ -9,6 +9,7 @@ on:
       - cursor/waha-bridge-9ca0
     paths:
       - 'scripts/expose-waha-dashboard.sh'
+      - 'scripts/repair-waha-worker.sh'
       - '.github/workflows/waha-bootstrap.yml'
 
 jobs:
@@ -32,14 +33,15 @@ jobs:
           printf '%s\n' "${VPS_SSH_KEY}" | sed 's/\\n/\n/g' > "${HOME}/.ssh/vps"
           ssh-keyscan -H "${VPS_HOST}" >> "${HOME}/.ssh/known_hosts" 2>/dev/null || true
           scp -i "${HOME}/.ssh/vps" -o StrictHostKeyChecking=accept-new \
-            scripts/expose-waha-dashboard.sh \
-            "${VPS_USER}@${VPS_HOST}:/tmp/expose-waha-dashboard.sh"
+            scripts/expose-waha-dashboard.sh scripts/repair-waha-worker.sh \
+            "${VPS_USER}@${VPS_HOST}:/tmp/"
           ssh -i "${HOME}/.ssh/vps" -o StrictHostKeyChecking=accept-new \
             "${VPS_USER}@${VPS_HOST}" '
               set -euo pipefail
               test -d /opt/waha || { echo "missing /opt/waha — refuse to bootstrap"; exit 1; }
               test -f /etc/waha/env || { echo "missing /etc/waha/env — refuse to bootstrap"; exit 1; }
-              chmod 700 /tmp/expose-waha-dashboard.sh
+              chmod 700 /tmp/expose-waha-dashboard.sh /tmp/repair-waha-worker.sh
+              bash /tmp/repair-waha-worker.sh
               bash /tmp/expose-waha-dashboard.sh
             '
 
