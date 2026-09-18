@@ -103,14 +103,31 @@ if [[ -z "$existing_webhook_url" || -z "$existing_webhook_auth" ]]; then
   log "WARN: PIPELINE_HEALTH_WEBHOOK_URL / auth not set — Cursor agent dispatch disabled"
 fi
 
-# --- DNS precheck ---
-resolved_ip="$(getent ahosts "$DOMAIN" 2>/dev/null | awk '/STREAM/ {print $1; exit}' || true)"
-if [[ -z "$resolved_ip" ]]; then
-  resolved_ip="$(dig +short "$DOMAIN" 2>/dev/null | head -1 || true)"
-fi
-if [[ "$resolved_ip" != "$OBS_IP" ]]; then
-  die "DNS for $DOMAIN resolves to '${resolved_ip:-<none>}' — expected $OBS_IP"
-fi
+# --- DNS precheck (retries + DoH fallback: local resolvers can hold a stale
+# negative answer for up to the zone's negative TTL after the record is created) ---
+dns_ok=false
+for attempt in $(seq 1 10); do
+  if command -v resolvectl >/dev/null 2>&1; then
+    resolvectl flush-caches >/dev/null 2>&1 || true
+  fi
+  resolved_ip="$(getent ahosts "$DOMAIN" 2>/dev/null | awk '/STREAM/ {print $1; exit}' || true)"
+  if [[ -z "$resolved_ip" ]]; then
+    resolved_ip="$(dig +short "$DOMAIN" 2>/dev/null | head -1 || true)"
+  fi
+  if [[ "$resolved_ip" == "$OBS_IP" ]]; then
+    dns_ok=true
+    break
+  fi
+  if curl -s --max-time 10 -H 'accept: application/dns-json' \
+    "https://1.1.1.1/dns-query?name=${DOMAIN}&type=A" | grep -q "\"data\":\"${OBS_IP}\""; then
+    log "DNS OK via DoH (attempt ${attempt}; local resolver still catching up)"
+    dns_ok=true
+    break
+  fi
+  log "DNS attempt ${attempt}: '$DOMAIN' → '${resolved_ip:-<none>}' (want $OBS_IP), retrying"
+  sleep 6
+done
+$dns_ok || die "DNS for $DOMAIN does not resolve to $OBS_IP (create a DNS-only A record in the Cloudflare carabetta.xyz zone)"
 log "DNS OK: $DOMAIN → $OBS_IP"
 
 # --- Docker stack ---
