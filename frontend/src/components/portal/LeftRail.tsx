@@ -1,5 +1,5 @@
 import { memo } from 'react';
-import { Info, Globe, BookOpen, BarChart3 } from 'lucide-react';
+import { Info, Globe, BookOpen, BarChart3, Code2 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useI18n } from '@/contexts/I18nContext';
 import { ArchiveLogo } from '@/components/portal/ArchiveLogo';
@@ -8,6 +8,7 @@ import { cn } from '@/lib/utils';
 interface LeftRailProps {
   onAbout: () => void;
   onMethodology: () => void;
+  onUseApi: () => void;
 }
 
 interface RailButtonProps {
@@ -55,7 +56,7 @@ function RailButton({ title, onClick, children, variant = 'desktop' }: RailButto
   );
 }
 
-function DesktopRail({ onAbout, onMethodology }: LeftRailProps) {
+function DesktopRail({ onAbout, onMethodology, onUseApi }: LeftRailProps) {
   const { t, lang, toggleLang } = useI18n();
   const navigate = useNavigate();
 
@@ -96,6 +97,9 @@ function DesktopRail({ onAbout, onMethodology }: LeftRailProps) {
         <RailButton title={t.navAbout} onClick={onAbout}>
           <Info className="h-[21px] w-[21px]" strokeWidth={1.9} />
         </RailButton>
+        <RailButton title={t.navUseApi} onClick={onUseApi}>
+          <Code2 className="h-[21px] w-[21px]" strokeWidth={1.9} />
+        </RailButton>
       </div>
 
       <div className="mt-auto flex flex-col items-center gap-1.5">
@@ -123,7 +127,7 @@ function DesktopRail({ onAbout, onMethodology }: LeftRailProps) {
   );
 }
 
-function MobileRail({ onAbout, onMethodology }: LeftRailProps) {
+function MobileRail({ onAbout, onMethodology, onUseApi }: LeftRailProps) {
   const { t, lang, toggleLang } = useI18n();
   const navigate = useNavigate();
 
@@ -145,6 +149,9 @@ function MobileRail({ onAbout, onMethodology }: LeftRailProps) {
         </RailButton>
         <RailButton title={t.navAbout} variant="mobile" onClick={onAbout}>
           <Info className="h-[18px] w-[18px]" strokeWidth={1.9} />
+        </RailButton>
+        <RailButton title={t.navUseApi} variant="mobile" onClick={onUseApi}>
+          <Code2 className="h-[18px] w-[18px]" strokeWidth={1.9} />
         </RailButton>
         <button
           onClick={toggleLang}
