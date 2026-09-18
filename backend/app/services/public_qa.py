@@ -628,8 +628,11 @@ def render_trend_answer(plan: AskPlan, series: dict[str, Any]) -> str:
     else:
         dir_bit = "A direção no arquivo é estável (variação abaixo de 5%)."
 
+    noun = label.lower()
+    if current != 1 and not noun.endswith("s"):
+        noun = f"{noun}s"
     return (
-        f"No {state_name}, o arquivo registrou {current} {label.lower()} noticiados "
+        f"No {state_name}, o arquivo registrou {current} {noun} noticiados "
         f"nos últimos {days} dias ({victims} vítimas), contra {previous} na janela "
         f"anterior de igual duração. {dir_bit} "
         "Isso é baseado em notícias neste arquivo, não em estatísticas oficiais."

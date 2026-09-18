@@ -71,7 +71,7 @@ async def test_stats_series_feminicidio_ce(app, async_session, client: AsyncClie
         + [
             _event(
                 title="Feminicídio anterior CE",
-                event_date=now - timedelta(days=200),
+                event_date=now - timedelta(days=400),
                 state="CE",
                 city="Fortaleza",
                 homicide_type="Feminicídio",
@@ -235,7 +235,7 @@ async def test_ask_feminicidio_ceara(app, async_session, client: AsyncClient):
         + [
             _event(
                 title=f"Fem CE old {i}",
-                event_date=now - timedelta(days=200 + i),
+                event_date=now - timedelta(days=400 + i),
                 state="CE",
                 city="Fortaleza",
                 homicide_type="Feminicídio",
