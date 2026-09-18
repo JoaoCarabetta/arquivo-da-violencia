@@ -36,9 +36,11 @@ inspect_host() {
   docker ps --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}' || true
   echo "--- nginx sites ---"
   ls -la /etc/nginx/sites-available /etc/nginx/sites-enabled || true
-  echo "--- wa vhost (redacted) ---"
+  echo "--- wa / whatsapp-mcp vhost (redacted) ---"
   for f in /etc/nginx/sites-available/wa /etc/nginx/sites-available/wa.carabetta.xyz \
-           /etc/nginx/sites-enabled/wa /etc/nginx/sites-enabled/wa.carabetta.xyz; do
+           /etc/nginx/sites-available/whatsapp-mcp \
+           /etc/nginx/sites-enabled/wa /etc/nginx/sites-enabled/wa.carabetta.xyz \
+           /etc/nginx/sites-enabled/whatsapp-mcp; do
     [[ -e $f ]] && { echo "FILE $f -> $(readlink -f "$f" 2>/dev/null || echo "$f")"; redacted_nginx "$f"; }
   done
   echo "--- certbot ---"
@@ -191,12 +193,7 @@ sys.exit(0 if '$name' in [x.get('name') for x in items] else 1)" 2>/dev/null; th
 
 ensure_mcp_app() {
   local session=$1
-  local keyfile="/etc/waha/mcp-${session}.key"
-  if [[ -s $keyfile ]]; then
-    log "reusing MCP key file for $session"
-    return 0
-  fi
-  local apps body resp key
+  local apps body
   apps=$(waha_curl GET /api/apps || echo '[]')
   if echo "$apps" | python3 -c "import json,sys
 try:
@@ -205,21 +202,50 @@ except Exception:
     sys.exit(1)
 items=data if isinstance(data,list) else data.get('apps',data.get('data',[]))
 sys.exit(0 if any(i.get('session')=='$session' and i.get('app')=='mcp' for i in items) else 1)" 2>/dev/null; then
-    log "MCP app for $session exists but key file missing — recreate disabled; write placeholder"
-    echo "EXISTING_APP_NO_KEY" >"$keyfile"
-    chmod 600 "$keyfile"
+    log "MCP app for $session already exists"
     return 0
   fi
   body=$(cat <<EOF
 {"enabled":true,"id":"app_mcp_${session}","session":"${session}","app":"mcp","config":{"actions":{"read":true,"send":true,"control":false,"setting":false,"app":false,"delete":false}}}
 EOF
 )
-  resp=$(waha_curl POST /api/apps -H "Content-Type: application/json" -d "$body")
-  key=$(printf '%s' "$resp" | python3 -c "import json,sys; d=json.load(sys.stdin); print((d.get('config') or {}).get('key') or '')")
-  [[ -n $key ]] || { echo "$resp" >&2; die "MCP app for $session did not return a key"; }
+  waha_curl POST /api/apps -H "Content-Type: application/json" -d "$body" >/dev/null
+  log "created MCP app for $session"
+}
+
+extract_key() {
+  python3 -c "import json,sys
+d=json.load(sys.stdin)
+if isinstance(d, dict):
+    print(d.get('key') or (d.get('config') or {}).get('key') or '')
+    raise SystemExit
+items=d if isinstance(d,list) else []
+print(items[0].get('key','') if items else '')"
+}
+
+ensure_session_key() {
+  local session=$1
+  local keyfile="/etc/waha/mcp-${session}.key"
+  if [[ -s $keyfile && $(cat "$keyfile") != EXISTING_APP_NO_KEY ]]; then
+    log "reusing session key file for $session"
+    return 0
+  fi
+  local resp key listed
+  resp=$(waha_curl POST /api/keys -H "Content-Type: application/json" -d "{\"isAdmin\":false,\"session\":\"${session}\",\"isActive\":true,\"actions\":{\"read\":true,\"send\":true,\"control\":false,\"setting\":false,\"app\":false,\"delete\":false}}")
+  key=$(printf '%s' "$resp" | extract_key)
+  if [[ -z $key ]]; then
+    listed=$(waha_curl GET /api/keys)
+    key=$(printf '%s' "$listed" | python3 -c "import json,sys
+d=json.load(sys.stdin)
+items=d if isinstance(d,list) else d.get('data',[])
+for i in items:
+    if i.get('session')=='$session' and i.get('key'):
+        print(i['key']); break")
+  fi
+  [[ -n $key ]] || { echo "$resp" >&2; die "session key for $session did not return a secret"; }
   printf '%s\n' "$key" >"$keyfile"
   chmod 600 "$keyfile"
-  log "minted MCP key for $session"
+  log "minted scoped session key for $session"
 }
 
 save_qr() {
@@ -344,8 +370,9 @@ server {
 }
 EOF
   ln -sfn "$available" "$enabled"
-  # Avoid two vhosts claiming the same server_name.
-  for extra in /etc/nginx/sites-enabled/wa /etc/nginx/sites-enabled/wa.carabetta; do
+  # Avoid two vhosts claiming wa.carabetta.xyz (legacy site is whatsapp-mcp).
+  for extra in /etc/nginx/sites-enabled/wa /etc/nginx/sites-enabled/wa.carabetta \
+               /etc/nginx/sites-enabled/whatsapp-mcp; do
     if [[ -e $extra && $(readlink -f "$extra") != $(readlink -f "$enabled") ]]; then
       rm -f "$extra"
       log "disabled extra site $(basename "$extra")"
@@ -406,6 +433,8 @@ main() {
   sleep 5
   ensure_mcp_app personal
   ensure_mcp_app second
+  ensure_session_key personal
+  ensure_session_key second
   save_qr personal
   save_qr second
   verify_stack
