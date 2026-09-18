@@ -9,6 +9,7 @@ on:
       - cursor/waha-bridge-9ca0
     paths:
       - 'scripts/bootstrap-waha.sh'
+      - 'scripts/fetch-waha-qr.sh'
       - '.github/workflows/waha-bootstrap.yml'
 
 jobs:
@@ -61,17 +62,30 @@ jobs:
           ssh -i "${HOME}/.ssh/vps" -o StrictHostKeyChecking=accept-new \
             "${VPS_USER}@${VPS_HOST}" 'chmod 700 /tmp/bootstrap-waha.sh && bash /tmp/bootstrap-waha.sh'
 
-      - name: Fetch QR images if present
-        uses: appleboy/ssh-action@v1.0.3
+      - name: Refresh and pull QR images
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+          VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          mkdir -p "${HOME}/.ssh" qr-out
+          chmod 700 "${HOME}/.ssh"
+          install -m 600 /dev/null "${HOME}/.ssh/vps"
+          printf '%s\n' "${VPS_SSH_KEY}" | sed 's/\\n/\n/g' > "${HOME}/.ssh/vps"
+          scp -i "${HOME}/.ssh/vps" -o StrictHostKeyChecking=accept-new \
+            scripts/fetch-waha-qr.sh "${VPS_USER}@${VPS_HOST}:/tmp/fetch-waha-qr.sh"
+          ssh -i "${HOME}/.ssh/vps" -o StrictHostKeyChecking=accept-new \
+            "${VPS_USER}@${VPS_HOST}" 'chmod 700 /tmp/fetch-waha-qr.sh && bash /tmp/fetch-waha-qr.sh'
+          scp -i "${HOME}/.ssh/vps" -o StrictHostKeyChecking=accept-new \
+            "${VPS_USER}@${VPS_HOST}:/opt/waha/qr/*.png" qr-out/ || true
+          ls -la qr-out || true
+
+      - name: Upload QR artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
         with:
-          host: ${{ secrets.VPS_HOST }}
-          username: ${{ secrets.VPS_USER }}
-          key: ${{ secrets.VPS_SSH_KEY }}
-          command_timeout: 2m
-          script: |
-            set -euo pipefail
-            mkdir -p /tmp/waha-qr
-            cp -a /opt/waha/qr/*.png /tmp/waha-qr/ 2>/dev/null || true
-            ls -la /opt/waha/qr || true
-            test -f /opt/waha/BOOTSTRAP.txt && sed 's/=.*key.*/=[redacted]/' /opt/waha/BOOTSTRAP.txt || true
-            echo "QR_COUNT=$(find /opt/waha/qr -name '*.png' 2>/dev/null | wc -l)"
+          name: waha-qr
+          path: qr-out/*.png
+          if-no-files-found: warn
+          retention-days: 1

@@ -183,6 +183,7 @@ scripts/*
 !scripts/hash-env-passwords.py
 !scripts/preflight-auth.py
 !scripts/bootstrap-waha.sh
+!scripts/fetch-waha-qr.sh
 !scripts/lib/
 !scripts/lib/deploy-common.sh
 
