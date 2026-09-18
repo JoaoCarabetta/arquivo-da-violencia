@@ -106,18 +106,18 @@ EOF
 }
 
 ensure_waha() {
-  docker compose -f "$WAHA_DIR/docker-compose.yml" up -d
-  local i
-  for i in $(seq 1 20); do
-    if curl -sf -o /dev/null -H "X-Api-Key: $(awk -F= '/^WAHA_API_KEY=/ && $1=="WAHA_API_KEY" {print $2; exit}' "$WAHA_ENV")" \
-        "http://127.0.0.1:${WAHA_PORT}/api/sessions"; then
-      log "WAHA is up"
-      return 0
-    fi
-    sleep 2
-  done
+  if docker ps --format '{{.Names}}' | grep -qx waha; then
+    log "leaving running waha container as-is"
+  else
+    die "container waha is not running — refuse to compose-up or bootstrap"
+  fi
+  if curl -sf -o /dev/null -H "X-Api-Key: $(awk -F= '/^WAHA_API_KEY=/ && $1=="WAHA_API_KEY" {print $2; exit}' "$WAHA_ENV")" \
+      "http://127.0.0.1:${WAHA_PORT}/api/sessions"; then
+    log "WAHA is up"
+    return 0
+  fi
   docker logs waha --tail 40 >&2 || true
-  die "WAHA did not become healthy"
+  die "WAHA is not healthy"
 }
 
 ok_dash() { [[ $1 =~ ^(200|301|302|401)$ ]]; }

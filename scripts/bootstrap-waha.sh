@@ -431,6 +431,9 @@ EOF
 
 main() {
   require_root
+  if [[ -d $WAHA_DIR && -f $WAHA_ENV ]]; then
+    die "refusing to re-bootstrap: $WAHA_DIR already exists. Use scripts/expose-waha-dashboard.sh"
+  fi
   inspect_host
   local avail
   avail=$(available_mib)
