@@ -318,6 +318,16 @@ if [[ -f "$cert_path" ]]; then
   else
     die "MCP public endpoint returned '${public_unauth}' — expected 401 (check nginx /mcp location)"
   fi
+
+  public_init="$(curl -s --max-time 20 -X POST "https://${DOMAIN}/mcp" \
+    -H 'Content-Type: application/json' -H 'Accept: application/json, text/event-stream' \
+    "${mcp_auth[@]}" \
+    -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"deploy-smoke-public","version":"1.0"}}}' || true)"
+  if echo "$public_init" | grep -q 'serverInfo'; then
+    log "MCP public authed initialize OK (full nginx → mcp chain)"
+  else
+    die "MCP public authed initialize failed (nginx proxy headers?)"
+  fi
 fi
 
 log "Deploy complete — https://${DOMAIN}/d/arquivo-pipeline | MCP: https://${DOMAIN}/mcp"
