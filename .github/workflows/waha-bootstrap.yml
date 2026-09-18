@@ -9,6 +9,7 @@ on:
       - cursor/waha-bridge-9ca0
     paths:
       - 'scripts/bootstrap-waha.sh'
+      - 'scripts/expose-waha-dashboard.sh'
       - 'scripts/fetch-waha-qr.sh'
       - '.github/workflows/waha-bootstrap.yml'
 
@@ -58,9 +59,19 @@ jobs:
           printf '%s\n' "${VPS_SSH_KEY}" | sed 's/\\n/\n/g' > "${HOME}/.ssh/vps"
           ssh-keyscan -H "${VPS_HOST}" >> "${HOME}/.ssh/known_hosts" 2>/dev/null || true
           scp -i "${HOME}/.ssh/vps" -o StrictHostKeyChecking=accept-new \
-            scripts/bootstrap-waha.sh "${VPS_USER}@${VPS_HOST}:/tmp/bootstrap-waha.sh"
+            scripts/bootstrap-waha.sh scripts/expose-waha-dashboard.sh \
+            "${VPS_USER}@${VPS_HOST}:/tmp/"
           ssh -i "${HOME}/.ssh/vps" -o StrictHostKeyChecking=accept-new \
-            "${VPS_USER}@${VPS_HOST}" 'chmod 700 /tmp/bootstrap-waha.sh && bash /tmp/bootstrap-waha.sh'
+            "${VPS_USER}@${VPS_HOST}" '
+              set -euo pipefail
+              chmod 700 /tmp/bootstrap-waha.sh /tmp/expose-waha-dashboard.sh
+              if [[ -d /opt/waha && -f /etc/waha/env ]]; then
+                bash /tmp/expose-waha-dashboard.sh
+              else
+                bash /tmp/bootstrap-waha.sh
+                bash /tmp/expose-waha-dashboard.sh
+              fi
+            '
 
       - name: Refresh and pull QR images
         env:

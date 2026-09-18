@@ -315,8 +315,12 @@ write_nginx() {
   fi
   [[ -f $cert && -f $key ]] || die "missing cert $cert"
   cat >"$available" <<EOF
-# WAHA MCP front door. Dashboard stays on 127.0.0.1:${WAHA_PORT}.
-# Do not expose /dashboard. Do not restart Arquivo compose to reload this.
+# WAHA front door. Dashboard is on https://${HOST_NAME}/dashboard (WAHA login).
+# /mcp stays API-key only. Do not restart Arquivo compose to reload this.
+map \$http_upgrade \$waha_connection_upgrade {
+    default upgrade;
+    ''      close;
+}
 limit_req_zone \$binary_remote_addr zone=waha_mcp:10m rate=10r/s;
 
 server {
@@ -365,7 +369,19 @@ server {
     }
 
     location / {
-        return 404;
+        proxy_pass_header Authorization;
+        proxy_pass http://127.0.0.1:${WAHA_PORT};
+        proxy_http_version 1.1;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection \$waha_connection_upgrade;
+        proxy_buffering off;
+        proxy_read_timeout 36000s;
+        proxy_send_timeout 36000s;
+        proxy_redirect off;
     }
 }
 EOF
