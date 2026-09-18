@@ -1,0 +1,79 @@
+# Expose the already-running WAHA dashboard. Never bootstraps or pulls images.
+# Do not merge this branch into Arquivo. Do not restart Arquivo compose.
+name: WAHA dashboard expose
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - cursor/waha-bridge-9ca0
+    paths:
+      - 'scripts/expose-waha-dashboard.sh'
+      - 'scripts/repair-waha-worker.sh'
+      - '.github/workflows/waha-bootstrap.yml'
+
+jobs:
+  expose-dashboard:
+    name: Expose dashboard (no bootstrap)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Open dashboard on existing /opt/waha
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+          VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          mkdir -p "${HOME}/.ssh"
+          chmod 700 "${HOME}/.ssh"
+          install -m 600 /dev/null "${HOME}/.ssh/vps"
+          printf '%s\n' "${VPS_SSH_KEY}" | sed 's/\\n/\n/g' > "${HOME}/.ssh/vps"
+          ssh-keyscan -H "${VPS_HOST}" >> "${HOME}/.ssh/known_hosts" 2>/dev/null || true
+          scp -i "${HOME}/.ssh/vps" -o StrictHostKeyChecking=accept-new \
+            scripts/expose-waha-dashboard.sh scripts/repair-waha-worker.sh \
+            scripts/fetch-waha-qr.sh \
+            "${VPS_USER}@${VPS_HOST}:/tmp/"
+          ssh -i "${HOME}/.ssh/vps" -o StrictHostKeyChecking=accept-new \
+            "${VPS_USER}@${VPS_HOST}" '
+              set -euo pipefail
+              test -d /opt/waha || { echo "missing /opt/waha — refuse to bootstrap"; exit 1; }
+              test -f /etc/waha/env || { echo "missing /etc/waha/env — refuse to bootstrap"; exit 1; }
+              chmod 700 /tmp/expose-waha-dashboard.sh /tmp/repair-waha-worker.sh /tmp/fetch-waha-qr.sh
+              bash /tmp/repair-waha-worker.sh
+              bash /tmp/expose-waha-dashboard.sh
+              bash /tmp/fetch-waha-qr.sh
+            '
+
+      - name: Pull QR images
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+          VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          mkdir -p "${HOME}/.ssh" qr-out
+          chmod 700 "${HOME}/.ssh"
+          install -m 600 /dev/null "${HOME}/.ssh/vps"
+          printf '%s\n' "${VPS_SSH_KEY}" | sed 's/\\n/\n/g' > "${HOME}/.ssh/vps"
+          scp -i "${HOME}/.ssh/vps" -o StrictHostKeyChecking=accept-new \
+            "${VPS_USER}@${VPS_HOST}:/opt/waha/qr/*.png" qr-out/ || true
+          ls -la qr-out || true
+
+      - name: Upload QR artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: waha-qr
+          path: qr-out/*.png
+          if-no-files-found: warn
+          retention-days: 1
+
+      - name: Confirm public dashboard
+        run: |
+          set -euo pipefail
+          code=$(curl -sS -o /dev/null -w '%{http_code}' https://wa.carabetta.xyz/dashboard)
+          echo "public /dashboard HTTP ${code}"
+          [[ $code =~ ^(200|301|302|401)$ ]]
