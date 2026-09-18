@@ -129,6 +129,10 @@ curl -sf http://localhost:8000/api/pipeline/status
 bash scripts/check-pipeline-health.sh
 bash scripts/check-pipeline-health.sh --notify --remediate
 
+# Host disk (safe prune; never touches Postgres/gbrain)
+bash scripts/check-host-disk.sh --json
+bash scripts/check-host-disk.sh --remediate --notify
+
 # One-shot backfill after eval-improvement deploy (see docs/prod-backfill-runbook.md)
 bash scripts/run_prod_backfill.sh staging --dry-run
 bash scripts/run_prod_backfill.sh prod --execute --since 2026-01-01

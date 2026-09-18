@@ -86,7 +86,10 @@ the playbook below. Payload may include `"source": "prometheus-alertmanager"`.
    - arq_queue_jammed / QueueDepthCritical:
      bash scripts/check-pipeline-health.sh --remediate
    - HostDiskCritical / HostMemoryCritical:
-     df -h; docker system df; prune logs/images if safe
+     bash scripts/check-host-disk.sh --remediate --json
+     # If still >90% after prune: grow Hetzner primary disk 40→80 GB
+     # (cx33 already includes 80 GB; box was created with keep-disk-size).
+     # Do not delete postgres/redis/gbrain volumes.
    - ApiScrapeDown / WorkerScrapeDown / ObservabilityScrapeDown:
      docker compose -p prod ps; check UFW and container health
 
