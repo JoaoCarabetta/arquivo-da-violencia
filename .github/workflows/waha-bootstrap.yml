@@ -51,8 +51,10 @@ jobs:
           VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
         run: |
           set -euo pipefail
+          mkdir -p "${HOME}/.ssh"
+          chmod 700 "${HOME}/.ssh"
           install -m 600 /dev/null "${HOME}/.ssh/vps"
-          printf '%s\n' "${VPS_SSH_KEY}" > "${HOME}/.ssh/vps"
+          printf '%s\n' "${VPS_SSH_KEY}" | sed 's/\\n/\n/g' > "${HOME}/.ssh/vps"
           ssh-keyscan -H "${VPS_HOST}" >> "${HOME}/.ssh/known_hosts" 2>/dev/null || true
           scp -i "${HOME}/.ssh/vps" -o StrictHostKeyChecking=accept-new \
             scripts/bootstrap-waha.sh "${VPS_USER}@${VPS_HOST}:/tmp/bootstrap-waha.sh"
