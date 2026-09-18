@@ -1,0 +1,32 @@
+# One-shot: print dashboard username/password only. Never prints API or MCP keys.
+# Do not merge. Do not bootstrap.
+name: WAHA dashboard login
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - cursor/waha-bridge-9ca0
+    paths:
+      - '.github/workflows/waha-dashboard-login.yml'
+
+jobs:
+  dashboard-login:
+    name: Print dashboard login
+    runs-on: ubuntu-latest
+    steps:
+      - name: Read dashboard user and password
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+          VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          mkdir -p "${HOME}/.ssh"
+          chmod 700 "${HOME}/.ssh"
+          install -m 600 /dev/null "${HOME}/.ssh/vps"
+          printf '%s\n' "${VPS_SSH_KEY}" | sed 's/\\n/\n/g' > "${HOME}/.ssh/vps"
+          ssh-keyscan -H "${VPS_HOST}" >> "${HOME}/.ssh/known_hosts" 2>/dev/null || true
+          ssh -i "${HOME}/.ssh/vps" -o StrictHostKeyChecking=accept-new \
+            "${VPS_USER}@${VPS_HOST}" \
+            'awk -F= '\''$1=="WAHA_DASHBOARD_USERNAME" || $1=="WAHA_DASHBOARD_PASSWORD" {print}'\'' /etc/waha/env'
