@@ -34,26 +34,59 @@ jobs:
           key: ${{ secrets.VPS_SSH_KEY }}
           script_stop: true
           script: |
-            set -euo pipefail
+            set -uo pipefail
             OBS_IP='${{ secrets.OBS_VPS_HOST }}'
-            DOMAIN='observability.carabetta.xyz'
-            TOKEN="$(cat /root/.cloudflare_api_token)"
-            api() { curl -sf -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' "$@"; }
-            ZONE_ID="$(api 'https://api.cloudflare.com/client/v4/zones?name=carabetta.xyz' \
-              | python3 -c 'import json,sys; print(json.load(sys.stdin)["result"][0]["id"])')"
-            REC_JSON="$(api "https://api.cloudflare.com/client/v4/zones/$ZONE_ID/dns_records?type=A&name=$DOMAIN")"
-            REC_ID="$(printf '%s' "$REC_JSON" | python3 -c 'import json,sys; r=json.load(sys.stdin)["result"]; print(r[0]["id"] if r else "")')"
-            REC_OK="$(printf '%s' "$REC_JSON" | python3 -c 'import json,sys; r=json.load(sys.stdin)["result"]; print("yes" if r and r[0]["content"]==sys.argv[1] and not r[0]["proxied"] else "no")' "$OBS_IP")"
-            BODY="$(printf '{"type":"A","name":"%s","content":"%s","ttl":300,"proxied":false,"comment":"observability VPS (Grafana + MCP), managed by deploy-observability.yml"}' "$DOMAIN" "$OBS_IP")"
-            if [ -z "$REC_ID" ]; then
-              api -X POST "https://api.cloudflare.com/client/v4/zones/$ZONE_ID/dns_records" -d "$BODY" | grep -q '"success":true'
-              echo "Created DNS-only A $DOMAIN -> $OBS_IP"
-            elif [ "$REC_OK" = "no" ]; then
-              api -X PUT "https://api.cloudflare.com/client/v4/zones/$ZONE_ID/dns_records/$REC_ID" -d "$BODY" | grep -q '"success":true'
-              echo "Updated A $DOMAIN -> $OBS_IP (DNS-only)"
-            else
-              echo "DNS record already correct"
-            fi
+            export OBS_IP
+            CF_API_TOKEN="$(cat /root/.cloudflare_api_token)"
+            export CF_API_TOKEN
+            attempt=0
+            until python3 - <<'PYEOF'
+            import json, os, sys, urllib.request
+
+            token = os.environ["CF_API_TOKEN"].strip()
+            obs_ip = os.environ["OBS_IP"].strip()
+            domain = "observability.carabetta.xyz"
+            base = "https://api.cloudflare.com/client/v4"
+
+            def api(path, method="GET", body=None):
+                req = urllib.request.Request(
+                    base + path,
+                    data=json.dumps(body).encode() if body else None,
+                    method=method,
+                    headers={"Authorization": f"Bearer {token}",
+                             "Content-Type": "application/json"})
+                with urllib.request.urlopen(req, timeout=30) as resp:
+                    out = json.load(resp)
+                if not out.get("success"):
+                    raise RuntimeError(f"CF API {method} {path} failed: {out.get('errors')}")
+                return out["result"]
+
+            zones = api("/zones?name=carabetta.xyz")
+            if not zones:
+                raise RuntimeError("zone carabetta.xyz not found for this token")
+            zone_id = zones[0]["id"]
+            recs = api(f"/zones/{zone_id}/dns_records?type=A&name={domain}")
+            body = {"type": "A", "name": domain, "content": obs_ip, "ttl": 300,
+                    "proxied": False,
+                    "comment": "observability VPS (Grafana + MCP), managed by deploy-observability.yml"}
+            if not recs:
+                api(f"/zones/{zone_id}/dns_records", "POST", body)
+                print(f"Created DNS-only A {domain}")
+            elif recs[0]["content"] != obs_ip or recs[0]["proxied"]:
+                api(f"/zones/{zone_id}/dns_records/{recs[0]['id']}", "PUT", body)
+                print(f"Updated A {domain} (DNS-only)")
+            else:
+                print("DNS record already correct")
+            PYEOF
+            do
+              attempt=$((attempt + 1))
+              if [ "$attempt" -ge 3 ]; then
+                echo "ERROR: Cloudflare DNS ensure failed after $attempt attempts"
+                exit 1
+              fi
+              echo "Cloudflare DNS ensure failed (attempt $attempt), retrying in 10s"
+              sleep 10
+            done
 
       - name: Deploy observability stack
         uses: appleboy/ssh-action@v1.0.3
