@@ -54,6 +54,19 @@ if [[ -z "$existing_router_secret" ]]; then
   log "Generated new ALERT_ROUTER_WEBHOOK_SECRET"
 fi
 
+# MCP (mcp-grafana) tokens. The server token gates agent callers and must never
+# be empty (an empty MCP_GRAFANA_SERVER_TOKEN would run the MCP unauthenticated).
+existing_mcp_server_token="$(read_existing_env MCP_GRAFANA_SERVER_TOKEN)"
+existing_mcp_server_token="${MCP_GRAFANA_SERVER_TOKEN:-$existing_mcp_server_token}"
+if [[ -z "$existing_mcp_server_token" ]]; then
+  existing_mcp_server_token="$(openssl rand -hex 32)"
+  log "Generated new MCP_GRAFANA_SERVER_TOKEN"
+fi
+# Grafana Viewer service-account token for mcp-grafana → Grafana. Empty on first
+# run; bootstrapped against the live Grafana below, then persisted.
+existing_mcp_sa_token="$(read_existing_env GRAFANA_SERVICE_ACCOUNT_TOKEN)"
+existing_mcp_sa_token="${GRAFANA_SERVICE_ACCOUNT_TOKEN:-$existing_mcp_sa_token}"
+
 log "Syncing stack from $REPO_DIR/infra/observability/ → $OBS_DIR/"
 mkdir -p "$OBS_DIR"
 rsync -a --delete \
@@ -78,6 +91,8 @@ chmod 600 "$OBS_DIR/alertmanager/secrets/webhook_bearer"
   [[ -n "$existing_webhook_url" ]] && echo "PIPELINE_HEALTH_WEBHOOK_URL=${existing_webhook_url}"
   [[ -n "$existing_webhook_auth" ]] && echo "PIPELINE_HEALTH_WEBHOOK_AUTH=${existing_webhook_auth}"
   echo "ALERT_ROUTER_WEBHOOK_SECRET=${existing_router_secret}"
+  echo "MCP_GRAFANA_SERVER_TOKEN=${existing_mcp_server_token}"
+  echo "GRAFANA_SERVICE_ACCOUNT_TOKEN=${existing_mcp_sa_token}"
 } >"$OBS_DIR/.env"
 chmod 600 "$OBS_DIR/.env"
 
@@ -113,6 +128,61 @@ if docker exec obs-prometheus wget -qO- --post-data="" http://localhost:9090/-/r
   log "Prometheus config reloaded"
 else
   log "Prometheus reload skipped (container may still be starting)"
+fi
+
+# --- MCP: bootstrap Grafana service account (first run only) ---
+# mcp-grafana needs a Viewer service-account token. It can only be minted once
+# Grafana is up, so on the first deploy we create it here, persist it to .env,
+# and recreate the mcp-grafana container with the new env. Never log token values.
+if [[ -z "$existing_mcp_sa_token" ]]; then
+  log "Bootstrapping Grafana service account for MCP (mcp-agents, role Viewer)"
+  grafana_ready=false
+  for _ in $(seq 1 30); do
+    if curl -sf http://127.0.0.1:3000/api/health >/dev/null 2>&1; then
+      grafana_ready=true
+      break
+    fi
+    sleep 2
+  done
+  $grafana_ready || die "Grafana did not become healthy — cannot bootstrap MCP service account"
+
+  admin_auth="admin:${existing_password}"
+  sa_search="$(curl -sf -u "$admin_auth" \
+    'http://127.0.0.1:3000/api/serviceaccounts/search?query=mcp-agents' || true)"
+  sa_id="$(printf '%s' "$sa_search" | python3 -c '
+import json, sys
+try:
+    data = json.load(sys.stdin)
+    for sa in data.get("serviceAccounts", []):
+        if sa.get("name") == "mcp-agents":
+            print(sa["id"]); break
+except Exception:
+    pass' || true)"
+
+  if [[ -z "$sa_id" ]]; then
+    sa_id="$(curl -sf -u "$admin_auth" -X POST http://127.0.0.1:3000/api/serviceaccounts \
+      -H 'Content-Type: application/json' \
+      -d '{"name":"mcp-agents","role":"Viewer","isDisabled":false}' \
+      | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')" \
+      || die "Failed to create mcp-agents service account"
+    log "Created service account mcp-agents (id ${sa_id})"
+  else
+    log "Service account mcp-agents already exists (id ${sa_id})"
+  fi
+
+  existing_mcp_sa_token="$(curl -sf -u "$admin_auth" -X POST \
+    "http://127.0.0.1:3000/api/serviceaccounts/${sa_id}/tokens" \
+    -H 'Content-Type: application/json' \
+    -d "{\"name\":\"mcp-agents-$(date +%s)\"}" \
+    | python3 -c 'import json,sys; print(json.load(sys.stdin)["key"])')" \
+    || die "Failed to create service account token"
+  [[ -n "$existing_mcp_sa_token" ]] || die "Service account token came back empty"
+
+  sed -i "s|^GRAFANA_SERVICE_ACCOUNT_TOKEN=.*|GRAFANA_SERVICE_ACCOUNT_TOKEN=${existing_mcp_sa_token}|" "$OBS_DIR/.env"
+  chmod 600 "$OBS_DIR/.env"
+  export GRAFANA_SERVICE_ACCOUNT_TOKEN="$existing_mcp_sa_token"
+  docker compose up -d --force-recreate mcp-grafana
+  log "MCP service account token persisted; mcp-grafana recreated"
 fi
 
 # --- Nginx + TLS ---
@@ -186,4 +256,68 @@ else
   log "WARN: Alertmanager not ready yet"
 fi
 
-log "Deploy complete — https://${DOMAIN}/d/arquivo-pipeline"
+# --- MCP smoke checks (fail the deploy if auth or the tool chain is broken) ---
+# Local endpoint with the public Host header (works before TLS exists and
+# exercises the --allowed-hosts validation).
+mcp_local="http://127.0.0.1:8000/mcp"
+mcp_headers=(-H "Host: ${DOMAIN}" -H 'Content-Type: application/json' -H 'Accept: application/json, text/event-stream')
+sleep 2
+
+unauth_code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 -X POST "$mcp_local" \
+  "${mcp_headers[@]}" -d '{"jsonrpc":"2.0","id":0,"method":"ping"}' || true)"
+if [[ "$unauth_code" == "401" ]]; then
+  log "MCP unauthenticated request correctly rejected (401)"
+else
+  die "MCP unauthenticated request returned '${unauth_code}' — expected 401 (check MCP_GRAFANA_SERVER_TOKEN)"
+fi
+
+mcp_auth=(-H "Authorization: Bearer ${existing_mcp_server_token}")
+init_headers_file="$(mktemp)"
+init_resp="$(curl -s --max-time 20 -D "$init_headers_file" -X POST "$mcp_local" \
+  "${mcp_headers[@]}" "${mcp_auth[@]}" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"deploy-smoke","version":"1.0"}}}' || true)"
+if echo "$init_resp" | grep -q 'serverInfo'; then
+  log "MCP initialize OK"
+else
+  rm -f "$init_headers_file"
+  die "MCP initialize failed (allowed-hosts or token misconfig?)"
+fi
+mcp_session="$(awk 'tolower($1)=="mcp-session-id:"{print $2}' "$init_headers_file" | tr -d '\r')"
+rm -f "$init_headers_file"
+session_header=()
+[[ -n "$mcp_session" ]] && session_header=(-H "Mcp-Session-Id: ${mcp_session}")
+
+curl -s --max-time 20 -o /dev/null -X POST "$mcp_local" \
+  "${mcp_headers[@]}" "${mcp_auth[@]}" "${session_header[@]}" \
+  -d '{"jsonrpc":"2.0","method":"notifications/initialized"}' || true
+
+tools_resp="$(curl -s --max-time 20 -X POST "$mcp_local" \
+  "${mcp_headers[@]}" "${mcp_auth[@]}" "${session_header[@]}" \
+  -d '{"jsonrpc":"2.0","id":2,"method":"tools/list"}' || true)"
+if echo "$tools_resp" | grep -q 'query_prometheus'; then
+  log "MCP tools/list OK (query_prometheus available)"
+else
+  die "MCP tools/list missing query_prometheus"
+fi
+
+ds_resp="$(curl -s --max-time 30 -X POST "$mcp_local" \
+  "${mcp_headers[@]}" "${mcp_auth[@]}" "${session_header[@]}" \
+  -d '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"list_datasources","arguments":{}}}' || true)"
+if echo "$ds_resp" | grep -qi 'prometheus'; then
+  log "MCP → Grafana chain OK (list_datasources sees Prometheus)"
+else
+  die "MCP list_datasources failed — Grafana service account token may be invalid"
+fi
+
+if [[ -f "$cert_path" ]]; then
+  public_unauth="$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 -X POST "https://${DOMAIN}/mcp" \
+    -H 'Content-Type: application/json' -H 'Accept: application/json, text/event-stream' \
+    -d '{"jsonrpc":"2.0","id":0,"method":"ping"}' || true)"
+  if [[ "$public_unauth" == "401" ]]; then
+    log "MCP public endpoint live at https://${DOMAIN}/mcp (auth enforced)"
+  else
+    die "MCP public endpoint returned '${public_unauth}' — expected 401 (check nginx /mcp location)"
+  fi
+fi
+
+log "Deploy complete — https://${DOMAIN}/d/arquivo-pipeline | MCP: https://${DOMAIN}/mcp"

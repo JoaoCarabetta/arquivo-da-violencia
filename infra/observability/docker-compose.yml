@@ -58,6 +58,34 @@ services:
     networks:
       - obs
 
+  # Read-only MCP endpoint for AI agents (https://observability.carabetta.xyz/mcp).
+  # Tokens are managed by deploy-remote.sh: MCP_GRAFANA_SERVER_TOKEN gates callers,
+  # GRAFANA_SERVICE_ACCOUNT_TOKEN is a Grafana Viewer service account (never admin).
+  mcp-grafana:
+    image: grafana/mcp-grafana:v1.5.1
+    container_name: obs-mcp-grafana
+    restart: unless-stopped
+    depends_on:
+      - grafana
+    command:
+      - -t
+      - streamable-http
+      - --address
+      - 0.0.0.0:8000
+      - --disable-write
+      - --enabled-tools
+      - search,datasource,prometheus,alerting,dashboard,navigation
+      - --allowed-hosts
+      - observability.carabetta.xyz,observability.carabetta.xyz:443
+    environment:
+      - GRAFANA_URL=http://grafana:3000
+      - GRAFANA_SERVICE_ACCOUNT_TOKEN=${GRAFANA_SERVICE_ACCOUNT_TOKEN:-}
+      - MCP_GRAFANA_SERVER_TOKEN=${MCP_GRAFANA_SERVER_TOKEN:-}
+    ports:
+      - "127.0.0.1:8000:8000"
+    networks:
+      - obs
+
   grafana:
     image: grafana/grafana:11.5.2
     container_name: obs-grafana
