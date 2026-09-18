@@ -32,7 +32,8 @@ jobs:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
-          script_stop: true
+          # script_stop must stay off: it injects exit-code checks between lines,
+          # which corrupts the python heredoc. The script handles errors itself.
           script: |
             set -uo pipefail
             OBS_IP='${{ secrets.OBS_VPS_HOST }}'
