@@ -102,6 +102,53 @@ if $PROD; then
   else
     fail "Alert-router not healthy"
   fi
+
+  # --- MCP endpoint (mcp-grafana) ---
+  mcp_url="${GRAFANA_URL%/}/mcp"
+  mcp_unauth=$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 -X POST "$mcp_url" \
+    -H 'Content-Type: application/json' -H 'Accept: application/json, text/event-stream' \
+    -d '{"jsonrpc":"2.0","id":0,"method":"ping"}' || true)
+  if [[ "$mcp_unauth" == "401" ]]; then
+    pass "MCP rejects unauthenticated calls (401)"
+  else
+    fail "MCP unauthenticated call returned '$mcp_unauth' (expected 401)"
+  fi
+
+  mcp_token=$(ssh -o BatchMode=yes -o ConnectTimeout=15 -i "$PROD_SSH_KEY" root@62.238.12.182 \
+    'grep -E "^MCP_GRAFANA_SERVER_TOKEN=" /opt/arquivo-observability/.env | cut -d= -f2-' 2>/dev/null || true)
+  if [[ -n "$mcp_token" ]]; then
+    mcp_hdrs=(-H "Authorization: Bearer $mcp_token" -H 'Content-Type: application/json' \
+      -H 'Accept: application/json, text/event-stream')
+    init_headers_file=$(mktemp)
+    init_resp=$(curl -s --max-time 20 -D "$init_headers_file" -X POST "$mcp_url" "${mcp_hdrs[@]}" \
+      -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"check-observability","version":"1.0"}}}' || true)
+    mcp_session=$(awk 'tolower($1)=="mcp-session-id:"{print $2}' "$init_headers_file" | tr -d '\r')
+    rm -f "$init_headers_file"
+    session_hdr=()
+    [[ -n "$mcp_session" ]] && session_hdr=(-H "Mcp-Session-Id: $mcp_session")
+    if echo "$init_resp" | grep -q 'serverInfo'; then
+      curl -s --max-time 20 -o /dev/null -X POST "$mcp_url" "${mcp_hdrs[@]}" "${session_hdr[@]}" \
+        -d '{"jsonrpc":"2.0","method":"notifications/initialized"}' || true
+      tools_resp=$(curl -s --max-time 20 -X POST "$mcp_url" "${mcp_hdrs[@]}" "${session_hdr[@]}" \
+        -d '{"jsonrpc":"2.0","id":2,"method":"tools/list"}' || true)
+      if echo "$tools_resp" | grep -q 'query_prometheus'; then
+        pass "MCP authed tools/list exposes query_prometheus"
+      else
+        fail "MCP authed tools/list missing query_prometheus"
+      fi
+      ds_resp=$(curl -s --max-time 30 -X POST "$mcp_url" "${mcp_hdrs[@]}" "${session_hdr[@]}" \
+        -d '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"list_datasources","arguments":{}}}' || true)
+      if echo "$ds_resp" | grep -qi 'prometheus'; then
+        pass "MCP → Grafana → datasource chain OK"
+      else
+        fail "MCP list_datasources failed (service account token?)"
+      fi
+    else
+      fail "MCP initialize failed with bearer token"
+    fi
+  else
+    fail "Could not read MCP_GRAFANA_SERVER_TOKEN from obs VPS .env"
+  fi
 fi
 
 echo "=== $failures failure(s) ==="
