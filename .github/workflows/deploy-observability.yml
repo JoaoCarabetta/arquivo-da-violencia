@@ -22,6 +22,39 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      # The carabetta.xyz zone lives on Cloudflare; the zone token lives only on
+      # the prod VPS (/root/.cloudflare_api_token). Ensure the observability A
+      # record exists and is DNS-only (proxying breaks the deploy DNS precheck
+      # and MCP streaming) before deploying the stack.
+      - name: Ensure observability DNS record (Cloudflare)
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          script_stop: true
+          script: |
+            set -euo pipefail
+            OBS_IP='${{ secrets.OBS_VPS_HOST }}'
+            DOMAIN='observability.carabetta.xyz'
+            TOKEN="$(cat /root/.cloudflare_api_token)"
+            api() { curl -sf -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' "$@"; }
+            ZONE_ID="$(api 'https://api.cloudflare.com/client/v4/zones?name=carabetta.xyz' \
+              | python3 -c 'import json,sys; print(json.load(sys.stdin)["result"][0]["id"])')"
+            REC_JSON="$(api "https://api.cloudflare.com/client/v4/zones/$ZONE_ID/dns_records?type=A&name=$DOMAIN")"
+            REC_ID="$(printf '%s' "$REC_JSON" | python3 -c 'import json,sys; r=json.load(sys.stdin)["result"]; print(r[0]["id"] if r else "")')"
+            REC_OK="$(printf '%s' "$REC_JSON" | python3 -c 'import json,sys; r=json.load(sys.stdin)["result"]; print("yes" if r and r[0]["content"]==sys.argv[1] and not r[0]["proxied"] else "no")' "$OBS_IP")"
+            BODY="$(printf '{"type":"A","name":"%s","content":"%s","ttl":300,"proxied":false,"comment":"observability VPS (Grafana + MCP), managed by deploy-observability.yml"}' "$DOMAIN" "$OBS_IP")"
+            if [ -z "$REC_ID" ]; then
+              api -X POST "https://api.cloudflare.com/client/v4/zones/$ZONE_ID/dns_records" -d "$BODY" | grep -q '"success":true'
+              echo "Created DNS-only A $DOMAIN -> $OBS_IP"
+            elif [ "$REC_OK" = "no" ]; then
+              api -X PUT "https://api.cloudflare.com/client/v4/zones/$ZONE_ID/dns_records/$REC_ID" -d "$BODY" | grep -q '"success":true'
+              echo "Updated A $DOMAIN -> $OBS_IP (DNS-only)"
+            else
+              echo "DNS record already correct"
+            fi
+
       - name: Deploy observability stack
         uses: appleboy/ssh-action@v1.0.3
         with:
