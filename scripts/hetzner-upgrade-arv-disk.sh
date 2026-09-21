@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Grow the ARV Hetzner primary disk to the size already included in cx33
-# (40 → 80 GB). Reboots the server. Does not print the API token.
+# (40 → 80 GB). Powers the server off, upgrades the disk, powers it back on.
+# Does not print the API token.
 #
 #   bash scripts/hetzner-upgrade-arv-disk.sh           # dry-run
 #   bash scripts/hetzner-upgrade-arv-disk.sh --execute
@@ -28,7 +29,7 @@ fi
 
 export HETZNER_API="$API"
 python3 - "$EXECUTE" "$SERVER_ID" "$SERVER_TYPE" <<'PY'
-import json, os, sys, time, urllib.request
+import json, os, sys, time, urllib.error, urllib.request
 
 execute = sys.argv[1] == "true"
 server_id = sys.argv[2]
@@ -48,11 +49,33 @@ def req(method, path, payload=None):
             "Content-Type": "application/json",
         },
     )
-    with urllib.request.urlopen(r, timeout=60) as resp:
-        return json.load(resp)
+    try:
+        with urllib.request.urlopen(r, timeout=60) as resp:
+            return json.load(resp)
+    except urllib.error.HTTPError as e:
+        body = e.read().decode("utf-8", "replace")
+        print(f"HTTP {e.code} {method} {path}: {body}", file=sys.stderr)
+        raise
 
 
-info = req("GET", f"/servers/{server_id}")["server"]
+def server():
+    return req("GET", f"/servers/{server_id}")["server"]
+
+
+def wait_status(wanted, seconds):
+    deadline = time.time() + seconds
+    last = None
+    while time.time() < deadline:
+        info = server()
+        last = info["status"]
+        print(f"wait status={last} primary_disk_size={info['primary_disk_size']}G")
+        if last == wanted:
+            return info
+        time.sleep(5)
+    return server()
+
+
+info = server()
 current_type = info["server_type"]["name"]
 included = info["server_type"]["disk"]
 primary = info["primary_disk_size"]
@@ -68,35 +91,72 @@ if current_type != server_type:
 if primary >= included:
     print(f"already at full disk ({primary}G ≥ {included}G); nothing to do")
     sys.exit(0)
-if status != "running":
-    print(f"refusing: server status is {status}, expected running", file=sys.stderr)
+if status not in ("running", "off"):
+    print(f"refusing: server status is {status}", file=sys.stderr)
     sys.exit(4)
 
 if not execute:
-    print(f"dry-run: would change_type {server_type} upgrade_disk=true ({primary}→{included}G). Reboots the box.")
+    print(
+        f"dry-run: would shutdown, change_type {server_type} upgrade_disk=true "
+        f"({primary}→{included}G), then poweron. Prod sites go down briefly."
+    )
     sys.exit(0)
 
-print(f"executing change_type upgrade_disk {primary}→{included}G (server will reboot)")
+if status == "running":
+    print("shutdown (ACPI); poweroff if it stays up")
+    req("POST", f"/servers/{server_id}/actions/shutdown")
+    info = wait_status("off", 90)
+    if info["status"] != "off":
+        print("ACPI shutdown timed out; poweroff")
+        req("POST", f"/servers/{server_id}/actions/poweroff")
+        info = wait_status("off", 90)
+    if info["status"] != "off":
+        print(f"could not stop server (status={info['status']})", file=sys.stderr)
+        sys.exit(6)
+
+print(f"change_type upgrade_disk {primary}→{included}G")
 action = req(
     "POST",
     f"/servers/{server_id}/actions/change_type",
     {"server_type": server_type, "upgrade_disk": True},
 )
-action_id = (action.get("action") or {}).get("id")
-print(f"action_id={action_id} command={(action.get('action') or {}).get('command')}")
+print(
+    f"action_id={(action.get('action') or {}).get('id')} "
+    f"command={(action.get('action') or {}).get('command')}"
+)
 
-deadline = time.time() + 15 * 60
-last_status = None
+deadline = time.time() + 12 * 60
+info = server()
 while time.time() < deadline:
-    info = req("GET", f"/servers/{server_id}")["server"]
-    last_status = info["status"]
-    primary = info["primary_disk_size"]
-    print(f"wait status={last_status} primary_disk_size={primary}G")
-    if last_status == "running" and primary >= included:
-        print(f"done: primary_disk_size={primary}G type_disk={included}G")
-        sys.exit(0)
-    time.sleep(10)
+    info = server()
+    print(f"wait status={info['status']} primary_disk_size={info['primary_disk_size']}G")
+    if info["primary_disk_size"] >= included and info["status"] in ("off", "running"):
+        break
+    time.sleep(8)
+else:
+    print(
+        f"timeout waiting for {included}G "
+        f"(status={info['status']} primary={info['primary_disk_size']}G)",
+        file=sys.stderr,
+    )
+    sys.exit(5)
 
-print(f"timeout waiting for running+{included}G (last status={last_status} primary={primary}G)", file=sys.stderr)
+if info["status"] != "running":
+    print("poweron")
+    req("POST", f"/servers/{server_id}/actions/poweron")
+    info = wait_status("running", 180)
+
+if info["status"] == "running" and info["primary_disk_size"] >= included:
+    print(
+        f"done: primary_disk_size={info['primary_disk_size']}G "
+        f"type_disk={included}G status={info['status']}"
+    )
+    sys.exit(0)
+
+print(
+    f"not running at full disk (status={info['status']} "
+    f"primary={info['primary_disk_size']}G)",
+    file=sys.stderr,
+)
 sys.exit(5)
 PY

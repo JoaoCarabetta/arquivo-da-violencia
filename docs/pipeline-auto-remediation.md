@@ -134,7 +134,8 @@ plan; the box was created/rescaled with “keep disk size”). That is a short
 reboot + `growpart`/`resize2fs`, not a new volume or object store. Volumes
 (~€0.08/GB·mo) and object storage are for dumps/tiles later, not the live DB.
 
-Playbook (reboots prod; do not run inside the 10–14 UTC backup window):
+Playbook (powers the box off, then on; do not run inside the 10–14 UTC
+backup window). Hetzner requires the server **offline** for `change_type`.
 
 ```bash
 # dry-run
