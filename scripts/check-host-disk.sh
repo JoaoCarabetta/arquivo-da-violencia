@@ -32,6 +32,34 @@ done
 pct_used() { df -P / | awk 'NR==2 {gsub("%","",$5); print $5}'; }
 avail_human() { df -h / | awk 'NR==2 {print $4}'; }
 
+# Grow / when the block device is larger than the partition (Hetzner
+# upgrade_disk). Requires cloud-guest-utils growpart. Safe no-op otherwise.
+expand_root_if_unused_space() {
+  local src disk part disk_b part_b
+  src="$(findmnt -nro SOURCE / 2>/dev/null || true)"
+  case "$src" in
+    /dev/nvme*n*p*) disk="${src%p*}"; part="${src##*p}" ;;
+    /dev/sd*[0-9]*|/dev/vd*[0-9]*|/dev/xvd*[0-9]*)
+      disk="${src%%[0-9]*}"; part="${src##*[!0-9]}" ;;
+    *) return 0 ;;
+  esac
+  [[ -b "$disk" && -b "$src" && -n "$part" ]] || return 0
+  command -v growpart >/dev/null 2>&1 || return 0
+  command -v resize2fs >/dev/null 2>&1 || return 0
+  disk_b="$(lsblk -nb -d -o SIZE "$disk" 2>/dev/null || echo 0)"
+  part_b="$(lsblk -nb -d -o SIZE "$src" 2>/dev/null || echo 0)"
+  [[ "$disk_b" =~ ^[0-9]+$ && "$part_b" =~ ^[0-9]+$ ]] || return 0
+  if (( disk_b - part_b < 1000000000 )); then
+    return 0
+  fi
+  if growpart "$disk" "$part" >/tmp/host-disk-growpart.txt 2>&1; then
+    ACTIONS+=("growpart_${disk}${part}")
+  fi
+  if resize2fs "$src" >/tmp/host-disk-resize2fs.txt 2>&1; then
+    ACTIONS+=("resize2fs_root")
+  fi
+}
+
 USED="$(pct_used)"
 AVAIL="$(avail_human)"
 ACTIONS=()
@@ -66,6 +94,11 @@ if $REMEDIATE && (( USED >= WARN_PCT )); then
     truncate -s 20M "$log" || true
     ACTIONS+=("truncated_$(basename "$(dirname "$log")")_json.log")
   done < <(find /var/lib/docker/containers -name '*-json.log' -size +200M -print0 2>/dev/null || true)
+
+  # If the hypervisor disk was already grown (40→80), expand the root
+  # partition/filesystem. No-op when there is <1 GB unused on the disk.
+  # Never touches Postgres/Redis/gbrain data — only the root partition table.
+  expand_root_if_unused_space
 
   USED="$(pct_used)"
   AVAIL="$(avail_human)"
