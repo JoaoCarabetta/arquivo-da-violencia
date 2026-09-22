@@ -65,6 +65,11 @@ Run with `--variant my-experiment`. `--variant baseline` (default) uses the
 production prompt and model. Promote a winning prompt by copying it into the
 corresponding `*_SYSTEM_PROMPT` constant in `app/services/`.
 
+`--variant bench-jev-113` selects `typesafe/jev-1.13`. That slug is **not**
+instructor/chat: `classify_headline` calls OpenRouter
+`POST /api/alpha/decisions`. Do not change prod `SELECTION_MODEL` to Jev
+until seed/hard classification evals pass.
+
 ## Building fixtures
 
 Fixtures are bootstrapped from a prod DB copy (e.g. `data/violence-copy.db`)
