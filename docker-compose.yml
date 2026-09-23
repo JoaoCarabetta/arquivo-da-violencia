@@ -101,6 +101,8 @@ services:
       - GRAFANA_CLOUD_PROM_KEY=${GRAFANA_CLOUD_PROM_KEY:-}
       - METRICS_PUSH_INTERVAL_SECONDS=${METRICS_PUSH_INTERVAL_SECONDS:-30}
       - METRICS_ENABLED=${METRICS_ENABLED:-true}
+      - PIPELINE_ORCHESTRATOR=${PIPELINE_ORCHESTRATOR:-arq}
+      - PREFECT_API_URL=${PREFECT_API_URL:-http://prefect-server:4200/api}
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 30s
@@ -108,6 +110,9 @@ services:
       start_period: 10s
       retries: 3
     restart: unless-stopped
+    networks:
+      - default
+      - pipeline_net
 
   # ---------------------------------------------------------------------------
   # Worker - ARQ background task processor
@@ -232,3 +237,10 @@ volumes:
     name: arquivo-redis-data
   promtail_positions:
     name: arquivo-promtail-positions
+
+networks:
+  pipeline_net:
+    external: true
+    name: pipeline_net
+    # Reach Prefect Server for PIPELINE_ORCHESTRATOR=prefect (B3+).
+    # Compose project `pipeline` owns this network.

@@ -5,6 +5,7 @@ from arq.jobs import Job
 from loguru import logger
 
 import json
+from typing import Any
 
 from app.metrics import set_cron_enabled, set_queue_depth, set_redis_connected, set_worker_alive
 from app.tasks.worker import (
@@ -14,6 +15,7 @@ from app.tasks.worker import (
     is_cron_enabled,
 )
 from app.services.telegram import send_test_message, get_notifier
+from app.services import prefect_trigger
 from app.auth import require_admin
 
 router = APIRouter(
@@ -33,6 +35,54 @@ async def get_arq_pool():
             status_code=503,
             detail=f"Redis connection failed: {e}. Is Redis running? Try: docker compose up -d redis",
         )
+
+
+async def enqueue_or_prefect(
+    task: str,
+    *arq_args: Any,
+    prefect_parameters: dict[str, Any] | None = None,
+    message: str | None = None,
+    extra: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """
+    Queue work via Prefect (B3+) or ARQ (legacy), controlled by
+    ``PIPELINE_ORCHESTRATOR`` (``prefect`` | ``arq``, default ``arq``).
+    """
+    if prefect_trigger.using_prefect():
+        try:
+            result = await prefect_trigger.trigger_task(
+                task, parameters=prefect_parameters
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except Exception as exc:
+            logger.error(f"Prefect trigger failed for {task}: {exc}")
+            raise HTTPException(
+                status_code=503,
+                detail=f"Prefect trigger failed: {exc}",
+            ) from exc
+        if message:
+            result["message"] = message
+        if extra:
+            result.update(extra)
+        return result
+
+    pool = await get_arq_pool()
+    try:
+        job = await pool.enqueue_job(task, *arq_args)
+    finally:
+        await pool.close()
+    out: dict[str, Any] = {
+        "status": "queued",
+        "job_id": job.job_id,
+        "task": task,
+        "orchestrator": "arq",
+    }
+    if message:
+        out["message"] = message
+    if extra:
+        out.update(extra)
+    return out
 
 
 # =============================================================================
@@ -58,30 +108,30 @@ async def run_full_pipeline_endpoint(
     
     This is the main production endpoint for running the complete data pipeline.
     """
-    pool = await get_arq_pool()
-    
-    # Parse cities if provided
     city_list = None
     if cities:
         city_list = [c.strip() for c in cities.split(",") if c.strip()]
-    
-    job = await pool.enqueue_job("ingest_cities_full_pipeline", city_list, when)
-    await pool.close()
 
-    return {
-        "status": "queued",
-        "job_id": job.job_id,
-        "task": "ingest_cities_full_pipeline",
-        "message": f"Full pipeline started (when={when}, cities={'custom list' if city_list else 'all countries'})",
-        "stages": [
-            "1. Ingest (Google News RSS)",
-            "2. Classify (AI headline filter)",
-            "3. Download (article content)",
-            "4. Extract (LLM structured extraction)",
-            "5. Deduplicate (event clustering)",
-            "6. Enrich (synthesize best info)",
-        ],
-    }
+    return await enqueue_or_prefect(
+        "ingest_cities_full_pipeline",
+        city_list,
+        when,
+        prefect_parameters={"when": when, "cities": city_list, "allow_prod": True},
+        message=(
+            f"Full pipeline started (when={when}, "
+            f"cities={'custom list' if city_list else 'all countries'})"
+        ),
+        extra={
+            "stages": [
+                "1. Ingest (Google News RSS)",
+                "2. Classify (AI headline filter)",
+                "3. Download (article content)",
+                "4. Extract (LLM structured extraction)",
+                "5. Deduplicate (event clustering)",
+                "6. Enrich (synthesize best info)",
+            ],
+        },
+    )
 
 
 @router.post("/run")
@@ -94,16 +144,21 @@ async def run_pipeline(
     
     Each stage automatically chains to the next.
     """
-    pool = await get_arq_pool()
-    job = await pool.enqueue_job("run_full_pipeline", query, when)
-    await pool.close()
-
-    return {
-        "status": "queued",
-        "job_id": job.job_id,
-        "task": "run_full_pipeline",
-        "message": "Full pipeline started",
-    }
+    if prefect_trigger.using_prefect():
+        # Legacy query-based full pipeline is ambiguous under Prefect — use /full.
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "PIPELINE_ORCHESTRATOR=prefect: use POST /api/pipeline/full "
+                "(cities ingest) instead of legacy /run."
+            ),
+        )
+    return await enqueue_or_prefect(
+        "run_full_pipeline",
+        query,
+        when,
+        message="Full pipeline started",
+    )
 
 
 @router.post("/ingest")
@@ -117,16 +172,17 @@ async def run_ingestion(
     Fetches news, resolves URLs, and creates SourceGoogleNews records.
     Automatically enqueues download tasks for new sources.
     """
-    pool = await get_arq_pool()
-    job = await pool.enqueue_job("ingest_task", query, when)
-    await pool.close()
-
-    return {
-        "status": "queued",
-        "job_id": job.job_id,
-        "task": "ingest_task",
-        "message": "Ingestion task queued",
-    }
+    if prefect_trigger.using_prefect():
+        raise HTTPException(
+            status_code=400,
+            detail="Use POST /api/pipeline/ingest-cities under Prefect orchestrator.",
+        )
+    return await enqueue_or_prefect(
+        "ingest_task",
+        query,
+        when,
+        message="Ingestion task queued",
+    )
 
 
 @router.post("/ingest-cities")
@@ -142,16 +198,13 @@ async def run_city_ingestion(
     
     This is the main production ingestion endpoint for hourly runs.
     """
-    pool = await get_arq_pool()
-    job = await pool.enqueue_job("ingest_cities_task", None, when)
-    await pool.close()
-
-    return {
-        "status": "queued",
-        "job_id": job.job_id,
-        "task": "ingest_cities_task",
-        "message": "City ingestion task queued (all countries)",
-    }
+    return await enqueue_or_prefect(
+        "ingest_cities_task",
+        None,
+        when,
+        prefect_parameters={"when": when, "cities": None, "allow_prod": True},
+        message="City ingestion task queued (all countries)",
+    )
 
 
 @router.post("/ingest-cities-pipeline")
@@ -163,16 +216,13 @@ async def run_city_pipeline(
     
     This is the complete hourly production pipeline.
     """
-    pool = await get_arq_pool()
-    job = await pool.enqueue_job("ingest_cities_full_pipeline", None, when)
-    await pool.close()
-
-    return {
-        "status": "queued",
-        "job_id": job.job_id,
-        "task": "ingest_cities_full_pipeline",
-        "message": "Full city pipeline queued (ingest -> classify -> download -> extract)",
-    }
+    return await enqueue_or_prefect(
+        "ingest_cities_full_pipeline",
+        None,
+        when,
+        prefect_parameters={"when": when, "cities": None, "allow_prod": True},
+        message="Full city pipeline queued (ingest -> classify -> download -> extract)",
+    )
 
 
 @router.post("/classify")
@@ -185,31 +235,27 @@ async def run_classify_batch(
     Uses lightweight LLM to determine if headlines indicate violent death.
     Sources that pass classification move to ready-for-download.
     """
-    pool = await get_arq_pool()
-    job = await pool.enqueue_job("classify_pending_task", limit)
-    await pool.close()
-
-    return {
-        "status": "queued",
-        "job_id": job.job_id,
-        "task": "classify_pending_task",
-        "message": f"Classification batch task queued (limit: {limit})",
-    }
+    return await enqueue_or_prefect(
+        "classify_pending_task",
+        limit,
+        prefect_parameters={"allow_prod": True},
+        message=f"Classification batch task queued (limit: {limit})",
+    )
 
 
 @router.post("/classify/{source_id}")
 async def run_classify_single(source_id: int):
     """Stage 1.5: Classify headline for a single source."""
-    pool = await get_arq_pool()
-    job = await pool.enqueue_job("classify_task", source_id)
-    await pool.close()
-
-    return {
-        "status": "queued",
-        "job_id": job.job_id,
-        "task": "classify_task",
-        "source_id": source_id,
-    }
+    if prefect_trigger.using_prefect():
+        raise HTTPException(
+            status_code=400,
+            detail="Single-source classify is alert-only under Prefect; use /classify batch.",
+        )
+    return await enqueue_or_prefect(
+        "classify_task",
+        source_id,
+        extra={"source_id": source_id},
+    )
 
 
 @router.post("/download")
@@ -221,31 +267,27 @@ async def run_download_batch(
     
     Only downloads sources that passed headline classification.
     """
-    pool = await get_arq_pool()
-    job = await pool.enqueue_job("download_classified_task", limit)
-    await pool.close()
-
-    return {
-        "status": "queued",
-        "job_id": job.job_id,
-        "task": "download_classified_task",
-        "message": f"Download batch task queued (limit: {limit})",
-    }
+    return await enqueue_or_prefect(
+        "download_classified_task",
+        limit,
+        prefect_parameters={"allow_prod": True},
+        message=f"Download batch task queued (limit: {limit})",
+    )
 
 
 @router.post("/download/{source_id}")
 async def run_download_single(source_id: int):
     """Stage 2: Download content for a single source."""
-    pool = await get_arq_pool()
-    job = await pool.enqueue_job("download_task", source_id)
-    await pool.close()
-
-    return {
-        "status": "queued",
-        "job_id": job.job_id,
-        "task": "download_task",
-        "source_id": source_id,
-    }
+    if prefect_trigger.using_prefect():
+        raise HTTPException(
+            status_code=400,
+            detail="Single-source download is alert-only under Prefect; use /download batch.",
+        )
+    return await enqueue_or_prefect(
+        "download_task",
+        source_id,
+        extra={"source_id": source_id},
+    )
 
 
 @router.post("/extract")
@@ -255,46 +297,42 @@ async def run_extract_batch(
     """
     Stage 3 (batch): Extract events from all sources ready for extraction.
     """
-    pool = await get_arq_pool()
-    job = await pool.enqueue_job("extract_ready_task", limit)
-    await pool.close()
-
-    return {
-        "status": "queued",
-        "job_id": job.job_id,
-        "task": "extract_ready_task",
-        "message": f"Extract batch task queued (limit: {limit})",
-    }
+    return await enqueue_or_prefect(
+        "extract_ready_task",
+        limit,
+        prefect_parameters={"allow_prod": True},
+        message=f"Extract batch task queued (limit: {limit})",
+    )
 
 
 @router.post("/extract/{source_id}")
 async def run_extract_single(source_id: int):
     """Stage 3: Extract event from a single source."""
-    pool = await get_arq_pool()
-    job = await pool.enqueue_job("extract_task", source_id)
-    await pool.close()
-
-    return {
-        "status": "queued",
-        "job_id": job.job_id,
-        "task": "extract_task",
-        "source_id": source_id,
-    }
+    if prefect_trigger.using_prefect():
+        raise HTTPException(
+            status_code=400,
+            detail="Single-source extract is alert-only under Prefect; use /extract batch.",
+        )
+    return await enqueue_or_prefect(
+        "extract_task",
+        source_id,
+        extra={"source_id": source_id},
+    )
 
 
 @router.post("/enrich/{raw_event_id}")
 async def run_enrichment(raw_event_id: int):
     """Stage 4: Enrich a raw event (deduplicate, geocode)."""
-    pool = await get_arq_pool()
-    job = await pool.enqueue_job("enrich_task", raw_event_id)
-    await pool.close()
-
-    return {
-        "status": "queued",
-        "job_id": job.job_id,
-        "task": "enrich_task",
-        "raw_event_id": raw_event_id,
-    }
+    if prefect_trigger.using_prefect():
+        raise HTTPException(
+            status_code=400,
+            detail="Single-event enrich is alert-only under Prefect; use /batch-enrich.",
+        )
+    return await enqueue_or_prefect(
+        "enrich_task",
+        raw_event_id,
+        extra={"raw_event_id": raw_event_id},
+    )
 
 
 @router.post("/batch-dedup")
@@ -310,16 +348,12 @@ async def run_batch_deduplication(
     - Clusters within each group (using victim names + LLM)
     - Creates UniqueEvents for each cluster
     """
-    pool = await get_arq_pool()
-    job = await pool.enqueue_job("batch_dedup_task", limit)
-    await pool.close()
-
-    return {
-        "status": "queued",
-        "job_id": job.job_id,
-        "task": "batch_dedup_task",
-        "message": f"Batch deduplication queued (limit: {limit})",
-    }
+    return await enqueue_or_prefect(
+        "batch_dedup_task",
+        limit,
+        prefect_parameters={"allow_prod": True},
+        message=f"Batch deduplication queued (limit: {limit})",
+    )
 
 
 @router.post("/batch-enrich")
@@ -334,16 +368,12 @@ async def run_batch_enrichment(
     - Uses LLM to synthesize best information
     - Updates UniqueEvent fields
     """
-    pool = await get_arq_pool()
-    job = await pool.enqueue_job("batch_enrich_task", limit)
-    await pool.close()
-
-    return {
-        "status": "queued",
-        "job_id": job.job_id,
-        "task": "batch_enrich_task",
-        "message": f"Batch enrichment queued (limit: {limit})",
-    }
+    return await enqueue_or_prefect(
+        "batch_enrich_task",
+        limit,
+        prefect_parameters={"allow_prod": True},
+        message=f"Batch enrichment queued (limit: {limit})",
+    )
 
 
 @router.post("/batch-geocode")
@@ -362,16 +392,12 @@ async def run_batch_geocoding(
     No-ops gracefully when GOOGLE_MAPS_API_KEY is unset. Use a large limit to
     backfill the existing backlog.
     """
-    pool = await get_arq_pool()
-    job = await pool.enqueue_job("batch_geocode_task", limit)
-    await pool.close()
-
-    return {
-        "status": "queued",
-        "job_id": job.job_id,
-        "task": "batch_geocode_task",
-        "message": f"Batch geocoding queued (limit: {limit})",
-    }
+    return await enqueue_or_prefect(
+        "batch_geocode_task",
+        limit,
+        prefect_parameters={"allow_prod": True},
+        message=f"Batch geocoding queued (limit: {limit})",
+    )
 
 
 @router.post("/backfill-null-resolved-urls")
@@ -427,7 +453,37 @@ async def get_pipeline_status():
 
 
 async def collect_pipeline_status() -> dict:
-    """Collect worker/queue/cron status from Redis."""
+    """Collect worker/queue/cron status (Prefect-aware after B3)."""
+    base: dict = {
+        "orchestrator": prefect_trigger.orchestrator(),
+    }
+    if prefect_trigger.using_prefect():
+        base.update(
+            {
+                "redis": "n/a-prefect",
+                "worker_alive": True,  # Prefect worker B is the authority; refined by health script
+                "worker_health": "prefect",
+                "worker_started_at": None,
+                "cron_enabled": False,  # ARQ cron off after cutover; Prefect schedules own
+                "queued_jobs": 0,
+                "jobs": [],
+                "prefect_api": prefect_trigger.prefect_api_url(),
+            }
+        )
+        # Soft ping Prefect API (non-fatal)
+        try:
+            import httpx
+
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                r = await client.get(f"{prefect_trigger.prefect_api_url()}/health")
+                base["prefect_healthy"] = r.status_code == 200
+                base["worker_alive"] = r.status_code == 200
+        except Exception as exc:  # noqa: BLE001
+            base["prefect_healthy"] = False
+            base["worker_alive"] = False
+            base["error"] = str(exc)
+        return base
+
     pool = None
     try:
         pool = await get_arq_pool()
@@ -454,34 +510,42 @@ async def collect_pipeline_status() -> dict:
             except (ValueError, AttributeError):
                 pass
 
-        return {
-            "redis": "connected",
-            "worker_alive": worker_alive,
-            "worker_health": worker_health,
-            "worker_started_at": worker_started_at,
-            "cron_enabled": cron_enabled,
-            "queued_jobs": len(queued_jobs),
-            "jobs": [
-                {
-                    "job_id": job.job_id,
-                    "function": job.function,
-                    "enqueue_time": job.enqueue_time.isoformat() if job.enqueue_time else None,
-                }
-                for job in queued_jobs[:20]
-            ],
-        }
+        base.update(
+            {
+                "redis": "connected",
+                "worker_alive": worker_alive,
+                "worker_health": worker_health,
+                "worker_started_at": worker_started_at,
+                "cron_enabled": cron_enabled,
+                "queued_jobs": len(queued_jobs),
+                "jobs": [
+                    {
+                        "job_id": job.job_id,
+                        "function": job.function,
+                        "enqueue_time": job.enqueue_time.isoformat()
+                        if job.enqueue_time
+                        else None,
+                    }
+                    for job in queued_jobs[:20]
+                ],
+            }
+        )
+        return base
     except HTTPException:
         raise
     except Exception as e:
-        return {
-            "redis": "disconnected",
-            "worker_alive": False,
-            "worker_health": None,
-            "worker_started_at": None,
-            "cron_enabled": is_cron_enabled(),
-            "error": str(e),
-            "queued_jobs": 0,
-        }
+        base.update(
+            {
+                "redis": "disconnected",
+                "worker_alive": False,
+                "worker_health": None,
+                "worker_started_at": None,
+                "cron_enabled": is_cron_enabled(),
+                "error": str(e),
+                "queued_jobs": 0,
+            }
+        )
+        return base
     finally:
         if pool is not None:
             await pool.close()
