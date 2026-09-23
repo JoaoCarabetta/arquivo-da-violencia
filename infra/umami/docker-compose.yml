@@ -13,6 +13,8 @@ services:
       DATABASE_URL: postgresql://umami:${UMAMI_DB_PASSWORD}@umami-db:5432/umami
       APP_SECRET: ${UMAMI_APP_SECRET}
       DISABLE_TELEMETRY: "1"
+      # Login UI replaced by Cloudflare Access SSO bridge (nginx /login).
+      DISABLE_LOGIN: "1"
       TRACKER_SCRIPT_NAME: metrics.js
     depends_on:
       umami-db:
