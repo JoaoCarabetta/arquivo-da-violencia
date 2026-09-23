@@ -28,6 +28,11 @@ WORKER_CONTAINER="${PIPELINE_HEALTH_WORKER_CONTAINER:-arquivo-worker}"
 ARQ_QUEUE_NAME="${PIPELINE_HEALTH_ARQ_QUEUE:-arquivo:production}"
 REDIS_HEALTH_KEY="${PIPELINE_HEALTH_REDIS_KEY:-${ARQ_QUEUE_NAME}:health-check}"
 WORKER_INFO_KEY="${PIPELINE_HEALTH_WORKER_INFO_KEY:-}"
+PREFECT_WORKER_CONTAINER="${PIPELINE_HEALTH_PREFECT_WORKER:-pipeline-prefect-worker-b-1}"
+PREFECT_COMPOSE="-p pipeline --project-directory /opt/pipeline"
+PREFECT_INGEST_DEPLOYMENT="${PIPELINE_HEALTH_PREFECT_INGEST:-arquivo_ingest_cities/arquivo-ingest-prod}"
+PREFECT_FULL_DEPLOYMENT="${PIPELINE_HEALTH_PREFECT_FULL:-arquivo_full_pipeline/arquivo-full-pipeline-prod}"
+PREFECT_BACKLOG_DEPLOYMENT="${PIPELINE_HEALTH_PREFECT_BACKLOG:-arquivo_process_backlog/arquivo-process-backlog-prod}"
 
 # How long since the last hourly cron may have started (minute :05 UTC).
 MAX_PIPELINE_AGE_MINUTES="${PIPELINE_HEALTH_MAX_PIPELINE_AGE_MINUTES:-100}"
@@ -80,6 +85,9 @@ PIPELINE_HEALTH_WEBHOOK_AUTH="${PIPELINE_HEALTH_WEBHOOK_AUTH:-$(read_env_var CUR
 ENVIRONMENT="${ENVIRONMENT:-$(read_env_var ENVIRONMENT)}"
 ENVIRONMENT="${ENVIRONMENT:-production}"
 WORKER_INFO_KEY="${WORKER_INFO_KEY:-arquivo:worker:info:${ENVIRONMENT}}"
+PIPELINE_ORCHESTRATOR="${PIPELINE_ORCHESTRATOR:-$(read_env_var PIPELINE_ORCHESTRATOR)}"
+PIPELINE_ORCHESTRATOR="${PIPELINE_ORCHESTRATOR:-arq}"
+PIPELINE_ORCHESTRATOR="$(echo "$PIPELINE_ORCHESTRATOR" | tr '[:upper:]' '[:lower:]')"
 
 record_failure() {
     FAILURES+=("$1")
@@ -108,7 +116,7 @@ py_bool() { [ "$1" = true ] && echo True || echo False; }
 
 # --- Checks -------------------------------------------------------------------
 
-echo_step "🏥 Pipeline health check ($(date -u +%Y-%m-%dT%H:%M:%SZ))"
+echo_step "🏥 Pipeline health check ($(date -u +%Y-%m-%dT%H:%M:%SZ)) orchestrator=${PIPELINE_ORCHESTRATOR}"
 
 if ! curl -sf "http://localhost:${API_PORT}/health" >/dev/null 2>&1; then
     record_failure "api_health"
@@ -116,6 +124,54 @@ else
     DETAILS+=("OK: api_health")
 fi
 
+if [ "$PIPELINE_ORCHESTRATOR" = "prefect" ]; then
+    # --- Prefect mode (B3+) ---------------------------------------------------
+    prefect_status="$(docker inspect --format='{{.State.Status}}' "$PREFECT_WORKER_CONTAINER" 2>/dev/null || echo missing)"
+    if [ "$prefect_status" != "running" ]; then
+        record_failure "prefect_worker_b_not_running(status=${prefect_status})"
+    else
+        DETAILS+=("OK: prefect_worker_b")
+    fi
+    if ! curl -sf "http://127.0.0.1:4200/api/health" >/dev/null 2>&1; then
+        record_failure "prefect_api_health"
+    else
+        DETAILS+=("OK: prefect_api_health")
+    fi
+    # Recent flow-run activity via worker-b logs (avoid depending on ARQ Redis)
+    recent_start=false
+    recent_activity=false
+    prefect_logs_age="$(docker logs "$PREFECT_WORKER_CONTAINER" --since "${MAX_PIPELINE_AGE_MINUTES}m" 2>&1 || true)"
+    prefect_logs_activity="$(docker logs "$PREFECT_WORKER_CONTAINER" --since "${PIPELINE_ACTIVITY_MINUTES}m" 2>&1 || true)"
+    if echo "$prefect_logs_age" | grep -qE 'arquivo_ingest_cities|arquivo_full_pipeline|ingest starting|B1 ingest|ingest done'; then
+        recent_start=true
+        DETAILS+=("OK: recent_prefect_ingest")
+    fi
+    if echo "$prefect_logs_activity" | grep -qE 'arquivo_process_backlog|backlog done|classify batch|extract|Flow run'; then
+        recent_activity=true
+        DETAILS+=("OK: recent_prefect_activity")
+    fi
+    active_sources="$(psql_prod "
+SELECT COUNT(*)
+FROM source_google_news
+WHERE status IN ('classifying', 'downloading', 'extracting')
+  AND updated_at > now() - interval '${PIPELINE_ACTIVITY_MINUTES} minutes';
+" 2>/dev/null || echo "error")"
+    if [ "$active_sources" != "error" ] && [ "${active_sources:-0}" -gt 0 ]; then
+        recent_activity=true
+        DETAILS+=("OK: active_pipeline_sources(${active_sources})")
+    fi
+    if [ "$recent_start" = true ]; then
+        :
+    elif [ "$recent_activity" = true ]; then
+        record_failure "backlog_active_but_no_recent_ingest(within_${MAX_PIPELINE_AGE_MINUTES}m)"
+    else
+        record_failure "no_recent_pipeline_run(within_${MAX_PIPELINE_AGE_MINUTES}m)"
+    fi
+    # ARQ queue depth is informational only — not a success criterion
+    arq_queue_depth="$(docker compose $COMPOSE_PROD exec -T redis redis-cli ZCARD "$ARQ_QUEUE_NAME" 2>/dev/null | tr -d '\r' || echo "0")"
+    DETAILS+=("INFO: arq_queue_depth_ignored_under_prefect=${arq_queue_depth}")
+else
+    # --- Legacy ARQ mode ------------------------------------------------------
 worker_status="$(docker inspect --format='{{.State.Health.Status}}' "$WORKER_CONTAINER" 2>/dev/null || echo missing)"
 if [ "$worker_status" != "healthy" ]; then
     record_failure "worker_container_unhealthy(status=${worker_status})"
@@ -167,6 +223,7 @@ WHERE status IN ('classifying', 'downloading', 'extracting')
 else
     record_warning "cron_disabled_on_worker"
 fi
+fi  # end orchestrator branch for worker/activity checks
 
 stuck_count="$(psql_prod "
 SELECT COUNT(*)
@@ -183,6 +240,7 @@ else
     DETAILS+=("OK: stuck_sources")
 fi
 
+if [ "$PIPELINE_ORCHESTRATOR" != "prefect" ]; then
 classify_errors="$(
     docker logs "$WORKER_CONTAINER" --since "${LOG_LOOKBACK_MINUTES}m" 2>&1 \
         | grep -E 'Classification complete:' \
@@ -266,6 +324,7 @@ elif [ "${arq_queue_depth:-0}" -gt 0 ] || [ "${arq_in_progress_count:-0}" -gt 0 
 else
     DETAILS+=("OK: arq_queue_empty")
 fi
+fi  # end ARQ-only queue/classify log checks
 
 ready_backlog="$(psql_prod "
 SELECT COUNT(*) FROM source_google_news WHERE status = 'ready_for_classification';
@@ -281,6 +340,10 @@ fi
 # --- Tier-A remediation -------------------------------------------------------
 
 tier_a_clear_arq_queue() {
+    if [ "$PIPELINE_ORCHESTRATOR" = "prefect" ]; then
+        DETAILS+=("INFO: skip_clear_arq_queue_under_prefect")
+        return 0
+    fi
     echo_step "🔧 Tier-A: clearing stale ARQ in-progress/retry locks..."
     local keys removed=0
     keys="$(docker compose $COMPOSE_PROD exec -T redis redis-cli KEYS 'arq:in-progress:*' 2>/dev/null | tr -d '\r' || true)"
@@ -309,7 +372,32 @@ tier_a_clear_arq_queue() {
     return 0
 }
 
+tier_a_prefect_run() {
+    local deployment="$1"
+    local label="$2"
+    echo_step "🔧 Tier-A: prefect deployment run '${deployment}' (${label})..."
+    local out
+    if ! out="$(docker compose $PREFECT_COMPOSE exec -T prefect-worker-b \
+        prefect deployment run "$deployment" 2>&1)"; then
+        record_failure "remediate_prefect_run_failed(${label})"
+        DETAILS+=("FAIL: prefect_run_output=${out}")
+        return 1
+    fi
+    DETAILS+=("REMEDIATE: prefect_deployment_run(${label})")
+    return 0
+}
+
 tier_a_enqueue_classify() {
+    if [ "$PIPELINE_ORCHESTRATOR" = "prefect" ]; then
+        # Clear case: backlog drain covers classify. Ambiguous huge backlog → alert-only.
+        if [ "${ready_backlog:-0}" -ge "$READY_BACKLOG_WARN" ]; then
+            record_warning "alert_only_large_backlog_no_auto_prefect(count=${ready_backlog})"
+            DETAILS+=("REMEDIATE: skipped_prefect_classify_due_to_cost_loop_risk")
+            return 0
+        fi
+        tier_a_prefect_run "$PREFECT_BACKLOG_DEPLOYMENT" "process-backlog"
+        return $?
+    fi
     echo_step "🔧 Tier-A: re-enqueueing classify_pending_task..."
     local job_id
     if ! job_id="$(docker compose $COMPOSE_PROD exec -T api python - <<'PY'
@@ -333,6 +421,22 @@ PY
 }
 
 tier_a_enqueue_pipeline() {
+    if [ "$PIPELINE_ORCHESTRATOR" = "prefect" ]; then
+        if [ "${ready_backlog:-0}" -ge "$READY_BACKLOG_WARN" ]; then
+            record_warning "alert_only_large_backlog_no_auto_prefect(count=${ready_backlog})"
+            DETAILS+=("REMEDIATE: skipped_prefect_full_due_to_cost_loop_risk")
+            return 0
+        fi
+        tier_a_prefect_run "$PREFECT_FULL_DEPLOYMENT" "full-pipeline"
+        filtered=()
+        for f in "${FAILURES[@]}"; do
+            [[ "$f" == no_recent_pipeline_run* ]] && continue
+            [[ "$f" == backlog_active_but_no_recent_ingest* ]] && continue
+            filtered+=("$f")
+        done
+        FAILURES=("${filtered[@]}")
+        return 0
+    fi
     echo_step "🔧 Tier-A: re-enqueueing ingest_cities_full_pipeline..."
     local job_id
     if ! job_id="$(docker compose $COMPOSE_PROD exec -T api python - <<'PY'
@@ -363,6 +467,22 @@ PY
 }
 
 tier_a_restart_worker() {
+    if [ "$PIPELINE_ORCHESTRATOR" = "prefect" ]; then
+        echo_step "🔧 Tier-A: restarting Prefect worker B..."
+        if ! docker compose $PREFECT_COMPOSE restart prefect-worker-b >/dev/null 2>&1; then
+            record_failure "remediate_restart_prefect_worker_b_failed"
+            return 1
+        fi
+        DETAILS+=("REMEDIATE: prefect_worker_b_restarted")
+        filtered=()
+        for f in "${FAILURES[@]}"; do
+            [[ "$f" == prefect_worker_b_not_running* ]] && continue
+            [[ "$f" == worker_heartbeat_missing* ]] && continue
+            filtered+=("$f")
+        done
+        FAILURES=("${filtered[@]}")
+        return 0
+    fi
     echo_step "🔧 Tier-A: restarting worker (heartbeat missing)..."
     if ! docker compose $COMPOSE_PROD restart worker >/dev/null 2>&1; then
         record_failure "remediate_restart_worker_failed"
@@ -403,19 +523,19 @@ if [ "$REMEDIATE" = true ]; then
             had_no_pipeline=true
         elif [[ "$f" == backlog_active_but_no_recent_ingest* ]]; then
             had_stale_ingest=true
-        elif [[ "$f" == worker_heartbeat_missing* ]]; then
+        elif [[ "$f" == worker_heartbeat_missing* ]] || [[ "$f" == prefect_worker_b_not_running* ]]; then
             had_no_heartbeat=true
         elif [[ "$f" == arq_queue_jammed* ]]; then
             had_queue_jam=true
         fi
     done
     for d in "${DETAILS[@]:-}"; do
-        if [[ "$d" == OK:\ recent_ingest ]]; then
+        if [[ "$d" == OK:\ recent_ingest ]] || [[ "$d" == OK:\ recent_prefect_ingest ]]; then
             had_recent_ingest=true
         fi
     done
-    # Restart ONLY when the Redis heartbeat is missing. Queue jam alone used to
-    # restart a healthy worker, which cleared the heartbeat and cascaded into
+    # Restart ONLY when the Redis heartbeat is missing (or Prefect worker B down).
+    # Queue jam alone used to restart a healthy worker, which cleared the heartbeat and cascaded into
     # WorkerDown / webhook remediates thrashing the container.
     if [ "$had_no_heartbeat" = true ]; then
         tier_a_restart_worker || true
