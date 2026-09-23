@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Umami SSO</title>
+  <style>
+    body {
+      font-family: ui-sans-serif, system-ui, sans-serif;
+      background: #0f1419;
+      color: #e8eef4;
+      display: flex;
+      min-height: 100vh;
+      align-items: center;
+      justify-content: center;
+      margin: 0;
+    }
+    p { opacity: 0.8; }
+  </style>
+</head>
+<body>
+  <p>Signing into Umami via Cloudflare Access…</p>
+  <script>
+  (async () => {
+    try {
+      const r = await fetch("/api/sso-bridge", { credentials: "same-origin" });
+      const data = await r.json();
+      if (!r.ok || !data.token) throw new Error(data.error || ("HTTP " + r.status));
+      localStorage.setItem("umami.auth", JSON.stringify(data.token));
+      location.replace("/");
+    } catch (e) {
+      document.body.innerHTML = "<p>SSO bridge failed: " + String(e.message || e) + "</p>";
+    }
+  })();
+  </script>
+</body>
+</html>

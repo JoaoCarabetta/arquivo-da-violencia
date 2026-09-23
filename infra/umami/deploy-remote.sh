@@ -21,9 +21,11 @@ read_existing_env() {
 
 existing_db_password="$(read_existing_env UMAMI_DB_PASSWORD)"
 existing_app_secret="$(read_existing_env UMAMI_APP_SECRET)"
+existing_admin_password="$(read_existing_env UMAMI_ADMIN_PASSWORD)"
 
 existing_db_password="${UMAMI_DB_PASSWORD:-$existing_db_password}"
 existing_app_secret="${UMAMI_APP_SECRET:-$existing_app_secret}"
+existing_admin_password="${UMAMI_ADMIN_PASSWORD:-$existing_admin_password}"
 
 if [[ -z "$existing_db_password" ]]; then
   existing_db_password="$(openssl rand -hex 24)"
@@ -33,17 +35,23 @@ if [[ -z "$existing_app_secret" ]]; then
   existing_app_secret="$(openssl rand -hex 32)"
   log "Generated new UMAMI_APP_SECRET"
 fi
+if [[ -z "$existing_admin_password" ]]; then
+  existing_admin_password="$(openssl rand -hex 18)"
+  log "Generated new UMAMI_ADMIN_PASSWORD (set DB hash separately if first boot)"
+fi
 
 log "Syncing stack from $REPO_DIR/infra/umami/ → $UMAMI_DIR/"
 mkdir -p "$UMAMI_DIR"
 rsync -a --delete \
   --exclude '.env' \
   --exclude 'umami_db_data' \
+  --exclude 'docker-compose.override.yml' \
   "$REPO_DIR/infra/umami/" "$UMAMI_DIR/"
 
 {
   echo "UMAMI_DB_PASSWORD=${existing_db_password}"
   echo "UMAMI_APP_SECRET=${existing_app_secret}"
+  echo "UMAMI_ADMIN_PASSWORD=${existing_admin_password}"
 } >"$UMAMI_DIR/.env"
 chmod 600 "$UMAMI_DIR/.env"
 
@@ -79,6 +87,32 @@ else
   cp "$UMAMI_DIR/nginx/analytics-http-only.conf" "$nginx_site"
 fi
 ln -sf "$nginx_site" /etc/nginx/sites-enabled/analytics
+
+# --- Cloudflare Access SSO bridge (UI password removed; tracker stays public) ---
+mkdir -p /var/www/umami-sso
+cp "$UMAMI_DIR/sso-login.html" /var/www/umami-sso/login.html
+chmod 644 /var/www/umami-sso/login.html
+chmod 755 "$UMAMI_DIR/sso-bridge.py"
+cat >/etc/systemd/system/umami-sso-bridge.service <<'UNIT'
+[Unit]
+Description=Umami SSO bridge (Cloudflare Access -> Umami JWT)
+After=network.target docker.service
+Wants=docker.service
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 /opt/arquivo-umami/sso-bridge.py
+Restart=always
+RestartSec=2
+User=root
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+systemctl daemon-reload
+systemctl enable --now umami-sso-bridge.service
+systemctl restart umami-sso-bridge.service
+
 nginx -t
 systemctl reload nginx
 
@@ -112,4 +146,5 @@ else
 fi
 
 log "Deploy complete — https://${DOMAIN}"
-log "Next: log in, add prod + staging websites, set GitHub secrets UMAMI_WEBSITE_ID_PROD / UMAMI_WEBSITE_ID_STAGING"
+log "UI is behind Carabetta admin SSO; /login uses Access bridge (no Umami password)."
+log "Tracker stays public: /metrics.js + /api/send (Access bypass apps)."
