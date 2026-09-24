@@ -69,6 +69,12 @@ if [ "$ENVIRONMENT" = "staging" ]; then
 else
     echo "📦 Ensuring production Postgres and Redis are running..."
     docker compose $COMPOSE_FILES up -d --no-recreate postgres redis
+    # API compose attaches to external pipeline_net (Prefect). Create if missing
+    # so `up api` does not fail after a partial Prefect cutover.
+    if ! docker network inspect pipeline_net >/dev/null 2>&1; then
+        echo "🌐 Creating missing external network pipeline_net..."
+        docker network create pipeline_net
+    fi
 fi
 
 echo ""
@@ -90,6 +96,16 @@ if ! wait_for_api_health "$API_PORT" 90; then
     echo "❌ API health check failed"
     docker logs --tail=30 "$API_CONTAINER" 2>&1 || true
     exit 1
+fi
+
+if [ "$ENVIRONMENT" = "production" ]; then
+    echo "🔍 Verifying public stats (DB-backed)..."
+    if ! curl -sf "http://localhost:${API_PORT}/api/public/stats" >/dev/null; then
+        echo "❌ /api/public/stats failed after deploy"
+        docker logs --tail=50 "$API_CONTAINER" 2>&1 || true
+        exit 1
+    fi
+    echo "   ✅ /api/public/stats OK"
 fi
 
 if ! wait_for_worker_health "$WORKER_CONTAINER" 90; then

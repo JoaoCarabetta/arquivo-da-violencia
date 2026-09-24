@@ -28,6 +28,14 @@ sync_deploy_repo() {
     local branch="$1"
     cd "$REPO_DIR"
     echo "📥 Syncing repository to origin/$branch..."
+    # VPS may have local edits (e.g. health script tweaks). Stash then force-sync
+    # so deploy never aborts on "local changes would be overwritten".
+    if ! git diff --quiet 2>/dev/null \
+      || ! git diff --cached --quiet 2>/dev/null \
+      || [ -n "$(git ls-files --others --exclude-standard 2>/dev/null)" ]; then
+        echo "📦 Stashing local VPS changes before sync..."
+        git stash push -u -m "deploy-stash $(date -u +%Y%m%dT%H%M%SZ)" || true
+    fi
     git fetch origin "$branch"
     git checkout -f "$branch"
     git reset --hard "origin/$branch"

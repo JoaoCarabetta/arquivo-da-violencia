@@ -102,8 +102,9 @@ jobs:
           script: |
             set -e
             cd /root/arquivo-da-violencia
+            git stash push -u -m "gha-deploy-stash $(date -u +%Y%m%dT%H%M%SZ)" || true
             git fetch origin develop
-            git checkout develop
+            git checkout -f develop
             git reset --hard origin/develop
             docker logout ghcr.io 2>/dev/null || true
             bash scripts/deploy-backend.sh staging
@@ -181,8 +182,10 @@ jobs:
           script: |
             set -e
             cd /root/arquivo-da-violencia
+            # Stash local VPS edits so checkout cannot abort the deploy.
+            git stash push -u -m "gha-deploy-stash $(date -u +%Y%m%dT%H%M%SZ)" || true
             git fetch origin master
-            git checkout master
+            git checkout -f master
             git reset --hard origin/master
             docker logout ghcr.io 2>/dev/null || true
             bash scripts/deploy-backend.sh production
@@ -219,8 +222,9 @@ jobs:
           script: |
             set -e
             cd /root/arquivo-da-violencia
+            git stash push -u -m "gha-deploy-stash $(date -u +%Y%m%dT%H%M%SZ)" || true
             git fetch origin master
-            git checkout master
+            git checkout -f master
             git reset --hard origin/master
             bash scripts/sync-staging-db.sh
 

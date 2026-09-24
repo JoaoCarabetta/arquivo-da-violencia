@@ -1,0 +1,85 @@
+# One-shot / on-demand remmediation for empty public site (API DB 500s).
+# Uses VPS SSH secrets already configured for deploy workflows.
+name: Remediate Prod API DB
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Type restore to run remmediation on production'
+        required: true
+        type: string
+
+jobs:
+  remediate:
+    name: Diagnose and restore prod API DB routes
+    runs-on: ubuntu-latest
+    if: github.event.inputs.confirm == 'restore'
+    steps:
+      - name: Run remmediation on VPS
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          script_stop: true
+          command_timeout: 20m
+          script: |
+            set -euo pipefail
+            cd /root/arquivo-da-violencia
+
+            echo "=== PRE: networks / errors / DB count / stats ==="
+            docker inspect arquivo-api --format '{{range $k,$v := .NetworkSettings.Networks}}{{$k}} {{end}}' 2>/dev/null || echo "(no api container)"
+            docker logs arquivo-api --since 6h 2>&1 | grep -iE 'error|exception|traceback|asyncpg|operational|undefinedcolumn|does not exist|connection refused|password' | tail -50 || true
+            docker compose -p prod -f docker-compose.yml exec -T postgres \
+              psql -U arquivo -d arquivo_prod -c "SELECT COUNT(*) AS unique_events FROM unique_event;" || true
+            echo -n "stats before: "; curl -sS -m 10 http://localhost:8000/api/public/stats || true; echo
+
+            echo "=== Sync repo (stash dirty VPS files) ==="
+            git stash push -u -m "remediate-prod-api-db $(date -u +%Y%m%dT%H%M%SZ)" || true
+            git fetch origin master
+            git checkout -f master
+            git reset --hard origin/master
+
+            echo "=== Ensure pipeline_net ==="
+            docker network inspect pipeline_net >/dev/null 2>&1 || docker network create pipeline_net
+
+            echo "=== Recreate API with compose env ==="
+            POSTGRES_PASSWORD="$(grep -m1 '^POSTGRES_PASSWORD=' .env | cut -d= -f2- | tr -d '\r')"
+            POSTGRES_PASSWORD="${POSTGRES_PASSWORD%\"}"
+            POSTGRES_PASSWORD="${POSTGRES_PASSWORD#\"}"
+            POSTGRES_PASSWORD="${POSTGRES_PASSWORD%\'}"
+            POSTGRES_PASSWORD="${POSTGRES_PASSWORD#\'}"
+            export POSTGRES_PASSWORD
+            test -n "$POSTGRES_PASSWORD"
+
+            docker compose -p prod -f docker-compose.yml up -d --no-recreate postgres redis
+            docker compose -p prod -f docker-compose.yml run --rm --no-deps api alembic upgrade head
+            docker compose -p prod -f docker-compose.yml up -d --force-recreate --no-deps api
+
+            # If API somehow missed the compose default network, attach it.
+            PROD_NET="$(docker network ls --format '{{.Name}}' | grep -E '^prod_default$|^arquivo-da-violencia_default$' | head -1 || true)"
+            if [ -n "$PROD_NET" ]; then
+              docker network connect "$PROD_NET" arquivo-api 2>/dev/null || true
+            fi
+            docker network connect pipeline_net arquivo-api 2>/dev/null || true
+
+            echo "=== Wait for public stats ==="
+            ok=0
+            for i in $(seq 1 60); do
+              if curl -sf http://localhost:8000/api/health >/dev/null \
+                && curl -sf http://localhost:8000/api/public/stats >/dev/null; then
+                ok=1
+                break
+              fi
+              sleep 2
+            done
+
+            echo "=== POST: networks / stats / recent errors ==="
+            docker inspect arquivo-api --format '{{range $k,$v := .NetworkSettings.Networks}}{{$k}} {{end}}' || true
+            echo -n "stats after: "; curl -sS -m 15 http://localhost:8000/api/public/stats || true; echo
+            if [ "$ok" -ne 1 ]; then
+              docker logs arquivo-api --since 10m 2>&1 | tail -100 || true
+              exit 1
+            fi
+            echo "OK remmediation"
