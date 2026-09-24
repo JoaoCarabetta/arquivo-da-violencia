@@ -37,13 +37,8 @@ git fetch origin master
 git checkout -f master
 git reset --hard origin/master
 
-echo "=== 3) Ensure pipeline_net exists (compose external net) ==="
-if ! docker network inspect pipeline_net >/dev/null 2>&1; then
-  echo "Creating pipeline_net..."
-  docker network create pipeline_net
-else
-  echo "pipeline_net already present"
-fi
+echo "=== 3) Networking note ==="
+echo "API uses Compose default network only (postgres). pipeline_net is owned by /opt/pipeline."
 
 echo "=== 4) Load POSTGRES_PASSWORD for compose interpolation ==="
 # Do not source full .env (bcrypt `$` sequences).
@@ -65,8 +60,11 @@ fi
 echo "=== 5) Ensure postgres/redis up, migrate, recreate API ==="
 docker compose $COMPOSE_PROD up -d --no-recreate postgres redis
 docker compose $COMPOSE_PROD run --rm --no-deps api alembic upgrade head
-# Force recreate so networks (default + pipeline_net) and env are reapplied.
+# Force recreate on default network only (see docs/ci-cd-pipeline-split.md).
 docker compose $COMPOSE_PROD up -d --force-recreate --no-deps api
+
+# Detach from pipeline_net if a prior cutover attached us (optional; ignore errors).
+docker network disconnect pipeline_net "$API_CONTAINER" 2>/dev/null || true
 
 echo "=== 6) Wait for health + public stats ==="
 ok=0

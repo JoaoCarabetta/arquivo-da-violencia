@@ -41,10 +41,7 @@ jobs:
             git checkout -f master
             git reset --hard origin/master
 
-            echo "=== Ensure pipeline_net ==="
-            docker network inspect pipeline_net >/dev/null 2>&1 || docker network create pipeline_net
-
-            echo "=== Recreate API with compose env ==="
+            echo "=== Recreate API on default network (no pipeline_net) ==="
             POSTGRES_PASSWORD="$(grep -m1 '^POSTGRES_PASSWORD=' .env | cut -d= -f2- | tr -d '\r')"
             POSTGRES_PASSWORD="${POSTGRES_PASSWORD%\"}"
             POSTGRES_PASSWORD="${POSTGRES_PASSWORD#\"}"
@@ -56,13 +53,7 @@ jobs:
             docker compose -p prod -f docker-compose.yml up -d --no-recreate postgres redis
             docker compose -p prod -f docker-compose.yml run --rm --no-deps api alembic upgrade head
             docker compose -p prod -f docker-compose.yml up -d --force-recreate --no-deps api
-
-            # If API somehow missed the compose default network, attach it.
-            PROD_NET="$(docker network ls --format '{{.Name}}' | grep -E '^prod_default$|^arquivo-da-violencia_default$' | head -1 || true)"
-            if [ -n "$PROD_NET" ]; then
-              docker network connect "$PROD_NET" arquivo-api 2>/dev/null || true
-            fi
-            docker network connect pipeline_net arquivo-api 2>/dev/null || true
+            docker network disconnect pipeline_net arquivo-api 2>/dev/null || true
 
             echo "=== Wait for public stats ==="
             ok=0

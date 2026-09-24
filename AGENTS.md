@@ -171,3 +171,7 @@ Self-hosted **Umami** on the same obs VPS (not pipeline metrics).
 
 - **Manual deploy:** `bash infra/umami/deploy.sh` (see [docs/user-analytics.md](docs/user-analytics.md))
 - Frontend build secrets: `UMAMI_WEBSITE_ID_PROD`, `UMAMI_WEBSITE_ID_STAGING`
+
+## Pipeline vs Arquivo CI/CD
+
+Prefect ingest/workers live under `/opt/pipeline` (Compose `-p pipeline`), not in this repo's deploy. See [docs/ci-cd-pipeline-split.md](docs/ci-cd-pipeline-split.md). Arquivo API must stay on the Compose default network with Postgres; do not attach `pipeline_net` from this compose file.
