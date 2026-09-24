@@ -102,7 +102,12 @@ services:
       - METRICS_PUSH_INTERVAL_SECONDS=${METRICS_PUSH_INTERVAL_SECONDS:-30}
       - METRICS_ENABLED=${METRICS_ENABLED:-true}
       - PIPELINE_ORCHESTRATOR=${PIPELINE_ORCHESTRATOR:-arq}
-      - PREFECT_API_URL=${PREFECT_API_URL:-http://prefect-server:4200/api}
+      # Prefer host-published Prefect API (pipeline stack owns pipeline_net).
+      # Override to http://prefect-server:4200/api only if something connects
+      # this container to pipeline_net (owned by /opt/pipeline).
+      - PREFECT_API_URL=${PREFECT_API_URL:-http://host.docker.internal:4200/api}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 30s
@@ -110,9 +115,10 @@ services:
       start_period: 10s
       retries: 3
     restart: unless-stopped
-    networks:
-      - default
-      - pipeline_net
+    # Stay on Compose default network only (postgres/redis). Do NOT attach
+    # pipeline_net here — that network is owned by the pipeline repo stack
+    # (`docker compose -p pipeline` in /opt/pipeline). Joining it from this
+    # compose file risked isolating the API from postgres after cutover.
 
   # ---------------------------------------------------------------------------
   # Worker - ARQ background task processor
@@ -238,9 +244,5 @@ volumes:
   promtail_positions:
     name: arquivo-promtail-positions
 
-networks:
-  pipeline_net:
-    external: true
-    name: pipeline_net
-    # Reach Prefect Server for PIPELINE_ORCHESTRATOR=prefect (B3+).
-    # Compose project `pipeline` owns this network.
+# pipeline_net is intentionally NOT declared here. It is created/owned by the
+# Prefect pipeline compose project at /opt/pipeline (`-p pipeline`).

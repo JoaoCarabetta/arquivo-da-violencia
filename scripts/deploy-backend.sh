@@ -69,12 +69,6 @@ if [ "$ENVIRONMENT" = "staging" ]; then
 else
     echo "📦 Ensuring production Postgres and Redis are running..."
     docker compose $COMPOSE_FILES up -d --no-recreate postgres redis
-    # API compose attaches to external pipeline_net (Prefect). Create if missing
-    # so `up api` does not fail after a partial Prefect cutover.
-    if ! docker network inspect pipeline_net >/dev/null 2>&1; then
-        echo "🌐 Creating missing external network pipeline_net..."
-        docker network create pipeline_net
-    fi
 fi
 
 echo ""
@@ -83,7 +77,7 @@ docker compose $COMPOSE_FILES run --rm --no-deps api alembic upgrade head
 
 echo ""
 echo "🔄 Starting API and worker..."
-docker compose $COMPOSE_FILES up -d --no-deps api worker
+docker compose $COMPOSE_FILES up -d --no-deps --force-recreate api worker
 
 if [ "$ENVIRONMENT" = "production" ]; then
     echo "🔄 Starting node_exporter (best-effort)..."
