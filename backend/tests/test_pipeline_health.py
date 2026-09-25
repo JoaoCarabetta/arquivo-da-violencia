@@ -493,3 +493,45 @@ PY
             'elif [ "$had_no_pipeline" = true ] || [ "$had_stale_ingest" = true ]; then'
             not in text
         )
+        # Large-log recent-ingest checks must not use `echo | grep -q` under pipefail.
+        assert "logs_match()" in text
+        assert 'echo "$prefect_logs_age" | grep -qE' not in text
+        assert 'arq_in_progress_raw=""' in text
+
+    def test_logs_match_survives_pipefail_on_large_blob(self):
+        """Regression: pipefail + echo|grep -q returns 141 on large matching blobs."""
+        script = r"""
+        set -euo pipefail
+        logs_match() {
+            local pattern="$1"
+            local text="$2"
+            grep -qE "$pattern" <<<"$text"
+        }
+        # Needle early + large trailing filler so grep -q exits before echo finishes
+        # (SIGPIPE → status 141 under pipefail). Mirrors Prefect worker log volume.
+        blob="$(python3 -c 'print("ingest starting db=arquivo_prod\n" + "x"*400000)')"
+        set +e
+        echo "$blob" | grep -qE 'ingest starting'
+        pipe_status=$?
+        set -e
+        if [ "$pipe_status" -eq 0 ]; then
+            echo "unexpected_pipe_ok_status=0"
+        elif [ "$pipe_status" -ne 141 ] && [ "$pipe_status" -ne 1 ]; then
+            echo "unexpected_pipe_status=$pipe_status"
+            exit 3
+        fi
+        if logs_match 'ingest starting' "$blob"; then
+            echo ok
+        else
+            echo logs_match_failed
+            exit 1
+        fi
+        """
+        result = subprocess.run(
+            ["bash", "-c", script],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        assert result.returncode == 0, result.stderr or result.stdout
+        assert result.stdout.strip().splitlines()[-1] == "ok"
