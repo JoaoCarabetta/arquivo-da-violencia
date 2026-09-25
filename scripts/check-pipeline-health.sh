@@ -114,6 +114,19 @@ echo_step() {
 # heredocs. Interpolating lowercase true/false is a NameError (issue #224).
 py_bool() { [ "$1" = true ] && echo True || echo False; }
 
+# Match a regex against a (possibly large) log blob without pipefail SIGPIPE.
+# Under `set -o pipefail`, `echo "$logs" | grep -q` returns 141 on match when
+# the blob is large enough that echo gets SIGPIPE after grep exits early —
+# which falsely fails recent-ingest detection in Prefect mode.
+logs_match() {
+    local pattern="$1"
+    local text="$2"
+    grep -qE "$pattern" <<<"$text"
+}
+
+# Remediator Python block always interpolates this; Prefect mode never fills it.
+arq_in_progress_raw=""
+
 # --- Checks -------------------------------------------------------------------
 
 echo_step "🏥 Pipeline health check ($(date -u +%Y-%m-%dT%H:%M:%SZ)) orchestrator=${PIPELINE_ORCHESTRATOR}"
@@ -142,11 +155,11 @@ if [ "$PIPELINE_ORCHESTRATOR" = "prefect" ]; then
     recent_activity=false
     prefect_logs_age="$(docker logs "$PREFECT_WORKER_CONTAINER" --since "${MAX_PIPELINE_AGE_MINUTES}m" 2>&1 || true)"
     prefect_logs_activity="$(docker logs "$PREFECT_WORKER_CONTAINER" --since "${PIPELINE_ACTIVITY_MINUTES}m" 2>&1 || true)"
-    if echo "$prefect_logs_age" | grep -qE 'arquivo_ingest_cities|arquivo_full_pipeline|ingest starting|B1 ingest|ingest done'; then
+    if logs_match 'arquivo_ingest_cities|arquivo_full_pipeline|ingest starting|B1 ingest|ingest done' "$prefect_logs_age"; then
         recent_start=true
         DETAILS+=("OK: recent_prefect_ingest")
     fi
-    if echo "$prefect_logs_activity" | grep -qE 'arquivo_process_backlog|backlog done|classify batch|extract|Flow run'; then
+    if logs_match 'arquivo_process_backlog|backlog done|classify batch|extract|Flow run' "$prefect_logs_activity"; then
         recent_activity=true
         DETAILS+=("OK: recent_prefect_activity")
     fi
@@ -198,12 +211,13 @@ FROM source_google_news
 WHERE status IN ('classifying', 'downloading', 'extracting')
   AND updated_at > now() - interval '${PIPELINE_ACTIVITY_MINUTES} minutes';
 " 2>/dev/null || echo "error")"
-  if echo "$worker_logs_age" | grep -qE 'cron:ingest_cities_hourly|cron:ingest_cities_full_pipeline|\[INGEST_HOURLY\]|\[CITIES_PIPELINE\] Starting|\[INGEST_CITIES\] Starting'; then
+  if logs_match 'cron:ingest_cities_hourly|cron:ingest_cities_full_pipeline|\[INGEST_HOURLY\]|\[CITIES_PIPELINE\] Starting|\[INGEST_CITIES\] Starting' "$worker_logs_age"; then
       recent_start=true
   fi
   # Long backlog runs (up to 2h) can outlive the start-log window; track processing separately.
-  if echo "$worker_logs_activity" | grep -qE \
-      '\[CITIES_BACKLOG\]|\[CITIES_PIPELINE\]|\[INGEST_HOURLY\]|cron:ingest_cities_hourly|cron:process_cities_backlog|cron:ingest_cities_full_pipeline|classify_source:|Classification complete:|\[Batch Dedup\]|\[Ingest\]|\[Download\]|\[Extract\]'; then
+  if logs_match \
+      '\[CITIES_BACKLOG\]|\[CITIES_PIPELINE\]|\[INGEST_HOURLY\]|cron:ingest_cities_hourly|cron:process_cities_backlog|cron:ingest_cities_full_pipeline|classify_source:|Classification complete:|\[Batch Dedup\]|\[Ingest\]|\[Download\]|\[Extract\]' \
+      "$worker_logs_activity"; then
       recent_activity=true
   fi
   if [ "$active_sources" != "error" ] && [ "${active_sources:-0}" -gt 0 ]; then
