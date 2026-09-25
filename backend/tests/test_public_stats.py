@@ -48,6 +48,7 @@ def create_fake_event(
         chronological_description=kwargs.get("chronological_description", f"Descrição do evento em {city}"),
         latitude=kwargs.get("latitude", Decimal("-22.9068")),
         longitude=kwargs.get("longitude", Decimal("-43.1729")),
+        location_precision=kwargs.get("location_precision"),
         source_count=kwargs.get("source_count", 1),
         confirmed=kwargs.get("confirmed", False),
         needs_enrichment=kwargs.get("needs_enrichment", False),
