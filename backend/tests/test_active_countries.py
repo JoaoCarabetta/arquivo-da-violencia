@@ -101,6 +101,7 @@ class TestPipelineActiveCountriesSetting:
 
         with patch("app.config.get_settings") as mock_settings:
             mock_settings.return_value.pipeline_active_countries = []
+            mock_settings.return_value.pipeline_capture_countries = []
             assert set(get_pipeline_active_countries()) == EXPECTED_ALL
             assert len(get_pipeline_active_countries()) == 12
 
@@ -109,6 +110,7 @@ class TestPipelineActiveCountriesSetting:
 
         with patch("app.config.get_settings") as mock_settings:
             mock_settings.return_value.pipeline_active_countries = ["BR"]
+            mock_settings.return_value.pipeline_capture_countries = []
             assert get_pipeline_active_countries() == ["BR"]
 
 

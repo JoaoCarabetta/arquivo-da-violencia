@@ -11,12 +11,14 @@
 # Environment variables (create .env file):
 #   OPENROUTER_API_KEY=your-api-key
 #   ENABLE_CRON=true  # :05 ingest + :35 backlog (hourly)
+#   ENABLE_CAPTURE_CRON=true  # :10 Chile history-only on capture queue
 #   TELEGRAM_BOT_TOKEN=your-bot-token  # For notifications
 #   TELEGRAM_CHAT_ID=your-chat-id
 #   GITHUB_TOKEN=your-github-token  # For creating issues on failures
 #   GITHUB_REPO=owner/repo  # Repository for issues
 #   POSTGRES_PASSWORD=strong-password  # PostgreSQL password
 #   PIPELINE_ACTIVE_COUNTRIES=["BR"]   # ingest/classify Brazil only (issue #217)
+#   PIPELINE_CAPTURE_COUNTRIES=["CL"]  # Chile headlines; separate capture queue
 #
 # =============================================================================
 
@@ -93,6 +95,7 @@ services:
       - ENABLE_AUTH=true
       - CORS_ORIGINS=["http://localhost:5173","http://localhost:3000","http://localhost:80","https://arquivodaviolencia.com.br","https://www.arquivodaviolencia.com.br"]
       - PIPELINE_ACTIVE_COUNTRIES=${PIPELINE_ACTIVE_COUNTRIES:-["BR"]}
+      - PIPELINE_CAPTURE_COUNTRIES=${PIPELINE_CAPTURE_COUNTRIES:-["CL"]}
       - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN:-}
       - TELEGRAM_CHAT_ID=${TELEGRAM_CHAT_ID:-}
       - HETZNER_API_TOKEN=${HETZNER_API_TOKEN:-}
@@ -143,6 +146,7 @@ services:
       - GOOGLE_MAPS_API_KEY=${GOOGLE_MAPS_API_KEY:-}
       - ENABLE_CRON=${ENABLE_CRON:-false}
       - PIPELINE_ACTIVE_COUNTRIES=${PIPELINE_ACTIVE_COUNTRIES:-["BR"]}
+      - PIPELINE_CAPTURE_COUNTRIES=${PIPELINE_CAPTURE_COUNTRIES:-["CL"]}
       - ENVIRONMENT=production
       - ENABLE_AUTH=true
       - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN:-}
@@ -160,6 +164,39 @@ services:
       start_period: 10s
       retries: 3
     # Allow worker 120s to finish current job before forced shutdown
+    stop_grace_period: 120s
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------------------
+  # Capture worker - history-only ingest (Chile etc.) on arquivo:{env}:capture
+  # Never runs classify/download/extract. Cron independent of ENABLE_CRON.
+  # ---------------------------------------------------------------------------
+  worker-capture:
+    image: ghcr.io/joaocarabetta/arquivo-da-violencia/backend:master
+    build: ./backend
+    container_name: arquivo-worker-capture
+    command: arq app.tasks.worker.CaptureWorkerSettings
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    env_file:
+      - .env
+    environment:
+      - REDIS_URL=redis://redis:6379
+      - DATABASE_URL=postgresql+asyncpg://arquivo:${POSTGRES_PASSWORD}@postgres:5432/arquivo_prod
+      - DB_POOL_SIZE=10
+      - DB_POOL_OVERFLOW=10
+      - ENABLE_CRON=false
+      - ENABLE_CAPTURE_CRON=${ENABLE_CAPTURE_CRON:-true}
+      - PIPELINE_ACTIVE_COUNTRIES=${PIPELINE_ACTIVE_COUNTRIES:-["BR"]}
+      - PIPELINE_CAPTURE_COUNTRIES=${PIPELINE_CAPTURE_COUNTRIES:-["CL"]}
+      - ENVIRONMENT=production
+      - ENABLE_AUTH=true
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN:-}
+      - TELEGRAM_CHAT_ID=${TELEGRAM_CHAT_ID:-}
+      - METRICS_ENABLED=false
     stop_grace_period: 120s
     restart: unless-stopped
 

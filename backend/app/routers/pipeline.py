@@ -9,6 +9,8 @@ import json
 from app.metrics import set_cron_enabled, set_queue_depth, set_redis_connected, set_worker_alive
 from app.tasks.worker import (
     create_arq_pool,
+    create_arq_capture_pool,
+    get_arq_capture_queue_name,
     HEALTH_CHECK_KEY,
     WORKER_INFO_KEY,
     is_cron_enabled,
@@ -134,13 +136,10 @@ async def run_city_ingestion(
     when: str = Query("1h", description="Time filter (default 1h for hourly)"),
 ):
     """
-    Ingest news for ALL configured cities across all countries (BR + CL).
-    
-    - Fetches news for 52+ cities in Brazil and major cities in Chile
-    - Automatically shards high-volume cities (São Paulo, Rio, Santiago, etc.)
-    - Rate limited to respect Google's limits
-    
-    This is the main production ingestion endpoint for hourly runs.
+    Ingest news for PIPELINE_ACTIVE_COUNTRIES (process path, typically BR).
+
+    Chile and other history-only countries use POST /pipeline/ingest-capture
+    on a separate ARQ queue — they are not included here.
     """
     pool = await get_arq_pool()
     job = await pool.enqueue_job("ingest_cities_task", None, when)
@@ -150,7 +149,44 @@ async def run_city_ingestion(
         "status": "queued",
         "job_id": job.job_id,
         "task": "ingest_cities_task",
-        "message": "City ingestion task queued (all countries)",
+        "message": "City ingestion task queued (active/process countries only)",
+    }
+
+
+@router.post("/ingest-capture")
+async def run_capture_ingestion(
+    when: str = Query("1h", description="Time filter (default 1h for hourly)"),
+):
+    """
+    History-only ingest for PIPELINE_CAPTURE_COUNTRIES (e.g. Chile).
+
+    Enqueues onto ``arquivo:{env}:capture`` — never the BR process queue.
+    Sources are stored as ``captured``; no classify/download/extract follows.
+    """
+    from app.config import get_pipeline_capture_countries
+
+    countries = get_pipeline_capture_countries()
+    try:
+        pool = await create_arq_capture_pool()
+    except Exception as e:
+        logger.error(f"Failed to connect to Redis for capture queue: {e}")
+        raise HTTPException(
+            status_code=503,
+            detail=f"Redis connection failed: {e}. Is Redis running?",
+        )
+    job = await pool.enqueue_job("ingest_capture_countries_task", when)
+    await pool.close()
+
+    return {
+        "status": "queued",
+        "job_id": job.job_id,
+        "task": "ingest_capture_countries_task",
+        "queue": get_arq_capture_queue_name(),
+        "countries": countries,
+        "message": (
+            "Capture-only ingest queued "
+            f"(countries={countries or 'none configured'}; no classify)"
+        ),
     }
 
 
@@ -161,7 +197,7 @@ async def run_city_pipeline(
     """
     Run FULL city pipeline: ingest cities -> classify -> download -> extract.
     
-    This is the complete hourly production pipeline.
+    This is the complete hourly production pipeline for active countries only.
     """
     pool = await get_arq_pool()
     job = await pool.enqueue_job("ingest_cities_full_pipeline", None, when)

@@ -77,6 +77,8 @@ services:
       - DEBUG=true
       - ENVIRONMENT=development
       - CORS_ORIGINS=["http://localhost:5173","http://localhost:3000","http://localhost:80","http://localhost"]
+      - PIPELINE_ACTIVE_COUNTRIES=${PIPELINE_ACTIVE_COUNTRIES:-["BR"]}
+      - PIPELINE_CAPTURE_COUNTRIES=${PIPELINE_CAPTURE_COUNTRIES:-["CL"]}
       - JWT_SECRET_KEY=dev-secret-key-not-for-production
       - ADMIN_USERNAME=admin
       - ADMIN_PASSWORD=
@@ -107,12 +109,44 @@ services:
       - DB_POOL_OVERFLOW=15
       - OPENROUTER_API_KEY=${OPENROUTER_API_KEY:-}
       - ENABLE_CRON=false
+      - PIPELINE_ACTIVE_COUNTRIES=${PIPELINE_ACTIVE_COUNTRIES:-["BR"]}
+      - PIPELINE_CAPTURE_COUNTRIES=${PIPELINE_CAPTURE_COUNTRIES:-["CL"]}
       - DEBUG=true
       - JWT_SECRET_KEY=dev-secret-key-not-for-production
       - ADMIN_USERNAME=admin
       - ADMIN_PASSWORD=
       - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN:-}
       - TELEGRAM_CHAT_ID=${TELEGRAM_CHAT_ID:-}
+    volumes:
+      - ./backend/app:/app/app:ro
+    stop_grace_period: 120s
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------------------
+  # Capture worker - history-only Chile (etc.) on arquivo:development:capture
+  # ---------------------------------------------------------------------------
+  worker-capture:
+    build: ./backend
+    container_name: arquivo-worker-capture-dev
+    command: arq app.tasks.worker.CaptureWorkerSettings
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      - REDIS_URL=redis://redis:6379
+      - DATABASE_URL=${DATABASE_URL:-postgresql+asyncpg://arquivo:${POSTGRES_PASSWORD:-arquivo_dev}@postgres:5432/arquivo_dev}
+      - DB_POOL_SIZE=10
+      - DB_POOL_OVERFLOW=10
+      - ENABLE_CRON=false
+      - ENABLE_CAPTURE_CRON=false
+      - PIPELINE_ACTIVE_COUNTRIES=${PIPELINE_ACTIVE_COUNTRIES:-["BR"]}
+      - PIPELINE_CAPTURE_COUNTRIES=${PIPELINE_CAPTURE_COUNTRIES:-["CL"]}
+      - DEBUG=true
+      - ENVIRONMENT=development
+      - JWT_SECRET_KEY=dev-secret-key-not-for-production
+      - METRICS_ENABLED=false
     volumes:
       - ./backend/app:/app/app:ro
     stop_grace_period: 120s
