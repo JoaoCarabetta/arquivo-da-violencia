@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -10,14 +10,20 @@ export function Login() {
   const [username, setUsername] = useState('admin');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
-  const [loading, setLoading] = useState(false);
-  const { login } = useAuth();
+  const [submitting, setSubmitting] = useState(false);
+  const { login, isAuthenticated, loading } = useAuth();
   const navigate = useNavigate();
+
+  useEffect(() => {
+    if (!loading && isAuthenticated) {
+      navigate('/admin', { replace: true });
+    }
+  }, [loading, isAuthenticated, navigate]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
-    setLoading(true);
+    setSubmitting(true);
 
     try {
       const success = await login(username, password);
@@ -30,9 +36,17 @@ export function Login() {
     } catch {
       setError('Erro ao fazer login. Tente novamente.');
     } finally {
-      setLoading(false);
+      setSubmitting(false);
     }
   };
+
+  if (loading || isAuthenticated) {
+    return (
+      <div className="min-h-dvh bg-background flex items-center justify-center px-6">
+        <p className="text-sm text-muted-foreground">Entrando via Cloudflare Access…</p>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-dvh bg-background flex items-center justify-center px-6">
@@ -77,8 +91,8 @@ export function Login() {
                   </div>
                 )}
               </div>
-              <Button type="submit" size="lg" className="w-full min-h-11" disabled={loading}>
-                {loading ? 'Entrando...' : 'Entrar'}
+              <Button type="submit" size="lg" className="w-full min-h-11" disabled={submitting}>
+                {submitting ? 'Entrando...' : 'Entrar'}
               </Button>
             </form>
 
@@ -94,10 +108,9 @@ export function Login() {
         </Card>
 
         <div className="mt-4 text-center text-xs text-muted-foreground">
-          Apenas para administradores
+          Apenas para administradores · em produção use Cloudflare Access
         </div>
       </div>
     </div>
   );
 }
-

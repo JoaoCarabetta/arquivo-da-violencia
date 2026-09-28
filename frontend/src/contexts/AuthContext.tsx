@@ -13,24 +13,63 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 const API_BASE = '/api';
 
+async function tryAccessSso(): Promise<string | null> {
+  try {
+    const response = await fetch(`${API_BASE}/auth/access-sso`, {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+    });
+    if (!response.ok) {
+      return null;
+    }
+    const data = await response.json();
+    return typeof data.access_token === 'string' ? data.access_token : null;
+  } catch {
+    return null;
+  }
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [token, setToken] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // Check if user is already authenticated
-    const storedToken = localStorage.getItem('admin_token');
-    if (storedToken) {
-      setToken(storedToken);
-      setIsAuthenticated(true);
-    } else {
-      setIsAuthenticated(false);
-      setToken(null);
-    }
-    setLoading(false);
+    let cancelled = false;
 
-    // Listen for storage changes (e.g., when token is cleared due to 401 in another tab)
+    const applyToken = (accessToken: string) => {
+      setToken(accessToken);
+      setIsAuthenticated(true);
+      localStorage.setItem('admin_token', accessToken);
+    };
+
+    const init = async () => {
+      const storedToken = localStorage.getItem('admin_token');
+      if (storedToken) {
+        if (!cancelled) {
+          setToken(storedToken);
+          setIsAuthenticated(true);
+          setLoading(false);
+        }
+        return;
+      }
+
+      // Behind Cloudflare Access: mint Arquivo JWT without password form.
+      const ssoToken = await tryAccessSso();
+      if (!cancelled) {
+        if (ssoToken) {
+          applyToken(ssoToken);
+        } else {
+          setIsAuthenticated(false);
+          setToken(null);
+        }
+        setLoading(false);
+      }
+    };
+
+    void init();
+
     const handleStorageChange = (e: StorageEvent) => {
       if (e.key === 'admin_token') {
         const currentToken = localStorage.getItem('admin_token');
@@ -38,14 +77,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           setIsAuthenticated(false);
           setToken(null);
         } else {
-          // Token was updated in another tab
           setToken(currentToken);
           setIsAuthenticated(true);
         }
       }
     };
 
-    // Listen for custom event when token is cleared in same tab (e.g., 401 error)
     const handleTokenCleared = () => {
       const currentToken = localStorage.getItem('admin_token');
       if (!currentToken) {
@@ -57,6 +94,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     window.addEventListener('storage', handleStorageChange);
     window.addEventListener('auth-token-cleared', handleTokenCleared);
     return () => {
+      cancelled = true;
       window.removeEventListener('storage', handleStorageChange);
       window.removeEventListener('auth-token-cleared', handleTokenCleared);
     };
@@ -82,7 +120,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setToken(accessToken);
       setIsAuthenticated(true);
       localStorage.setItem('admin_token', accessToken);
-      
+
       return true;
     } catch (error) {
       console.error('Login error:', error);
@@ -110,4 +148,3 @@ export function useAuth() {
   }
   return context;
 }
-

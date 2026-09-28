@@ -36,8 +36,10 @@ port **3001** on the same VPS so the two stacks do not collide.
 bash infra/umami/deploy.sh
 ```
 
-3. Open https://analytics.carabetta.xyz — default login is Umami’s first-run
-   admin (change password immediately).
+3. Open https://analytics.carabetta.xyz after Cloudflare Access OTP
+   (`joao@carabetta.xyz` via https://admin.carabetta.xyz). Umami app login is
+   disabled (`DISABLE_LOGIN`); nginx `/login` mints a JWT via the local SSO
+   bridge. Tracker (`/metrics.js`, `/api/send`) stays public.
 4. **Settings → Websites → Add website** twice:
    - Prod: domain `arquivodaviolencia.com.br`
    - Staging: domain `staging.arquivodaviolencia.com.br`
