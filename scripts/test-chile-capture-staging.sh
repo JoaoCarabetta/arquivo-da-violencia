@@ -119,14 +119,33 @@ docker inspect "$API_CONTAINER" --format '{{range .Config.Env}}{{println .}}{{en
 echo ""
 echo "=== Pull + start worker-capture (process worker untouched) ==="
 # shellcheck disable=SC2086
-$COMPOSE pull worker-capture
+$COMPOSE pull api worker-capture
+# Wait until the API image actually exports capture helpers (avoids race with Deploy Backend).
+for i in $(seq 1 60); do
+  if docker exec "$API_CONTAINER" sh -lc \
+    'cd /app && /app/.venv/bin/python -c "from app.tasks.worker import CaptureWorkerSettings, create_arq_capture_pool"' \
+    >/dev/null 2>&1; then
+    echo "api_image_has_capture=yes (attempt $i)"
+    break
+  fi
+  echo "api_image_has_capture=no (attempt $i); pulling again..."
+  # shellcheck disable=SC2086
+  $COMPOSE pull api worker-capture || true
+  # shellcheck disable=SC2086
+  $COMPOSE up -d --no-deps --force-recreate api
+  sleep 10
+  if [ "$i" -eq 60 ]; then
+    echo "ERROR: API image never gained CaptureWorkerSettings"
+    exit 1
+  fi
+done
 # shellcheck disable=SC2086
-$COMPOSE up -d --no-deps worker-capture
+$COMPOSE up -d --no-deps --force-recreate worker-capture
 
-sleep 5
+sleep 8
 echo ""
 echo "=== Container states ==="
-docker ps -a --filter "name=${CAPTURE_CONTAINER}" --filter "name=${PROCESS_CONTAINER}" \
+docker ps -a --filter "name=^/${CAPTURE_CONTAINER}$" --filter "name=^/${PROCESS_CONTAINER}$" \
   --format 'table {{.Names}}\t{{.Status}}\t{{.Image}}'
 
 CAPTURE_UP=$(docker inspect -f '{{.State.Running}}' "$CAPTURE_CONTAINER" 2>/dev/null || echo false)
@@ -135,6 +154,14 @@ echo "capture_running=$CAPTURE_UP process_running=$PROCESS_UP"
 
 if [ "$CAPTURE_UP" != "true" ]; then
   echo "ERROR: capture worker not running"
+  docker logs --tail=80 "$CAPTURE_CONTAINER" 2>&1 || true
+  exit 1
+fi
+
+# Confirm capture settings import inside the capture container too
+if ! docker exec "$CAPTURE_CONTAINER" sh -lc \
+  'cd /app && /app/.venv/bin/python -c "from app.tasks.worker import CaptureWorkerSettings"'; then
+  echo "ERROR: capture container missing CaptureWorkerSettings"
   docker logs --tail=80 "$CAPTURE_CONTAINER" 2>&1 || true
   exit 1
 fi
