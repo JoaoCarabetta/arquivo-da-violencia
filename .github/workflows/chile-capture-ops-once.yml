@@ -1,0 +1,85 @@
+# One-shot Chile history-only capture verification via VPS SSH.
+# Triggers on push when this workflow or the test script changes.
+# Staging by default; set ENV=prod via commit message "[chile-capture-ops:prod]"
+# or workflow_dispatch input when available.
+name: Chile Capture Ops Once
+
+on:
+  push:
+    branches:
+      - develop
+      - master
+    paths:
+      - 'scripts/test-chile-capture-staging.sh'
+      - '.github/workflows/chile-capture-ops-once.yml'
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Target environment'
+        required: true
+        default: 'staging'
+        type: choice
+        options:
+          - staging
+          - prod
+
+concurrency:
+  group: chile-capture-ops
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    name: Chile capture verify
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: |
+            scripts/test-chile-capture-staging.sh
+          sparse-checkout-cone-mode: false
+
+      - name: Resolve environment
+        id: env
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "target=${{ inputs.environment }}" >> "$GITHUB_OUTPUT"
+          elif [ "${{ github.ref }}" = "refs/heads/master" ]; then
+            echo "target=prod" >> "$GITHUB_OUTPUT"
+          else
+            echo "target=staging" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Sync test script to VPS
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          source: scripts/test-chile-capture-staging.sh
+          target: /root/arquivo-da-violencia
+          overwrite: true
+
+      - name: Run Chile capture verification
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          command_timeout: 25m
+          script: |
+            set -euo pipefail
+            cd /root/arquivo-da-violencia
+            # Ensure develop/master tip matches the image we deployed
+            if [ "${{ steps.env.outputs.target }}" = "staging" ]; then
+              git fetch origin develop
+              git checkout -f develop
+              git reset --hard origin/develop
+            else
+              git fetch origin master
+              git checkout -f master
+              git reset --hard origin/master
+            fi
+            chmod +x scripts/test-chile-capture-staging.sh
+            bash scripts/test-chile-capture-staging.sh "${{ steps.env.outputs.target }}" 7d
+
+# re-run: fix PYTHONPATH for enqueue
