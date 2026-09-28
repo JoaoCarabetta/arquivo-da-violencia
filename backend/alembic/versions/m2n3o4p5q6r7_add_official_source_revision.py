@@ -7,6 +7,7 @@ Create Date: 2026-09-15 22:00:00.000000
 Add source_id and revision columns to official_violence_count for multi-source
 official data (issue #238). Backfill existing rows as validador + consolidado.
 """
+import re
 from typing import Sequence, Union
 
 from alembic import op
@@ -31,6 +32,42 @@ def _unique_constraint_exists(bind, table_name: str, column_names: set[str]) -> 
     inspector = inspect(bind)
     constraints = inspector.get_unique_constraints(table_name)
     return any(set(c["column_names"]) == column_names for c in constraints)
+
+
+def _unique_constraint_named(bind, table_name: str, name: str) -> bool:
+    inspector = inspect(bind)
+    constraints = inspector.get_unique_constraints(table_name)
+    if any(c.get("name") == name for c in constraints):
+        return True
+
+    dialect = bind.dialect.name
+    if dialect == "postgresql":
+        return bool(
+            bind.execute(
+                sa.text(
+                    """
+                    SELECT 1 FROM pg_constraint c
+                    JOIN pg_class rel ON rel.oid = c.conrelid
+                    WHERE rel.relname = :table AND c.conname = :name
+                    """
+                ),
+                {"table": table_name, "name": name},
+            ).scalar()
+        )
+    if dialect == "sqlite":
+        row = bind.execute(
+            sa.text("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = :table"),
+            {"table": table_name},
+        ).scalar()
+        return bool(
+            row
+            and re.search(
+                rf"\bCONSTRAINT\s+{re.escape(name)}\b",
+                row,
+                re.IGNORECASE,
+            )
+        )
+    return False
 
 
 def upgrade() -> None:
@@ -92,11 +129,7 @@ def upgrade() -> None:
     for name in old_key_names:
         op.drop_constraint(name, "official_violence_count", type_="unique")
 
-    if not _unique_constraint_exists(
-        bind,
-        "official_violence_count",
-        {"code_muni", "year_month", "indicator", "source_id", "revision"},
-    ):
+    if not _unique_constraint_named(bind, "official_violence_count", "uq_official_violence_key"):
         op.create_unique_constraint(
             "uq_official_violence_key",
             "official_violence_count",
@@ -119,11 +152,7 @@ def downgrade() -> None:
     for name in new_key_names:
         op.drop_constraint(name, "official_violence_count", type_="unique")
 
-    if not _unique_constraint_exists(
-        bind,
-        "official_violence_count",
-        {"code_muni", "year_month", "indicator"},
-    ):
+    if not _unique_constraint_named(bind, "official_violence_count", "uq_official_violence_key"):
         op.create_unique_constraint(
             "uq_official_violence_key",
             "official_violence_count",
