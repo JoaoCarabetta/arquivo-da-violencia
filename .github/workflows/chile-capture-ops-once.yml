@@ -65,7 +65,7 @@ jobs:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
-          command_timeout: 25m
+          command_timeout: 40m
           script: |
             set -euo pipefail
             cd /root/arquivo-da-violencia
@@ -78,8 +78,8 @@ jobs:
               git fetch origin master
               git checkout -f master
               git reset --hard origin/master
+              # Avoid racing Deploy Backend image publish on master pushes.
+              sleep 45
             fi
             chmod +x scripts/test-chile-capture-staging.sh
             bash scripts/test-chile-capture-staging.sh "${{ steps.env.outputs.target }}" 7d
-
-# re-run: fix PYTHONPATH for enqueue
