@@ -7,6 +7,7 @@ Create Date: 2026-09-15 22:00:00.000000
 Add source_id and revision columns to official_violence_count for multi-source
 official data (issue #238). Backfill existing rows as validador + consolidado.
 """
+import re
 from typing import Sequence, Union
 
 from alembic import op
@@ -58,7 +59,14 @@ def _unique_constraint_named(bind, table_name: str, name: str) -> bool:
             sa.text("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = :table"),
             {"table": table_name},
         ).scalar()
-        return bool(row and name in row)
+        return bool(
+            row
+            and re.search(
+                rf"\bCONSTRAINT\s+{re.escape(name)}\b",
+                row,
+                re.IGNORECASE,
+            )
+        )
     return False
 
 

@@ -7,6 +7,7 @@ Create Date: 2026-08-25 13:11:00.000000
 Add official_violence_count table to store monthly victim counts from Ministry
 of Justice VDE (Validador de Dados Estatísticos) for coverage comparison.
 """
+import re
 from typing import Sequence, Union
 
 from alembic import op
@@ -58,7 +59,14 @@ def _unique_constraint_named(bind, table_name: str, name: str) -> bool:
             sa.text("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = :table"),
             {'table': table_name},
         ).scalar()
-        return bool(row and name in row)
+        return bool(
+            row
+            and re.search(
+                rf'\bCONSTRAINT\s+{re.escape(name)}\b',
+                row,
+                re.IGNORECASE,
+            )
+        )
     return False
 
 def upgrade() -> None:

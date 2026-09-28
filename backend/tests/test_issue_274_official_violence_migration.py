@@ -9,6 +9,7 @@ import pytest
 from alembic.operations import Operations
 from alembic.runtime.migration import MigrationContext
 from sqlalchemy import create_engine, inspect, text
+from sqlalchemy.exc import DBAPIError, OperationalError
 from sqlalchemy.pool import StaticPool
 
 backend_path = Path(__file__).parent.parent
@@ -39,22 +40,29 @@ def _postgres_engine_or_skip():
         candidates.append(_normalize_postgres_url(os.environ["DATABASE_URL"]))
     candidates.extend(
         _normalize_postgres_url(f"postgresql://arquivo_dev:arquivo_dev@{host}:5432/arquivo_dev")
-        for host in ("postgres", "localhost")
+        for host in ("localhost", "postgres")
     )
     candidates.extend(
         _normalize_postgres_url(f"postgresql://arquivo:arquivo_dev@{host}:5432/arquivo_dev")
-        for host in ("postgres", "localhost")
+        for host in ("localhost", "postgres")
     )
 
+    last_connect_error: Exception | None = None
     for db_url in candidates:
         try:
             engine = create_engine(db_url)
             with engine.connect() as conn:
                 conn.execute(text("SELECT 1"))
             return engine, db_url
-        except Exception:
+        except (ImportError, ModuleNotFoundError):
+            raise
+        except (OperationalError, DBAPIError) as exc:
+            last_connect_error = exc
             continue
-    pytest.skip("Postgres not available for alembic upgrade head tests")
+    pytest.skip(
+        "Postgres not available for alembic upgrade head tests"
+        + (f": {last_connect_error}" if last_connect_error else "")
+    )
 
 
 def _clear_settings_cache() -> None:
@@ -110,7 +118,13 @@ def _assert_five_column_uq_official_violence_key(engine) -> None:
             ddl = conn.execute(
                 text("SELECT sql FROM sqlite_master WHERE name = 'official_violence_count'")
             ).scalar()
-            assert ddl and "uq_official_violence_key" in ddl, f"DDL missing UQ: {ddl}"
+            import re
+
+            assert ddl and re.search(
+                r"\bCONSTRAINT\s+uq_official_violence_key\b",
+                ddl,
+                re.IGNORECASE,
+            ), f"DDL missing UQ: {ddl}"
             return
         assert uq is not None, f"uq_official_violence_key missing; constraints={constraints}"
         assert set(uq["column_names"]) == FIVE_COL_UQ
