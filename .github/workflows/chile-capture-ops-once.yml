@@ -81,3 +81,5 @@ jobs:
             fi
             chmod +x scripts/test-chile-capture-staging.sh
             bash scripts/test-chile-capture-staging.sh "${{ steps.env.outputs.target }}"
+
+# re-run: fix PYTHONPATH for enqueue
