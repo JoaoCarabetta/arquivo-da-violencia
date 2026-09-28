@@ -60,6 +60,11 @@ class Settings(BaseSettings):
     # credit is not spent on the other 11 South American countries.
     # Loaded from env as JSON, same as cors_origins (pydantic-settings).
     pipeline_active_countries: list[str] = []
+    # ISO codes ingested for history only (no classify/download/extract).
+    # Runs on the separate ARQ queue ``arquivo:{env}:capture`` — never the BR
+    # process queue. Prod/staging: PIPELINE_CAPTURE_COUNTRIES=["CL"].
+    # Codes listed here are excluded from pipeline_active_countries processing.
+    pipeline_capture_countries: list[str] = []
 
     # Download settings
     download_timeout_seconds: float = 20.0
@@ -132,20 +137,45 @@ def get_settings() -> Settings:
     return Settings()
 
 
+def _normalize_iso_country_codes(codes: list[str]) -> list[str]:
+    """Strip/uppercase ISO alpha-2 codes; drop anything that is not AA."""
+    normalized: list[str] = []
+    for code in codes:
+        if not code or not str(code).strip():
+            continue
+        value = str(code).strip().upper()
+        if len(value) == 2 and value.isalpha():
+            normalized.append(value)
+    return normalized
+
+
+def get_pipeline_capture_countries() -> list[str]:
+    """Return ISO codes ingested for history only (no BR process path).
+
+    Empty / unset means no capture-only countries. Capture uses a separate
+    ARQ queue and stores sources as ``captured``.
+    """
+    return _normalize_iso_country_codes(get_settings().pipeline_capture_countries)
+
+
 def get_pipeline_active_countries() -> list[str]:
     """Return ISO 3166-1 alpha-2 codes ingest and classify should process.
 
     Empty or absent ``pipeline_active_countries`` returns every code in
     ``ALL_COUNTRIES`` so existing tests and unrestricted deploys keep the
     12-country behavior. Configured values are stripped and uppercased.
+
+    Countries listed in ``pipeline_capture_countries`` are always excluded so
+    they cannot share the BR classify/download/extract path.
     """
     from app.country_registry import ALL_COUNTRIES
 
-    configured = [
-        code.strip().upper()
-        for code in get_settings().pipeline_active_countries
-        if code and str(code).strip()
-    ]
+    configured = _normalize_iso_country_codes(
+        get_settings().pipeline_active_countries
+    )
     if not configured:
-        return list(ALL_COUNTRIES)
-    return configured
+        active = list(ALL_COUNTRIES)
+    else:
+        active = configured
+    capture = set(get_pipeline_capture_countries())
+    return [code for code in active if code not in capture]

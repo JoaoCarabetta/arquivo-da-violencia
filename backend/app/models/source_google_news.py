@@ -12,6 +12,7 @@ class SourceStatus(str, Enum):
     
     Each status indicates what happens next:
     - ready_for_classification: Just ingested, needs headline classification
+    - captured: History-only ingest (e.g. Chile); never classify/download/extract
     - discarded: Not about violent death, won't be processed further
     - ready_for_download: Passed classification, needs content download
     - failed_in_download: Download failed
@@ -22,6 +23,7 @@ class SourceStatus(str, Enum):
     
     ready_for_classification = "ready_for_classification"
     classifying = "classifying"
+    captured = "captured"
     discarded = "discarded"
     ready_for_download = "ready_for_download"
     failed_in_download = "failed_in_download"

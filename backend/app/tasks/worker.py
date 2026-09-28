@@ -18,20 +18,32 @@ def get_arq_queue_name() -> str:
     return f"arquivo:{settings.environment}"
 
 
+def get_arq_capture_queue_name() -> str:
+    """Separate ARQ queue for history-only capture (never shares jobs with BR process)."""
+    return f"arquivo:{settings.environment}:capture"
+
+
 # Redis key under which the worker records its health heartbeat.
 # Must match the worker queue_name + suffix since WorkerSettings sets queue_name.
 HEALTH_CHECK_KEY = get_arq_queue_name() + health_check_key_suffix
+CAPTURE_HEALTH_CHECK_KEY = get_arq_capture_queue_name() + health_check_key_suffix
 
 # Redis key the worker publishes its own config to on startup, so the API
 # (which runs in a different container and may not share ENABLE_CRON) can report
 # whether cron is actually enabled on the running worker.
 # Namespaced by environment so staging/prod workers sharing Redis do not clash.
 WORKER_INFO_KEY = f"arquivo:worker:info:{settings.environment}"
+CAPTURE_WORKER_INFO_KEY = f"arquivo:worker:info:{settings.environment}:capture"
 
 
 def is_cron_enabled() -> bool:
     """Whether scheduled (cron) jobs are enabled for this worker."""
     return os.environ.get("ENABLE_CRON", "false").lower() == "true"
+
+
+def is_capture_cron_enabled() -> bool:
+    """Whether capture-only cron is enabled (independent of BR ENABLE_CRON)."""
+    return os.environ.get("ENABLE_CAPTURE_CRON", "false").lower() == "true"
 
 
 def get_redis_settings() -> RedisSettings:
@@ -52,6 +64,16 @@ async def create_arq_pool():
     return await create_pool(
         get_redis_settings(),
         default_queue_name=get_arq_queue_name(),
+    )
+
+
+async def create_arq_capture_pool():
+    """Create an ARQ Redis pool bound to the history-only capture queue."""
+    from arq import create_pool
+
+    return await create_pool(
+        get_redis_settings(),
+        default_queue_name=get_arq_capture_queue_name(),
     )
 
 
@@ -217,8 +239,59 @@ def get_cron_jobs():
     ]
 
 
+def get_capture_cron_jobs():
+    """Cron for history-only capture (independent of BR ENABLE_CRON / Prefect)."""
+    from app.tasks.pipeline import ingest_capture_hourly
+
+    if not is_capture_cron_enabled():
+        return []
+
+    return [
+        # Offset from BR :05 so RSS + Redis load do not collide with process ingest.
+        cron(
+            ingest_capture_hourly,
+            minute=10,
+            timeout=1800,
+            unique=True,
+        ),
+    ]
+
+
+async def capture_startup(ctx: dict) -> None:
+    """Startup for the capture-only worker (no BR recovery / metrics port clash)."""
+    from loguru import logger
+
+    cron_enabled = is_capture_cron_enabled()
+    logger.info("ARQ Capture Worker starting up...")
+    logger.info(f"Capture cron enabled: {cron_enabled}")
+    logger.info(f"Capture queue: {get_arq_capture_queue_name()}")
+
+    redis = ctx.get("redis")
+    if redis is not None:
+        try:
+            await redis.set(
+                CAPTURE_WORKER_INFO_KEY,
+                json.dumps(
+                    {
+                        "cron_enabled": cron_enabled,
+                        "queue": get_arq_capture_queue_name(),
+                        "started_at": datetime.now(timezone.utc).isoformat(),
+                    }
+                ),
+            )
+        except Exception as e:  # pragma: no cover - best effort, non-fatal
+            logger.warning(f"Failed to publish capture worker info to Redis: {e}")
+
+
+async def capture_shutdown(ctx: dict) -> None:
+    """Capture worker shutdown handler."""
+    from loguru import logger
+
+    logger.info("ARQ Capture Worker shutting down...")
+
+
 class WorkerSettings:
-    """ARQ Worker settings."""
+    """ARQ Worker settings (BR process path)."""
     
     # Redis connection
     redis_settings = get_redis_settings()
@@ -246,4 +319,25 @@ class WorkerSettings:
     # Retry settings
     max_tries = 3
     retry_delay = 60  # 1 minute between retries
+
+
+class CaptureWorkerSettings:
+    """ARQ worker for history-only capture (Chile etc.). Separate queue from BR."""
+
+    redis_settings = get_redis_settings()
+    queue_name = get_arq_capture_queue_name()
+
+    from app.tasks.pipeline import CAPTURE_TASK_FUNCTIONS
+
+    functions = CAPTURE_TASK_FUNCTIONS
+    on_startup = capture_startup
+    on_shutdown = capture_shutdown
+    cron_jobs = get_capture_cron_jobs()
+
+    max_jobs = 4
+    job_timeout = 1800
+    keep_result = 3600
+    health_check_interval = 30
+    max_tries = 3
+    retry_delay = 60
 
