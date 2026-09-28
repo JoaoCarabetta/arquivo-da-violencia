@@ -1,0 +1,75 @@
+# One-shot: grow ARV primary disk 40→80 GB (already included in cx33).
+# Reboots production. Default is dry-run. After reboot, cloud-init and/or
+# the next Daily ops checkup growpart the root filesystem.
+name: Grow ARV disk
+
+on:
+  workflow_dispatch:
+    inputs:
+      execute:
+        description: 'Actually upgrade the Hetzner disk (reboots ARV). Leave false for dry-run.'
+        required: false
+        default: false
+        type: boolean
+
+concurrency:
+  group: grow-arv-disk
+  cancel-in-progress: false
+
+jobs:
+  upgrade:
+    name: Hetzner upgrade_disk
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: |
+            scripts/hetzner-upgrade-arv-disk.sh
+          sparse-checkout-cone-mode: false
+
+      - name: Upgrade (or dry-run) ARV disk
+        env:
+          HETZNER_API_TOKEN: ${{ secrets.HETZNER_API_TOKEN }}
+          ARV_HETZNER_SERVER_ID: "115850201"
+          ARV_HETZNER_SERVER_TYPE: cx33
+        run: |
+          set -euo pipefail
+          if [ "${{ inputs.execute }}" = "true" ]; then
+            bash scripts/hetzner-upgrade-arv-disk.sh --execute
+          else
+            bash scripts/hetzner-upgrade-arv-disk.sh --dry-run
+          fi
+
+  growpart:
+    name: SSH growpart after upgrade
+    needs: upgrade
+    if: ${{ inputs.execute }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: |
+            scripts/check-host-disk.sh
+          sparse-checkout-cone-mode: false
+
+      - name: Sync disk script to ARV
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          source: scripts/check-host-disk.sh
+          target: /root/arquivo-da-violencia
+          overwrite: true
+
+      - name: Expand root filesystem
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          command_timeout: 10m
+          script: |
+            set -uo pipefail
+            cd /root/arquivo-da-violencia
+            bash scripts/check-host-disk.sh --json --remediate
