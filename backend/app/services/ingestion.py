@@ -19,7 +19,7 @@ from app.services.cities import (
     REQUESTS_PER_MINUTE,
     SHARDING_THRESHOLD,
 )
-from app.config import get_pipeline_active_countries
+from app.config import get_pipeline_active_countries, get_pipeline_capture_countries
 from app.geography import Country
 from app.country_registry import ALL_COUNTRIES, get_country_config
 
@@ -360,6 +360,7 @@ async def ingest_city(
     when: str = DEFAULT_WHEN,
     resolve_urls: bool = True,
     country: Country = "BR",
+    source_status: SourceStatus = SourceStatus.ready_for_classification,
 ) -> tuple[list[SourceGoogleNews], int]:
     """
     Ingest news for a single city with adaptive sharding.
@@ -369,6 +370,8 @@ async def ingest_city(
         when: Time window (e.g., "1h", "7d")
         resolve_urls: Whether to resolve Google News obfuscated URLs
         country: Country code (BR or CL)
+        source_status: Initial pipeline status. Use ``captured`` for
+            history-only countries so rows never enter classify/download/extract.
     
     Returns:
         Tuple of (new sources created, total entries fetched)
@@ -450,7 +453,7 @@ async def ingest_city(
                         published_at=published_at,
                         search_query=entry.get("_search_query"),
                         country=entry.get("_country", country),  # Use tagged country or fallback
-                        status=SourceStatus.ready_for_classification,
+                        status=source_status,
                         fetched_at=datetime.utcnow(),
                     )
                     session.add(source)
@@ -477,6 +480,7 @@ async def ingest_all_cities(
     resolve_urls: bool = True,
     max_concurrent: int = 10,
     country: Country = "BR",
+    source_status: SourceStatus = SourceStatus.ready_for_classification,
 ) -> dict:
     """
     Ingest news for all configured cities with adaptive sharding.
@@ -488,6 +492,7 @@ async def ingest_all_cities(
         resolve_urls: Whether to resolve obfuscated URLs
         max_concurrent: Maximum concurrent city ingestions (default 10)
         country: Country code
+        source_status: Initial status for new sources (``captured`` for history-only)
     
     Returns:
         Summary dict with statistics
@@ -499,6 +504,7 @@ async def ingest_all_cities(
     logger.info(f"Starting PARALLEL city ingestion for {len(cities)} cities in {country}")
     logger.info(f"Max concurrent: {max_concurrent}")
     logger.info(f"Rate limit: 1 request per {REQUEST_INTERVAL_SECONDS:.1f}s")
+    logger.info(f"Source status: {source_status.value}")
     
     # Semaphore to limit concurrent operations
     semaphore = asyncio.Semaphore(max_concurrent)
@@ -511,7 +517,13 @@ async def ingest_all_cities(
         async with semaphore:
             logger.info(f"[{city}] Starting...")
             try:
-                sources, entry_count = await ingest_city(city, when, resolve_urls, country)
+                sources, entry_count = await ingest_city(
+                    city,
+                    when,
+                    resolve_urls,
+                    country,
+                    source_status=source_status,
+                )
                 result = {
                     "sources_created": len(sources),
                     "entries_fetched": entry_count,
@@ -641,5 +653,76 @@ async def ingest_all_countries(
         "total_sources_created": total_sources,
         "elapsed_seconds": elapsed,
         "countries": country_results,
+    }
+
+
+async def ingest_capture_countries(
+    when: str = DEFAULT_WHEN,
+    resolve_urls: bool = True,
+    max_concurrent: int = 10,
+) -> dict:
+    """Ingest history-only countries (no classify / download / extract).
+
+    Iterates ``get_pipeline_capture_countries()`` and stores new rows with
+    ``SourceStatus.captured``. Intended for the separate capture ARQ queue —
+    callers must not enqueue BR pipeline stages after this returns.
+    """
+    capture_countries = get_pipeline_capture_countries()
+    if not capture_countries:
+        logger.info("Capture ingest skipped: PIPELINE_CAPTURE_COUNTRIES is empty")
+        return {
+            "total_entries": 0,
+            "total_sources_created": 0,
+            "elapsed_seconds": 0.0,
+            "countries": {},
+            "mode": "capture_only",
+        }
+
+    logger.info(
+        f"Starting capture-only ingestion "
+        f"({len(capture_countries)} countries): {capture_countries}"
+    )
+
+    import time
+
+    start_time = time.time()
+    tasks = [
+        ingest_all_cities(
+            cities=None,
+            when=when,
+            resolve_urls=resolve_urls,
+            max_concurrent=max_concurrent,
+            country=country_code,
+            source_status=SourceStatus.captured,
+        )
+        for country_code in capture_countries
+    ]
+    results = await asyncio.gather(*tasks)
+    elapsed = time.time() - start_time
+
+    country_results = {}
+    total_entries = 0
+    total_sources = 0
+    for country_code, result in zip(capture_countries, results):
+        country_results[country_code] = result
+        total_entries += result["total_entries"]
+        total_sources += result["total_sources_created"]
+
+    logger.info(f"\n{'='*60}")
+    logger.info(
+        f"CAPTURE-ONLY INGESTION COMPLETE "
+        f"({len(capture_countries)} countries): {capture_countries}"
+    )
+    logger.info(f"Total entries: {total_entries}")
+    logger.info(f"Total sources: {total_sources} (status=captured)")
+    logger.info(f"Time: {elapsed:.1f}s")
+    logger.info(f"{'='*60}")
+
+    return {
+        "total_entries": total_entries,
+        "total_sources_created": total_sources,
+        "elapsed_seconds": elapsed,
+        "countries": country_results,
+        "mode": "capture_only",
     }
 

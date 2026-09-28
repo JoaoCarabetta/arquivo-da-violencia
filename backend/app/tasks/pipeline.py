@@ -751,6 +751,45 @@ async def ingest_cities_full_pipeline(
     }
 
 
+@notify_on_failure("ingest_capture_countries")
+async def ingest_capture_countries_task(
+    ctx: dict,
+    when: str = "1h",
+) -> dict:
+    """History-only ingest for PIPELINE_CAPTURE_COUNTRIES (e.g. Chile).
+
+    Stores sources as ``captured``. Never enqueues classify/download/extract.
+    Must run on the capture ARQ queue only.
+    """
+    logger.info(f"[INGEST_CAPTURE] Starting with when={when}")
+    start_time = time.time()
+    await notify_job_started("ingest_capture_countries", {"when": when})
+
+    from app.services.ingestion import ingest_capture_countries
+
+    result = await ingest_capture_countries(when=when, resolve_urls=True)
+    total_sources = result.get("total_sources_created", 0)
+    logger.info(
+        f"[INGEST_CAPTURE] Complete: {total_sources} captured sources "
+        f"(no classify enqueue)"
+    )
+
+    duration = time.time() - start_time
+    await notify_job_finished("ingest_capture_countries", result, duration)
+    return {
+        "status": "completed",
+        "task": "ingest_capture_countries",
+        **result,
+    }
+
+
+@notify_on_failure("ingest_capture_hourly")
+async def ingest_capture_hourly(ctx: dict, when: str = "1h") -> dict:
+    """Hourly cron for capture-only countries (separate queue from BR)."""
+    logger.info("[INGEST_CAPTURE_HOURLY] Starting capture-only city ingest")
+    return await ingest_capture_countries_task(ctx, when=when)
+
+
 # ARQ function wrappers with per-job timeouts (manual enqueues inherit these).
 from arq.worker import func
 
@@ -778,8 +817,17 @@ classify_pending_task_job = func(
     timeout=1800,
     max_tries=2,
 )
+ingest_capture_countries_task_job = func(
+    ingest_capture_countries_task,
+    timeout=1800,
+)
+ingest_capture_hourly_job = func(
+    ingest_capture_hourly,
+    timeout=1800,
+    max_tries=1,
+)
 
-# List of all task functions for the worker
+# List of all task functions for the BR process worker
 TASK_FUNCTIONS = [
     ingest_task,
     classify_task,
@@ -797,4 +845,10 @@ TASK_FUNCTIONS = [
     ingest_cities_full_pipeline_job,
     ingest_cities_hourly_job,
     process_cities_backlog_job,
+]
+
+# Capture worker only — never registered on the BR process queue worker.
+CAPTURE_TASK_FUNCTIONS = [
+    ingest_capture_countries_task_job,
+    ingest_capture_hourly_job,
 ]
