@@ -33,6 +33,35 @@ def _unique_constraint_exists(bind, table_name: str, column_names: set[str]) -> 
     return any(set(c["column_names"]) == column_names for c in constraints)
 
 
+def _unique_constraint_named(bind, table_name: str, name: str) -> bool:
+    inspector = inspect(bind)
+    constraints = inspector.get_unique_constraints(table_name)
+    if any(c.get("name") == name for c in constraints):
+        return True
+
+    dialect = bind.dialect.name
+    if dialect == "postgresql":
+        return bool(
+            bind.execute(
+                sa.text(
+                    """
+                    SELECT 1 FROM pg_constraint c
+                    JOIN pg_class rel ON rel.oid = c.conrelid
+                    WHERE rel.relname = :table AND c.conname = :name
+                    """
+                ),
+                {"table": table_name, "name": name},
+            ).scalar()
+        )
+    if dialect == "sqlite":
+        row = bind.execute(
+            sa.text("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = :table"),
+            {"table": table_name},
+        ).scalar()
+        return bool(row and name in row)
+    return False
+
+
 def upgrade() -> None:
     """Add source_id/revision and expand unique key to five columns."""
     bind = op.get_bind()
@@ -92,11 +121,7 @@ def upgrade() -> None:
     for name in old_key_names:
         op.drop_constraint(name, "official_violence_count", type_="unique")
 
-    if not _unique_constraint_exists(
-        bind,
-        "official_violence_count",
-        {"code_muni", "year_month", "indicator", "source_id", "revision"},
-    ):
+    if not _unique_constraint_named(bind, "official_violence_count", "uq_official_violence_key"):
         op.create_unique_constraint(
             "uq_official_violence_key",
             "official_violence_count",
@@ -119,11 +144,7 @@ def downgrade() -> None:
     for name in new_key_names:
         op.drop_constraint(name, "official_violence_count", type_="unique")
 
-    if not _unique_constraint_exists(
-        bind,
-        "official_violence_count",
-        {"code_muni", "year_month", "indicator"},
-    ):
+    if not _unique_constraint_named(bind, "official_violence_count", "uq_official_violence_key"):
         op.create_unique_constraint(
             "uq_official_violence_key",
             "official_violence_count",

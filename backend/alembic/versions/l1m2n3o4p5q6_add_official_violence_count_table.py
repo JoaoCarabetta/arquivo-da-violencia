@@ -31,6 +31,36 @@ def _index_exists(bind, index_name: str, table_name: str) -> bool:
     indexes = inspector.get_indexes(table_name)
     return any(idx['name'] == index_name for idx in indexes)
 
+
+def _unique_constraint_named(bind, table_name: str, name: str) -> bool:
+    """True if a unique constraint with this name exists (any column set)."""
+    inspector = inspect(bind)
+    constraints = inspector.get_unique_constraints(table_name)
+    if any(c.get('name') == name for c in constraints):
+        return True
+
+    dialect = bind.dialect.name
+    if dialect == 'postgresql':
+        return bool(
+            bind.execute(
+                sa.text(
+                    """
+                    SELECT 1 FROM pg_constraint c
+                    JOIN pg_class rel ON rel.oid = c.conrelid
+                    WHERE rel.relname = :table AND c.conname = :name
+                    """
+                ),
+                {'table': table_name, 'name': name},
+            ).scalar()
+        )
+    if dialect == 'sqlite':
+        row = bind.execute(
+            sa.text("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = :table"),
+            {'table': table_name},
+        ).scalar()
+        return bool(row and name in row)
+    return False
+
 def upgrade() -> None:
     """Create official_violence_count table if it doesn't exist."""
     bind = op.get_bind()
@@ -62,16 +92,12 @@ def upgrade() -> None:
         if not _index_exists(bind, 'ix_official_violence_count_indicator', 'official_violence_count'):
             op.create_index(op.f('ix_official_violence_count_indicator'), 'official_violence_count', ['indicator'], unique=False)
 
-        # Add unique constraint if it doesn't exist
-        inspector = inspect(bind)
-        constraints = inspector.get_unique_constraints('official_violence_count')
-        has_unique = any(
-            set(c['column_names']) == {'code_muni', 'year_month', 'indicator'}
-            for c in constraints
-        )
-        if not has_unique:
-            op.create_unique_constraint('uq_official_violence_key', 'official_violence_count',
-                                       ['code_muni', 'year_month', 'indicator'])
+        if not _unique_constraint_named(bind, 'official_violence_count', 'uq_official_violence_key'):
+            op.create_unique_constraint(
+                'uq_official_violence_key',
+                'official_violence_count',
+                ['code_muni', 'year_month', 'indicator'],
+            )
 
 def downgrade() -> None:
     """Drop official_violence_count table."""
