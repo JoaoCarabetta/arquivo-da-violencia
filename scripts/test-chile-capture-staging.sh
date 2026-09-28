@@ -109,7 +109,8 @@ async def main():
 asyncio.run(main())
 PY
 docker cp "$ENQ_PY" "$API_CONTAINER:/tmp/enqueue_chile_capture.py"
-JOB_OUT=$(docker exec "$API_CONTAINER" python /tmp/enqueue_chile_capture.py)
+JOB_OUT=$(docker exec -w /app -e PYTHONPATH=/app "$API_CONTAINER" \
+  python /tmp/enqueue_chile_capture.py)
 echo "$JOB_OUT"
 rm -f "$ENQ_PY"
 
