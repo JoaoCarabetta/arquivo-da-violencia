@@ -10,9 +10,23 @@ from sqlmodel import select
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 
 from app.services.classification_heuristics import apply_classification_heuristics
+from app.services.jev_decisions import is_jev_model, submit_decisions
 from app.config import get_pipeline_active_countries, get_settings
 from app.database import async_session_maker
 from app.models import SourceGoogleNews, SourceStatus
+
+# Jev noul is P(yes). Official docs: near 0.5 is uncertain, not "medium".
+# Tune from labeled fixtures before flipping prod SELECTION_MODEL.
+JEV_NOUL_THRESHOLD = 0.5
+
+CONTENT_CLASS_HINTS = (
+    "incident",
+    "aggregate_statistics",
+    "foreign",
+    "non_incident",
+    "suicide",
+    "accident_disaster",
+)
 
 
 class ClassificationModelCallError(Exception):
@@ -220,6 +234,117 @@ non_incident, suicide, accident_disaster.
 CONTENT_CLASSIFICATION_MAX_CHARS = 8000
 
 
+def headline_jev_questions() -> dict:
+    """Decisions questions for headline classification (noul + choice)."""
+    return {
+        "is_violent_death": {
+            "type": "noul",
+            "instructions": (
+                "Does `headline` report one or more NEW violent deaths in South America "
+                "(AR, BO, BR, CL, CO, EC, GY, PY, PE, SR, UY, VE), following `policy`? "
+                "True only for homicides, murders, killings, or police operations with deaths. "
+                "False if the victim survived, the event is outside South America, the death "
+                "is a metaphor, an accident without homicide, a suicide, or legal news about "
+                "an old crime."
+            ),
+            "criteria": {
+                "true": (
+                    "Headline is about a new violent death in South America "
+                    "(homicide, murder, killing, body found with violence, police operation "
+                    "with deaths)."
+                ),
+                "false": (
+                    "No new South American violent death: survivor, foreign event, "
+                    "arrest/trial, metaphor, accident, suicide, or policy/analysis."
+                ),
+            },
+        },
+        "is_single_incident": {
+            "type": "noul",
+            "instructions": (
+                "Does `headline` describe ONE specific violent-death incident "
+                "(or one clearly bounded event), following `policy`?"
+            ),
+            "criteria": {
+                "true": (
+                    "One specific incident or one bounded event with identifiable "
+                    "victims or place."
+                ),
+                "false": (
+                    "Aggregate statistics, multi-city roundups, foreign disasters, "
+                    "suicides, animal cruelty, policy/analysis, or not a discrete incident."
+                ),
+            },
+        },
+        "content_class_hint": {
+            "type": "choice",
+            "instructions": (
+                "Which single class best describes `headline`, following `policy`?"
+            ),
+            "criteria": {
+                "incident": "One specific violent-death incident in South America.",
+                "aggregate_statistics": (
+                    "Crime totals, annual balances, CVLI, statewide or national counts."
+                ),
+                "foreign": "Event outside South America.",
+                "non_incident": (
+                    "Arrests, trials, policy, analysis, or other non-incident news."
+                ),
+                "suicide": "Suicide, even if violent.",
+                "accident_disaster": "Accident or disaster without homicide.",
+            },
+        },
+    }
+
+
+def _noul_value(answer: dict, field: str) -> float:
+    value = answer.get("noul") if isinstance(answer, dict) else None
+    if not isinstance(value, (int, float)):
+        raise ValueError(f"Jev answer {field!r} missing numeric noul")
+    return float(value)
+
+
+def _noul_bool(answer: dict, field: str, *, threshold: float = JEV_NOUL_THRESHOLD) -> bool:
+    return _noul_value(answer, field) >= threshold
+
+
+def _confidence_from_noul(noul: float) -> Literal["alta", "média", "baixa"]:
+    """Map noul certainty (distance from 0.5) onto the existing 3-level field."""
+    certainty = abs(noul - 0.5) * 2
+    if certainty >= 0.7:
+        return "alta"
+    if certainty >= 0.3:
+        return "média"
+    return "baixa"
+
+
+def classification_from_jev_answers(answers: dict) -> ViolentDeathClassification:
+    """Map Decisions ``answers`` onto the existing classification schema."""
+    violent = answers.get("is_violent_death")
+    incident = answers.get("is_single_incident")
+    if not isinstance(violent, dict) or not isinstance(incident, dict):
+        raise ValueError("Jev answers missing is_violent_death or is_single_incident")
+
+    noul = _noul_value(violent, "is_violent_death")
+    incident_noul = _noul_value(incident, "is_single_incident")
+    hint_raw = answers.get("content_class_hint")
+    hint = hint_raw.get("choice") if isinstance(hint_raw, dict) else None
+    if hint not in CONTENT_CLASS_HINTS:
+        hint = None
+
+    return ViolentDeathClassification(
+        is_violent_death=_noul_bool(violent, "is_violent_death"),
+        is_single_incident=_noul_bool(incident, "is_single_incident"),
+        confidence=_confidence_from_noul(noul),
+        reasoning=(
+            f"jev is_violent_death.noul={noul:.3f} "
+            f"is_single_incident.noul={incident_noul:.3f}"
+            + (f" hint={hint}" if hint else "")
+        ),
+        content_class_hint=hint,
+    )
+
+
 def get_classification_client(*, model: str | None = None):
     """Get instructor client for classification using the selection model."""
     settings = get_settings()
@@ -257,13 +382,29 @@ def classify_headline(
     Args:
         headline: News headline text
         system_prompt: Optional override for the classification system prompt
-        model: Optional override for the Gemini model name
+        model: Optional override for the selection model slug
 
     Returns:
         ViolentDeathClassification with is_violent_death, confidence, and reasoning
     """
-    client = get_classification_client(model=model)
+    settings = get_settings()
+    model_name = model or settings.selection_model
     prompt = system_prompt or CLASSIFICATION_SYSTEM_PROMPT
+
+    if is_jev_model(model_name):
+        if not settings.openrouter_api_key:
+            raise ValueError("OPENROUTER_API_KEY not configured")
+        payload = submit_decisions(
+            model=model_name,
+            state={"headline": headline, "policy": prompt},
+            questions=headline_jev_questions(),
+            api_key=settings.openrouter_api_key,
+            timeout=60.0,
+        )
+        result = classification_from_jev_answers(payload["answers"])
+        return apply_classification_heuristics(headline, result)
+
+    client = get_classification_client(model=model)
 
     result = client.create(
         response_model=ViolentDeathClassification,

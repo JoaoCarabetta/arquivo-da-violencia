@@ -43,7 +43,7 @@ class Settings(BaseSettings):
     # Model slugs are OpenRouter IDs: "<vendor>/<model>".
     openrouter_api_key: str | None = None
     extraction_model: str = "deepseek/deepseek-v4-flash"  # Structured event extraction
-    selection_model: str = "openai/gpt-oss-120b"  # Headline classification
+    selection_model: str = "openai/gpt-oss-120b"  # Headline classification (Jev slugs use Decisions API)
     content_gate_model: str = "google/gemini-2.5-flash-lite"  # Article-body content gate
     dedup_model: str = "google/gemini-3.1-flash-lite"  # Dedup match + cluster
     enrichment_model: str = "deepseek/deepseek-v4-flash"  # Multi-source synthesis
