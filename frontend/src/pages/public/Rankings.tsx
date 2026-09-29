@@ -759,7 +759,11 @@ export function Rankings() {
 
   return (
     <div className="flex h-screen w-full overflow-hidden" style={{ background: 'var(--stone-50)' }}>
-      <LeftRail onAbout={() => setAboutOpen(true)} onMethodology={() => setMethodologyOpen(true)} />
+      <LeftRail
+        onAbout={() => setAboutOpen(true)}
+        onMethodology={() => setMethodologyOpen(true)}
+        onUseApi={() => navigate('/usar-api')}
+      />
       
       <main className="flex-1 overflow-y-auto">
         <div className="max-w-6xl mx-auto px-4 py-8 md:px-8 md:py-12">

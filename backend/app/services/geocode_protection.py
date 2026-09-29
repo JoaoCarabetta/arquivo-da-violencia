@@ -19,6 +19,9 @@ GEOCODE_CACHE_TTL_SECONDS = 24 * 60 * 60
 EXPORT_RATE_LIMIT = 5
 EXPORT_RATE_WINDOW_SECONDS = 60 * 60
 
+ASK_RATE_LIMIT = 20
+ASK_RATE_WINDOW_SECONDS = 60
+
 
 def normalize_geocode_query(query: str) -> str:
     """Normalize a geocode query for cache keys (case + whitespace)."""
@@ -128,6 +131,20 @@ async def enforce_export_rate_limit(client_ip: str) -> None:
         log_label="Export",
         detail_message=(
             "Limite de exportações excedido. Tente novamente em cerca de uma hora."
+        ),
+    )
+
+
+async def enforce_ask_rate_limit(client_ip: str) -> None:
+    """Limit POST /ask like geocode: a modest per-IP burst window."""
+    await _enforce_rate_limit(
+        client_ip=client_ip,
+        key_prefix="ask:rate",
+        limit=ASK_RATE_LIMIT,
+        window_seconds=ASK_RATE_WINDOW_SECONDS,
+        log_label="Ask",
+        detail_message=(
+            "Limite de perguntas excedido. Tente novamente em alguns minutos."
         ),
     )
 

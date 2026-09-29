@@ -9,9 +9,11 @@ import { CrimeMap, type MapViewState, type MapBounds, type ViewportSnapshot } fr
 import { MapErrorBoundary } from '@/components/map/MapErrorBoundary';
 import { LeftRail } from '@/components/portal/LeftRail';
 import { SearchCard, type LocatedPlace } from '@/components/portal/SearchCard';
+import { AskCard, type AskApplyPayload } from '@/components/portal/AskCard';
 import { RightPanel } from '@/components/portal/RightPanel';
 import { AboutModal } from '@/components/portal/AboutModal';
 import { MethodologyPanel } from '@/components/portal/MethodologyPanel';
+import { UseApiPanel } from '@/components/portal/UseApiPanel';
 import { DensityLegend } from '@/components/portal/DensityLegend';
 import { Sheet, SheetContent } from '@/components/ui/sheet';
 import { useIsMobile } from '@/hooks/useMediaQuery';
@@ -72,6 +74,7 @@ export function MapExplorer() {
   const mode = useMemo(() => modeFromPath(location.pathname), [location.pathname]);
   const aboutFromRoute = location.pathname === '/sobre';
   const methodologyFromRoute = location.pathname === '/metodologia';
+  const useApiFromRoute = location.pathname === '/usar-api';
 
   const [viewState, setViewState] = useState<MapViewState>(LATAM_VIEW);
   const [panelBounds, setPanelBounds] = useState<MapBounds | null>(null);
@@ -81,6 +84,7 @@ export function MapExplorer() {
   const [searchedLocation, setSearchedLocation] = useState<{ lat: number; lng: number } | null>(null);
   const [aboutOpen, setAboutOpen] = useState(aboutFromRoute);
   const [methodologyOpen, setMethodologyOpen] = useState(methodologyFromRoute);
+  const [useApiOpen, setUseApiOpen] = useState(useApiFromRoute);
   const [mobilePanelOpen, setMobilePanelOpen] = useState(false);
   const flyInterpolatorRef = useRef(new FlyToInterpolator({ speed: 1.4 }));
 
@@ -218,6 +222,28 @@ export function MapExplorer() {
     [flyTo]
   );
 
+  const onAskApply = useCallback(
+    (payload: AskApplyPayload) => {
+      if (payload.filters) {
+        setFilters((prev) => ({
+          ...prev,
+          states: payload.filters?.states.length ? payload.filters.states : prev.states,
+          types: payload.filters?.types.length ? payload.filters.types : prev.types,
+          ...dateRangeForLastDays(365),
+        }));
+        const state = payload.filters.states[0];
+        if (state && !payload.map) {
+          const centroid = computeGeoCentroid(allPoints, 'states', state);
+          if (centroid) flyTo(centroid.lat, centroid.lng, geoFlyZoom('states'));
+        }
+      }
+      if (payload.map) {
+        onLocate(payload.map);
+      }
+    },
+    [allPoints, flyTo, onLocate]
+  );
+
   const onCellClick = useCallback(
     (coordinate: [number, number]) => {
       setViewState((prev) => ({
@@ -243,7 +269,8 @@ export function MapExplorer() {
 
   const openAbout = useCallback(() => {
     setAboutOpen(true);
-    if (location.pathname === '/metodologia') navigate('/');
+    setUseApiOpen(false);
+    if (location.pathname === '/metodologia' || location.pathname === '/usar-api') navigate('/');
   }, [location.pathname, navigate]);
 
   const closeAbout = useCallback(() => {
@@ -253,12 +280,24 @@ export function MapExplorer() {
 
   const openMethodology = useCallback(() => {
     setMethodologyOpen(true);
+    setUseApiOpen(false);
     if (location.pathname === '/sobre') setAboutOpen(false);
   }, [location.pathname]);
 
   const closeMethodology = useCallback(() => {
     setMethodologyOpen(false);
     if (location.pathname === '/metodologia') navigate('/');
+  }, [location.pathname, navigate]);
+
+  const openUseApi = useCallback(() => {
+    setUseApiOpen(true);
+    setAboutOpen(false);
+    setMethodologyOpen(false);
+  }, []);
+
+  const closeUseApi = useCallback(() => {
+    setUseApiOpen(false);
+    if (location.pathname === '/usar-api') navigate('/');
   }, [location.pathname, navigate]);
 
   useEffect(() => {
@@ -268,6 +307,10 @@ export function MapExplorer() {
   useEffect(() => {
     setMethodologyOpen(methodologyFromRoute);
   }, [methodologyFromRoute]);
+
+  useEffect(() => {
+    setUseApiOpen(useApiFromRoute);
+  }, [useApiFromRoute]);
 
   useEffect(() => {
     if (isMobile && selectedId != null) {
@@ -308,7 +351,7 @@ export function MapExplorer() {
       className="fixed inset-0 flex overflow-hidden max-md:flex-col"
       style={{ background: 'var(--stone-100)', color: 'var(--color-text)' }}
     >
-      <LeftRail onAbout={openAbout} onMethodology={openMethodology} />
+      <LeftRail onAbout={openAbout} onMethodology={openMethodology} onUseApi={openUseApi} />
 
       <div className="relative min-h-0 min-w-0 flex-1 max-md:pb-[calc(60px+env(safe-area-inset-bottom,0px))]">
         <MapErrorBoundary>
@@ -337,8 +380,9 @@ export function MapExplorer() {
         )}
 
         <div className="pointer-events-none absolute left-[18px] right-[18px] top-[18px] z-[1200]">
-          <div className="pointer-events-auto w-full shrink-0 md:w-[min(380px,calc(100%-36px))]">
+          <div className="pointer-events-auto flex w-full shrink-0 flex-col gap-2 md:w-[min(380px,calc(100%-36px))]">
             <SearchCard points={allPoints} onLocate={onLocate} />
+            <AskCard onApply={onAskApply} />
           </div>
         </div>
         <DensityLegend points={filteredPoints} bounds={panelBounds} zoom={panelZoom} />
@@ -376,6 +420,7 @@ export function MapExplorer() {
 
       <AboutModal open={aboutOpen} onClose={closeAbout} onOpenMethodology={openMethodology} />
       <MethodologyPanel open={methodologyOpen} onClose={closeMethodology} onSetMode={onSetMode} />
+      <UseApiPanel open={useApiOpen} onClose={closeUseApi} />
     </div>
   );
 }

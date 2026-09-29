@@ -83,6 +83,7 @@ function App() {
                 <Route path="dados" />
                 <Route path="sobre" />
                 <Route path="metodologia" />
+                <Route path="usar-api" />
               </Route>
 
               <Route

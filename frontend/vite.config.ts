@@ -23,6 +23,8 @@ export default defineConfig({
         '/dados',
         '/sobre',
         '/metodologia',
+        '/usar-api',
+        '/estatisticas',
       ],
     }),
   ],

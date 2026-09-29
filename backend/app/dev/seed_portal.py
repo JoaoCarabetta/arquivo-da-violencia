@@ -136,6 +136,90 @@ async def count_map_ready(session) -> int:
     return int(result.scalar_one())
 
 
+async def seed_qa_examples() -> int:
+    """Deterministic rows so the two public Q&A examples have local answers."""
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    family, subtype = parse_legacy_homicide_type("Feminicídio")
+    events: list[UniqueEvent] = []
+    for i in range(6):
+        events.append(
+            UniqueEvent(
+                event_family=family,
+                event_subtype=subtype,
+                homicide_type="Feminicídio",
+                method_of_death="Arma de fogo",
+                content_class="incident",
+                event_date=now - timedelta(days=12 + i),
+                time_of_day="noite",
+                country="BR",
+                state="CE",
+                city="Fortaleza",
+                neighborhood="Centro",
+                latitude=Decimal("-3.717200"),
+                longitude=Decimal("-38.543300"),
+                victim_count=1,
+                title=f"Feminicídio recente em Fortaleza {i + 1}",
+                geocoding_source="dev_seed",
+                location_precision="city_center",
+                confirmed=True,
+                needs_enrichment=False,
+            )
+        )
+    for i in range(3):
+        events.append(
+            UniqueEvent(
+                event_family=family,
+                event_subtype=subtype,
+                homicide_type="Feminicídio",
+                method_of_death="Arma de fogo",
+                content_class="incident",
+                event_date=now - timedelta(days=200 + i),
+                time_of_day="noite",
+                country="BR",
+                state="CE",
+                city="Fortaleza",
+                neighborhood="Centro",
+                latitude=Decimal("-3.717200"),
+                longitude=Decimal("-38.543300"),
+                victim_count=1,
+                title=f"Feminicídio anterior em Fortaleza {i + 1}",
+                geocoding_source="dev_seed",
+                location_precision="city_center",
+                confirmed=True,
+                needs_enrichment=False,
+            )
+        )
+    # Near Rua Umari, Tijuca, Rio (~-22.93, -43.24)
+    events.append(
+        UniqueEvent(
+            event_family="homicidio",
+            event_subtype="simples",
+            homicide_type="Homicídio",
+            method_of_death="Arma de fogo",
+            content_class="incident",
+            event_date=now - timedelta(days=5),
+            time_of_day="noite",
+            country="BR",
+            state="RJ",
+            city="Rio de Janeiro",
+            neighborhood="Tijuca",
+            street="Rua Umari",
+            latitude=Decimal("-22.930800"),
+            longitude=Decimal("-43.238900"),
+            victim_count=1,
+            title="Homicídio próximo à Rua Umari, Tijuca",
+            geocoding_source="dev_seed",
+            location_precision="neighborhood_center",
+            confirmed=True,
+            needs_enrichment=False,
+        )
+    )
+    async with async_session_maker() as session:
+        session.add_all(events)
+        await session.commit()
+    return len(events)
+
+
 async def run_seed(*, count: int, seed: int, clear: bool) -> None:
     await ensure_tables()
 
@@ -145,11 +229,12 @@ async def run_seed(*, count: int, seed: int, clear: bool) -> None:
         print(f"Removed {removed} dev_seed events")
 
     inserted = await seed_events(count, seed)
+    qa_inserted = await seed_qa_examples()
 
     async with async_session_maker() as session:
         total = await count_map_ready(session)
 
-    print(f"Inserted {inserted} dev_seed events ({total} geocoded total)")
+    print(f"Inserted {inserted} dev_seed events + {qa_inserted} Q&A examples ({total} geocoded total)")
 
 
 def main() -> None:
