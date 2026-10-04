@@ -77,12 +77,12 @@ EOF
 assert_no_worker_up() {
     local log="$1"
     local label="$2"
-    if grep -E 'up -d( --no-deps)? api worker' "$log" >/dev/null; then
+    if grep -E 'up -d( --[a-z-]+)* (api )?worker(\s|$)' "$log" >/dev/null; then
         echo "---- docker log ($label) ----"
         cat "$log"
         fail "$label started worker via compose up"
     fi
-    if grep -E 'up -d( --no-deps)? worker(\s|$)' "$log" >/dev/null; then
+    if grep -E 'up -d( --[a-z-]+)* worker(\s|$)' "$log" >/dev/null; then
         echo "---- docker log ($label) ----"
         cat "$log"
         fail "$label started worker as a named service"
@@ -92,7 +92,7 @@ assert_no_worker_up() {
 assert_api_up() {
     local log="$1"
     local label="$2"
-    if ! grep -E 'up -d( --no-deps)?( --force-recreate)? api( |$)' "$log" >/dev/null; then
+    if ! grep -E 'up -d( --[a-z-]+)* api(\s|$)' "$log" >/dev/null; then
         echo "---- docker log ($label) ----"
         cat "$log"
         fail "$label did not start api"
@@ -113,6 +113,11 @@ echo "==> integration: deploy-backend.sh staging"
 read -r work log status < <(run_with_stubs staging bash "$ROOT/scripts/deploy-backend.sh" staging)
 [ "$status" = "0" ] || { echo "---- stdout ----"; cat "$work/stdout.txt"; echo "---- stderr ----"; cat "$work/stderr.txt"; fail "staging deploy exited $status"; }
 assert_api_up "$log" "staging deploy"
+if ! grep -E 'up -d( --[a-z-]+)* --force-recreate api(\s|$)' "$log" >/dev/null; then
+    echo "---- docker log (staging deploy) ----"
+    cat "$log"
+    fail "staging deploy did not force-recreate api"
+fi
 assert_no_worker_up "$log" "staging deploy"
 assert_no_worker_inspect "$log" "staging deploy"
 grep -q 'Skipping worker health check' "$work/stdout.txt" || fail "staging deploy did not skip worker health"
@@ -122,7 +127,7 @@ rm -rf "$work"
 echo "==> integration: deploy-backend.sh production"
 read -r work log status < <(run_with_stubs production bash "$ROOT/scripts/deploy-backend.sh" production)
 [ "$status" = "0" ] || { echo "---- stdout ----"; cat "$work/stdout.txt"; echo "---- stderr ----"; cat "$work/stderr.txt"; fail "production deploy exited $status"; }
-if ! grep -E 'up -d --no-deps( --force-recreate)? api worker' "$log" >/dev/null; then
+if ! grep -E 'up -d --no-deps --force-recreate api worker' "$log" >/dev/null; then
     echo "---- docker log (production deploy) ----"
     cat "$log"
     fail "production deploy did not start api worker"
