@@ -92,7 +92,7 @@ assert_no_worker_up() {
 assert_api_up() {
     local log="$1"
     local label="$2"
-    if ! grep -E 'up -d( --no-deps)? api( |$)' "$log" >/dev/null; then
+    if ! grep -E 'up -d( --no-deps)?( --force-recreate)? api( |$)' "$log" >/dev/null; then
         echo "---- docker log ($label) ----"
         cat "$log"
         fail "$label did not start api"
@@ -122,7 +122,7 @@ rm -rf "$work"
 echo "==> integration: deploy-backend.sh production"
 read -r work log status < <(run_with_stubs production bash "$ROOT/scripts/deploy-backend.sh" production)
 [ "$status" = "0" ] || { echo "---- stdout ----"; cat "$work/stdout.txt"; echo "---- stderr ----"; cat "$work/stderr.txt"; fail "production deploy exited $status"; }
-if ! grep -E 'up -d --no-deps api worker' "$log" >/dev/null; then
+if ! grep -E 'up -d --no-deps( --force-recreate)? api worker' "$log" >/dev/null; then
     echo "---- docker log (production deploy) ----"
     cat "$log"
     fail "production deploy did not start api worker"

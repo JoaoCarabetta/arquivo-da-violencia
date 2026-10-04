@@ -82,11 +82,13 @@ docker compose $COMPOSE_FILES run --rm --no-deps api alembic upgrade head
 echo ""
 if [ "$ENVIRONMENT" = "staging" ]; then
     echo "🔄 Starting API (staging worker stays stopped — no ingest/classify)..."
+    # shellcheck disable=SC2086
+    docker compose $COMPOSE_FILES up -d --no-deps $(backend_runtime_services staging)
 else
     echo "🔄 Starting API and worker..."
+    # shellcheck disable=SC2086
+    docker compose $COMPOSE_FILES up -d --no-deps --force-recreate $(backend_runtime_services production)
 fi
-# shellcheck disable=SC2086
-docker compose $COMPOSE_FILES up -d --no-deps --force-recreate $(backend_runtime_services "$ENVIRONMENT")
 
 if [ "$ENVIRONMENT" = "production" ]; then
     echo "🔄 Starting node_exporter (best-effort)..."
