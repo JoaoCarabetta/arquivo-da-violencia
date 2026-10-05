@@ -5,12 +5,14 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from app.services.classification_run import (
+    CLASSIFICATION_RUN_FAILURE_ISSUE_PREFIX,
     MODEL_CALL_ERROR_FAIL_MIN_CALLS,
     ClassificationRunModelCallFailure,
     ClassificationRunStats,
     raise_if_classification_run_failed,
     should_fail_classification_run,
 )
+from app.services.github import GitHubIssueCreator
 from app.tasks.pipeline import (
     _process_cities_backlog_steps,
     _run_classify_until_drained,
@@ -64,6 +66,29 @@ class TestClassificationRunThreshold:
         msg = str(exc_info.value)
         assert "sk-testsecret" not in msg
         assert "Bearer sk-" not in msg
+
+    def test_issue_prefix_is_longer_than_github_hash_window(self):
+        assert len(CLASSIFICATION_RUN_FAILURE_ISSUE_PREFIX) > 100
+
+    def test_github_issue_hash_stable_across_varying_counts(self):
+        creator = GitHubIssueCreator()
+        task = "process_cities_backlog"
+
+        with pytest.raises(ClassificationRunModelCallFailure) as exc1:
+            raise_if_classification_run_failed(
+                ClassificationRunStats(0, 0, 50),
+                "402 Insufficient credits",
+            )
+        with pytest.raises(ClassificationRunModelCallFailure) as exc2:
+            raise_if_classification_run_failed(
+                ClassificationRunStats(0, 0, 1800),
+                "503 Service Unavailable",
+            )
+
+        hash1 = creator._generate_issue_hash(task, str(exc1.value))
+        hash2 = creator._generate_issue_hash(task, str(exc2.value))
+        assert hash1 == hash2
+        assert str(exc1.value)[:100] == str(exc2.value)[:100]
 
 
 @pytest.mark.asyncio
