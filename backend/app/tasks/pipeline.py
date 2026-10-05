@@ -590,7 +590,6 @@ async def _run_classify_until_drained(
 ) -> dict:
     """Classify pending sources in batches until drained or batch cap hit."""
     from app.services.classification import classify_pending_sources
-    from app.services.classification_run import raise_if_classification_run_failed
 
     totals = {
         "processed": 0,
@@ -599,6 +598,7 @@ async def _run_classify_until_drained(
         "errors": 0,
         "model_call_errors": 0,
         "other_errors": 0,
+        "first_model_call_error": None,
     }
     first_model_call_error: str | None = None
     for batch in range(1, max_batches + 1):
@@ -606,7 +606,14 @@ async def _run_classify_until_drained(
             limit=limit_per_batch,
             concurrency=concurrency,
         )
-        for key in totals:
+        for key in (
+            "processed",
+            "violent_death",
+            "discarded",
+            "errors",
+            "model_call_errors",
+            "other_errors",
+        ):
             totals[key] += int(result.get(key, 0))
         batch_first = result.get("first_model_call_error")
         if batch_first and first_model_call_error is None:
@@ -618,7 +625,7 @@ async def _run_classify_until_drained(
         )
         if processed < limit_per_batch:
             break
-    raise_if_classification_run_failed(totals, first_model_call_error)
+    totals["first_model_call_error"] = first_model_call_error
     return totals
 
 
@@ -640,6 +647,8 @@ async def _run_pipeline_maintenance() -> None:
 
 async def _process_cities_backlog_steps(ctx: dict) -> dict:
     """Run classify → download → extract → dedup → enrich → geocode (no ingest)."""
+    from app.services.classification_run import raise_if_classification_run_failed
+
     classify_result = await _run_classify_until_drained(
         limit_per_batch=150,
         max_batches=12,
@@ -650,6 +659,10 @@ async def _process_cities_backlog_steps(ctx: dict) -> dict:
     dedup_result = await batch_dedup_task(ctx, limit=200, chain_next=False)
     enrich_result = await batch_enrich_task(ctx, limit=50, chain_next=False)
     geocode_result = await batch_geocode_task(ctx, limit=200)
+    raise_if_classification_run_failed(
+        classify_result,
+        classify_result.get("first_model_call_error"),
+    )
     return {
         "classify": classify_result,
         "download": download_result,

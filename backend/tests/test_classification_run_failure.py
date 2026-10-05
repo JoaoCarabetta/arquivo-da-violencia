@@ -11,7 +11,11 @@ from app.services.classification_run import (
     raise_if_classification_run_failed,
     should_fail_classification_run,
 )
-from app.tasks.pipeline import _run_classify_until_drained, process_cities_backlog
+from app.tasks.pipeline import (
+    _process_cities_backlog_steps,
+    _run_classify_until_drained,
+    process_cities_backlog,
+)
 
 
 class TestClassificationRunThreshold:
@@ -63,7 +67,7 @@ class TestClassificationRunThreshold:
 
 
 @pytest.mark.asyncio
-async def test_run_classify_until_drained_raises_on_all_fail_batch():
+async def test_run_classify_until_drained_returns_totals_on_all_fail_batch():
     batch_stats = {
         "processed": 150,
         "violent_death": 0,
@@ -79,11 +83,13 @@ async def test_run_classify_until_drained_raises_on_all_fail_batch():
         new_callable=AsyncMock,
         return_value=batch_stats,
     ) as mock_classify:
-        with pytest.raises(ClassificationRunModelCallFailure):
-            await _run_classify_until_drained(
-                limit_per_batch=150, max_batches=1, concurrency=1
-            )
+        result = await _run_classify_until_drained(
+            limit_per_batch=150, max_batches=1, concurrency=1
+        )
         mock_classify.assert_awaited_once()
+
+    assert result["model_call_errors"] == 150
+    assert result["first_model_call_error"] == "402 Insufficient credits"
 
 
 @pytest.mark.asyncio
@@ -109,6 +115,62 @@ async def test_run_classify_until_drained_completes_on_few_fail_batch():
 
     assert result["model_call_errors"] == 3
     assert result["violent_death"] == 90
+
+
+@pytest.mark.asyncio
+async def test_process_cities_backlog_steps_runs_downstream_before_failure():
+    ctx = {}
+    classify_totals = {
+        "processed": 150,
+        "violent_death": 0,
+        "discarded": 0,
+        "errors": 150,
+        "model_call_errors": 150,
+        "other_errors": 0,
+        "first_model_call_error": "402 Insufficient credits",
+    }
+
+    with (
+        patch(
+            "app.tasks.pipeline._run_classify_until_drained",
+            new_callable=AsyncMock,
+            return_value=classify_totals,
+        ) as mock_classify,
+        patch(
+            "app.tasks.pipeline.download_classified_task",
+            new_callable=AsyncMock,
+            return_value={"successful": 0},
+        ) as mock_download,
+        patch(
+            "app.tasks.pipeline.extract_ready_task",
+            new_callable=AsyncMock,
+            return_value={"raw_events_created": 0},
+        ) as mock_extract,
+        patch(
+            "app.tasks.pipeline.batch_dedup_task",
+            new_callable=AsyncMock,
+            return_value={"unique_events_created": 0},
+        ) as mock_dedup,
+        patch(
+            "app.tasks.pipeline.batch_enrich_task",
+            new_callable=AsyncMock,
+            return_value={},
+        ) as mock_enrich,
+        patch(
+            "app.tasks.pipeline.batch_geocode_task",
+            new_callable=AsyncMock,
+            return_value={},
+        ) as mock_geocode,
+    ):
+        with pytest.raises(ClassificationRunModelCallFailure):
+            await _process_cities_backlog_steps(ctx)
+
+    mock_classify.assert_awaited_once()
+    mock_download.assert_awaited_once()
+    mock_extract.assert_awaited_once()
+    mock_dedup.assert_awaited_once()
+    mock_enrich.assert_awaited_once()
+    mock_geocode.assert_awaited_once()
 
 
 @pytest.mark.asyncio

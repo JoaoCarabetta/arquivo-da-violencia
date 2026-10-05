@@ -7,7 +7,7 @@ from dataclasses import dataclass
 
 from loguru import logger
 
-# Defaults for issue #279 — adjustable via env in future if needed.
+# Defaults for issue #279.
 MODEL_CALL_ERROR_FAIL_RATE_THRESHOLD = 0.9
 MODEL_CALL_ERROR_FAIL_MIN_CALLS = 50
 
