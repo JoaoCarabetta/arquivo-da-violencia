@@ -590,6 +590,7 @@ async def _run_classify_until_drained(
 ) -> dict:
     """Classify pending sources in batches until drained or batch cap hit."""
     from app.services.classification import classify_pending_sources
+    from app.services.classification_run import raise_if_classification_run_failed
 
     totals = {
         "processed": 0,
@@ -599,6 +600,7 @@ async def _run_classify_until_drained(
         "model_call_errors": 0,
         "other_errors": 0,
     }
+    first_model_call_error: str | None = None
     for batch in range(1, max_batches + 1):
         result = await classify_pending_sources(
             limit=limit_per_batch,
@@ -606,6 +608,9 @@ async def _run_classify_until_drained(
         )
         for key in totals:
             totals[key] += int(result.get(key, 0))
+        batch_first = result.get("first_model_call_error")
+        if batch_first and first_model_call_error is None:
+            first_model_call_error = str(batch_first)
         processed = int(result.get("processed", 0))
         logger.info(
             f"[CLASSIFY_BATCH] Batch {batch}/{max_batches}: {result} "
@@ -613,6 +618,7 @@ async def _run_classify_until_drained(
         )
         if processed < limit_per_batch:
             break
+    raise_if_classification_run_failed(totals, first_model_call_error)
     return totals
 
 

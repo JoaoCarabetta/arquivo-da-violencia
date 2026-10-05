@@ -519,6 +519,7 @@ async def classify_pending_sources(limit: int = 50, concurrency: int = 10) -> di
                 "errors": 0,
                 "model_call_errors": 0,
                 "other_errors": 0,
+                "first_model_call_error": None,
             }
 
         # Atomically claim these sources by updating status to prevent race conditions.
@@ -554,6 +555,7 @@ async def classify_pending_sources(limit: int = 50, concurrency: int = 10) -> di
             "errors": 0,
             "model_call_errors": 0,
             "other_errors": 0,
+            "first_model_call_error": None,
         }
     
     # Semaphore to limit concurrency
@@ -581,10 +583,13 @@ async def classify_pending_sources(limit: int = 50, concurrency: int = 10) -> di
     discarded_count = 0
     model_call_error_count = 0
     other_error_count = 0
+    first_model_call_error: str | None = None
 
     for result in results:
         if isinstance(result, ClassificationModelCallError):
             logger.error(f"Classification model call failed: {result}")
+            if first_model_call_error is None:
+                first_model_call_error = str(result)
             model_call_error_count += 1
         elif isinstance(result, Exception):
             logger.error(f"Classification failed with exception: {result}")
@@ -609,5 +614,6 @@ async def classify_pending_sources(limit: int = 50, concurrency: int = 10) -> di
         "errors": error_count,
         "model_call_errors": model_call_error_count,
         "other_errors": other_error_count,
+        "first_model_call_error": first_model_call_error,
     }
 
