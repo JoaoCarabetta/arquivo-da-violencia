@@ -180,6 +180,7 @@ scripts/*
 !scripts/run_prod_backfill.sh
 !scripts/check-observability.sh
 !scripts/check-host-disk.sh
+!scripts/hetzner-upgrade-arv-disk.sh
 !scripts/test-alert-router.sh
 !scripts/test_deploy_backend_staging.sh
 !scripts/hash-env-passwords.py

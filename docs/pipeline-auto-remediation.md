@@ -134,6 +134,20 @@ plan; the box was created/rescaled with “keep disk size”). That is a short
 reboot + `growpart`/`resize2fs`, not a new volume or object store. Volumes
 (~€0.08/GB·mo) and object storage are for dumps/tiles later, not the live DB.
 
+Playbook (powers the box off, then on; do not run inside the 10–14 UTC
+backup window). Hetzner requires the server **offline** for `change_type`.
+
+```bash
+# dry-run
+bash scripts/hetzner-upgrade-arv-disk.sh
+# execute (needs HETZNER_API_TOKEN)
+bash scripts/hetzner-upgrade-arv-disk.sh --execute
+```
+
+Or **Actions → Grow ARV disk → Run workflow** with `execute=true` (needs the
+`HETZNER_API_TOKEN` Actions secret). After reboot, `check-host-disk.sh
+--remediate` growparts if cloud-init did not already.
+
 ### Tier B — Code fix → PR to `develop`
 
 When logs show application bugs (examples from Postgres migration):
