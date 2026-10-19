@@ -1,0 +1,4 @@
+# Select Jev via the OpenRouter Decisions API.
+# Do not use as prod SELECTION_MODEL until classification seed/hard evals pass.
+stage: classification
+selection_model: typesafe/jev-1.13
