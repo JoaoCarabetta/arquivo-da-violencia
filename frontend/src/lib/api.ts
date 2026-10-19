@@ -297,8 +297,39 @@ export interface NearbyResponse {
     security_force_involved: number;
     by_type: BreakdownItem[];
     by_method: BreakdownItem[];
+    by_precision?: BreakdownItem[];
+    precision_note?: string | null;
   };
   events: NearbyEvent[];
+}
+
+export interface AskCitation {
+  url: string;
+  label: string;
+}
+
+export interface AskMapHint {
+  lat: number;
+  lng: number;
+  zoom?: number;
+  label?: string | null;
+}
+
+export interface AskFiltersHint {
+  states?: string[];
+  types?: string[];
+}
+
+export interface AskResponse {
+  answer: string;
+  caveats: string[];
+  query: Record<string, unknown>;
+  data: Record<string, unknown>;
+  citations: AskCitation[];
+  source: string;
+  methodology_url: string;
+  map?: AskMapHint | null;
+  filters?: AskFiltersHint | null;
 }
 
 export interface PaginatedResponse<T> {
@@ -542,6 +573,13 @@ export async function geocode(input: { q?: string; cep?: string }): Promise<Geoc
   if (input.cep) params.set('cep', input.cep);
   if (input.q) params.set('q', input.q);
   return fetchJson<GeocodeResult>(`${API_BASE}/public/geocode?${params.toString()}`);
+}
+
+export async function askArchive(question: string): Promise<AskResponse> {
+  return fetchJson<AskResponse>(`${API_BASE}/public/ask`, {
+    method: 'POST',
+    body: JSON.stringify({ question }),
+  });
 }
 
 export async function fetchNearby(params: {

@@ -25,6 +25,12 @@ from app.services.public_filters import (
     is_brazilian_uf,
 )
 from app.geography import COUNTRY_NAMES, BRAZILIAN_STATES, BRAZILIAN_CAPITALS
+from app.services.public_qa import (
+    AskRequest,
+    answer_question,
+    query_nearby,
+    query_stats_series,
+)
 
 router = APIRouter(prefix="/public", tags=["public"])
 
@@ -332,7 +338,7 @@ async def _load_export_rows(
 
 @router.get("/stats")
 async def get_public_stats(session: AsyncSession = Depends(get_session)):
-    """Get public overview stats."""
+    """Overview counts for the public homicide archive (news-derived, not official)."""
     
     # Total events
     total = await session.scalar(
@@ -400,7 +406,7 @@ async def get_public_stats(session: AsyncSession = Depends(get_session)):
 
 @router.get("/stats/by-type")
 async def get_stats_by_type(session: AsyncSession = Depends(get_session)):
-    """Get event counts by homicide type."""
+    """Lifetime counts by homicide type. For a time window + UF use /stats/series."""
     
     query = select(
         UniqueEvent.homicide_type,
@@ -459,7 +465,7 @@ async def get_stats_by_day(
     session: AsyncSession = Depends(get_session),
     days: int = Query(30, ge=1, le=365)
 ):
-    """Get daily event counts."""
+    """Daily event counts for the last N days (no state/subtype filter). Prefer /stats/series."""
     
     cutoff = datetime.utcnow() - timedelta(days=days)
 
@@ -486,6 +492,36 @@ async def get_stats_by_day(
         })
     
     return data
+
+
+@router.get("/stats/series")
+async def get_stats_series(
+    session: AsyncSession = Depends(get_session),
+    state: str | None = Query(None, description="UF code or name. Example: CE or Ceará."),
+    subtype: str | None = Query(
+        None,
+        description="Homicide subtype slug. Example: feminicidio.",
+    ),
+    interval: str = Query("week", pattern="^(day|week|month)$"),
+    days: int = Query(365, ge=1, le=365, description="Current window (max 365-day public window)"),
+):
+    """Trend series with current vs previous equal window.
+
+    When to call: “is X going up in UF?” questions.
+    Example: `state=CE&subtype=feminicidio&interval=week&days=365`.
+
+    Returns counts, victim totals, `direction` (up/down/flat/insufficient),
+    and methodology (news-derived archive, not SIM/FBSP).
+    """
+    if interval not in ("day", "week", "month"):
+        raise HTTPException(status_code=400, detail="interval must be day, week, or month")
+    return await query_stats_series(
+        session,
+        state=state,
+        subtype=subtype,
+        interval=interval,  # type: ignore[arg-type]
+        days=days,
+    )
 
 
 @router.get("/stats/security-force")
@@ -1214,14 +1250,17 @@ async def get_stats_matrix(
 @router.get("/geocode")
 async def geocode_location(
     request: Request,
-    q: str | None = Query(None, description="Free-text place (city, neighborhood, address)"),
+    q: str | None = Query(
+        None,
+        description="Free-text place. Example: 'Rua Umari 28, Rio de Janeiro'.",
+    ),
     cep: str | None = Query(None, description="Brazilian postal code (CEP)"),
 ):
-    """
-    Resolve a user-supplied location (CEP, city or neighborhood) to coordinates.
+    """Resolve a place to lat/lng for /nearby.
 
-    Used by the homepage "near me" search. The browser sends the typed text and
-    gets back lat/lng so it can then call /nearby. Geolocation (GPS) skips this.
+    When to call: the user named a street, neighborhood, city, or CEP.
+    Example: `q=Rua Umari 28, Rio de Janeiro` should return a label in RJ,
+    then pass latitude/longitude to GET /nearby.
     """
     from app.services.geocoding import geocode_user_query
     from app.services.geocode_protection import (
@@ -1267,163 +1306,53 @@ async def geocode_location(
     return payload
 
 
-def _haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
-    """Great-circle distance between two points in kilometers."""
-    r = 6371.0
-    p1, p2 = math.radians(lat1), math.radians(lat2)
-    d_phi = math.radians(lat2 - lat1)
-    d_lambda = math.radians(lon2 - lon1)
-    a = (
-        math.sin(d_phi / 2) ** 2
-        + math.cos(p1) * math.cos(p2) * math.sin(d_lambda / 2) ** 2
-    )
-    return 2 * r * math.asin(min(1.0, math.sqrt(a)))
-
-
 @router.get("/nearby")
 async def get_nearby_events(
     session: AsyncSession = Depends(get_session),
-    lat: float = Query(..., ge=-90, le=90, description="Latitude"),
-    lng: float = Query(..., ge=-180, le=180, description="Longitude"),
+    lat: float = Query(..., ge=-90, le=90, description="Latitude from /geocode"),
+    lng: float = Query(..., ge=-180, le=180, description="Longitude from /geocode"),
     radius_km: float = Query(5.0, gt=0, le=200, description="Search radius in km"),
-    days: int | None = Query(None, ge=1, le=3650, description="Only events in the last N days"),
+    days: int | None = Query(365, ge=1, le=3650, description="Only events in the last N days"),
     limit: int = Query(100, ge=1, le=500, description="Max events returned"),
 ):
+    """Events near a point plus summary by type, method, period, and location_precision.
+
+    When to call: after /geocode for a street or neighborhood question
+    (example: crimes near Rua Umari 28, Rio). Each event includes
+    `location_precision` — do not treat `city_center` / `neighborhood_center`
+    as rooftop accuracy on that street.
     """
-    Return geocoded violent-death events near a point, plus a "most common
-    crimes near you" summary (counts by type, by method, security-force share,
-    and the trend vs the previous equal period).
-
-    SQLite has no geo functions, so we prefilter with a lat/lng bounding box in
-    SQL and then compute the exact Haversine distance in Python.
-    """
-    # Bounding box (degrees). 1 deg latitude ~= 111 km; longitude shrinks with
-    # latitude. cos can be ~0 near the poles, so clamp to avoid huge boxes.
-    lat_delta = radius_km / 111.0
-    cos_lat = max(math.cos(math.radians(lat)), 0.01)
-    lng_delta = radius_km / (111.0 * cos_lat)
-
-    min_lat, max_lat = lat - lat_delta, lat + lat_delta
-    min_lng, max_lng = lng - lng_delta, lng + lng_delta
-
-    query = apply_public_incident_filter(
-        select(UniqueEvent).where(
-            UniqueEvent.latitude.isnot(None),
-            UniqueEvent.longitude.isnot(None),
-            UniqueEvent.latitude >= min_lat,
-            UniqueEvent.latitude <= max_lat,
-            UniqueEvent.longitude >= min_lng,
-            UniqueEvent.longitude <= max_lng,
-        )
+    return await query_nearby(
+        session,
+        lat=lat,
+        lng=lng,
+        radius_km=radius_km,
+        days=days,
+        limit=limit,
     )
 
-    now = datetime.utcnow()
-    cutoff = None
-    prev_cutoff = None
-    if days is not None:
-        cutoff = now - timedelta(days=days)
-        prev_cutoff = now - timedelta(days=days * 2)
-        # Keep events older than the window too (for trend); filter per-bucket below.
-        query = query.where(
-            (UniqueEvent.event_date >= prev_cutoff) | (UniqueEvent.event_date.is_(None))
-        )
 
-    result = await session.execute(query)
-    candidates = result.scalars().all()
+@router.post("/ask")
+async def ask_public_question(
+    payload: AskRequest,
+    request: Request,
+    session: AsyncSession = Depends(get_session),
+):
+    """One-shot Q&A over the structured public tools.
 
-    # Exact distance filter + distance annotation.
-    in_radius = []
-    for event in candidates:
-        try:
-            elat = float(event.latitude)
-            elng = float(event.longitude)
-        except (TypeError, ValueError):
-            continue
-        distance = _haversine_km(lat, lng, elat, elng)
-        if distance <= radius_km:
-            in_radius.append((distance, event))
+    Body: `{"question": "..."}`. The server classifies place / trend / event
+    lookup, calls /geocode+/nearby or /stats/series (never raw SQL), and
+    returns a short pt-BR `answer`, `caveats`, `query`, `data`, and
+    `citations` (event URLs + methodology).
 
-    # Split into current vs previous period for the trend (only when days given).
-    def in_current_period(ev) -> bool:
-        if cutoff is None:
-            return True
-        return ev.event_date is not None and ev.event_date >= cutoff
+    Examples:
+    - “Rua Umari 28, Rio de Janeiro”
+    - “O feminicídio está subindo no Ceará?”
+    """
+    from app.services.geocode_protection import enforce_ask_rate_limit, get_client_ip
 
-    def in_previous_period(ev) -> bool:
-        if cutoff is None or prev_cutoff is None:
-            return False
-        return ev.event_date is not None and prev_cutoff <= ev.event_date < cutoff
-
-    current = [(d, e) for d, e in in_radius if in_current_period(e)]
-    previous_count = sum(1 for _, e in in_radius if in_previous_period(e))
-
-    # Aggregations over the current-period events.
-    by_type: dict[str, int] = {}
-    by_method: dict[str, int] = {}
-    security_involved = 0
-    total_victims = 0
-    for _, event in current:
-        t = event.homicide_type or "Não classificado"
-        by_type[t] = by_type.get(t, 0) + 1
-        m = event.method_of_death or "Não especificado"
-        by_method[m] = by_method.get(m, 0) + 1
-        if event.security_force_involved:
-            security_involved += 1
-        if event.victim_count:
-            total_victims += event.victim_count
-
-    def to_sorted(d: dict[str, int]) -> list[dict]:
-        total = sum(d.values()) or 1
-        items = [
-            {"label": k, "count": v, "percent": round(v / total * 100, 1)}
-            for k, v in d.items()
-        ]
-        items.sort(key=lambda x: x["count"], reverse=True)
-        return items
-
-    current_count = len(current)
-    trend_pct = None
-    if days is not None and previous_count > 0:
-        trend_pct = round((current_count - previous_count) / previous_count * 100, 1)
-
-    # Sort events by distance and format for the client.
-    current.sort(key=lambda x: x[0])
-    events = []
-    for distance, event in current[:limit]:
-        events.append({
-            "id": event.id,
-            "distance_km": round(distance, 2),
-            "event_date": event.event_date.isoformat() if event.event_date else None,
-            "state": event.state,
-            "city": event.city,
-            "neighborhood": event.neighborhood,
-            "homicide_type": event.homicide_type,
-            "method_of_death": event.method_of_death,
-            "victim_count": event.victim_count,
-            "victims_summary": event.victims_summary,
-            "security_force_involved": event.security_force_involved,
-            "title": event.title,
-            "latitude": float(event.latitude),
-            "longitude": float(event.longitude),
-            "location_precision": event.location_precision,
-            "source_count": event.source_count,
-        })
-
-    return {
-        "center": {"lat": lat, "lng": lng},
-        "radius_km": radius_km,
-        "days": days,
-        "summary": {
-            "total": current_count,
-            "total_victims": total_victims,
-            "previous_period_total": previous_count if days is not None else None,
-            "trend_pct": trend_pct,
-            "security_force_involved": security_involved,
-            "by_type": to_sorted(by_type),
-            "by_method": to_sorted(by_method),
-        },
-        "events": events,
-    }
+    await enforce_ask_rate_limit(get_client_ip(request))
+    return await answer_question(session, payload.question)
 
 
 @router.get("/map-points")
@@ -1525,25 +1454,48 @@ async def get_public_events(
     session: AsyncSession = Depends(get_session),
     page: int = Query(1, ge=1),
     per_page: int = Query(20, ge=1, le=100),
-    state: str | None = None,
-    type: str | None = None,
+    state: str | None = Query(None, description="UF code, e.g. CE"),
+    city: str | None = Query(None, description="City name (case-insensitive)"),
+    type: str | None = Query(None, description="Homicide type or subtype slug"),
+    subtype: str | None = Query(None, description="Canonical subtype, e.g. feminicidio"),
+    homicide_type: str | None = Query(None, description="Alias sent by the frontend for type"),
+    date_from: str | None = Query(None, description="Start date YYYY-MM-DD (inclusive)"),
+    date_to: str | None = Query(None, description="End date YYYY-MM-DD (inclusive)"),
     search: str | None = None,
 ):
-    """Get paginated public events."""
-    
-    # Base query
+    """Paginated public events. Accepts the filters the portal already sends.
+
+    When to call: event lookup by city, UF, subtype, or date range.
+    """
     query = apply_public_incident_filter(select(UniqueEvent))
     count_query = apply_public_incident_filter(select(func.count(UniqueEvent.id)))
-    
-    # Apply filters
+
     if state:
         query = query.where(UniqueEvent.state == state)
         count_query = count_query.where(UniqueEvent.state == state)
-    
-    if type:
-        query = query.where(homicide_type_filter(type))
-        count_query = count_query.where(homicide_type_filter(type))
-    
+
+    if city:
+        city_match = UniqueEvent.city.ilike(city)
+        query = query.where(city_match)
+        count_query = count_query.where(city_match)
+
+    type_value = subtype or type or homicide_type
+    if type_value:
+        type_filter = homicide_type_filter(type_value)
+        query = query.where(type_filter)
+        count_query = count_query.where(type_filter)
+
+    if date_from:
+        start = _parse_export_date(date_from, "Data inicial")
+        query = query.where(UniqueEvent.event_date >= start)
+        count_query = count_query.where(UniqueEvent.event_date >= start)
+
+    if date_to:
+        end = _parse_export_date(date_to, "Data final")
+        end = end.replace(hour=23, minute=59, second=59, microsecond=999999)
+        query = query.where(UniqueEvent.event_date <= end)
+        count_query = count_query.where(UniqueEvent.event_date <= end)
+
     if search:
         search_filter = f"%{search}%"
         search_condition = (
@@ -1590,6 +1542,7 @@ async def get_public_events(
             "chronological_description": event.chronological_description,
             "latitude": float(event.latitude) if event.latitude else None,
             "longitude": float(event.longitude) if event.longitude else None,
+            "location_precision": event.location_precision,
             "source_count": event.source_count,
             "merged_data": event.merged_data,
             "created_at": event.created_at.isoformat(),

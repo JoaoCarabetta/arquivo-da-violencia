@@ -12,6 +12,23 @@ export interface Strings {
   searchPlaceholder: string;
   noResults: string;
   geocodeFailed: string;
+  askTitle: string;
+  askPlaceholder: string;
+  askSubmit: string;
+  askFailed: string;
+  askCaveats: string;
+  askViewOnMap: string;
+  askViewEvents: string;
+  askExamplePlace: string;
+  askExampleTrend: string;
+  navUseApi: string;
+  useApiEyebrow: string;
+  useApiTitle: string;
+  useApiIntro: string;
+  useApiOpenapi: string;
+  useApiLlms: string;
+  useApiClaude: string;
+  useApiAttribution: string;
   navMap: string;
   navFeed: string;
   navData: string;
@@ -140,6 +157,25 @@ const PT: Strings = {
   searchPlaceholder: 'Busque por cidade, bairro, estado ou CEP',
   noResults: 'Nenhum local encontrado',
   geocodeFailed: 'Não foi possível localizar esse endereço',
+  askTitle: 'Pergunte ao arquivo',
+  askPlaceholder: 'Ex.: O feminicídio está subindo no Ceará?',
+  askSubmit: 'Perguntar',
+  askFailed: 'Não foi possível responder agora. Tente de novo.',
+  askCaveats: 'Limitações',
+  askViewOnMap: 'Ver no mapa',
+  askViewEvents: 'Ver eventos',
+  askExamplePlace: 'Rua Umari 28, Rio de Janeiro',
+  askExampleTrend: 'O feminicídio está subindo no Ceará?',
+  navUseApi: 'Usar esta API',
+  useApiEyebrow: 'API pública',
+  useApiTitle: 'Use esta API',
+  useApiIntro:
+    'A mesma OpenAPI serve o site, o Claude Desktop e qualquer cliente na internet. Não é preciso MCP. Os dados são um arquivo jornalístico, não estatísticas oficiais (SIM/FBSP).',
+  useApiOpenapi: 'Especificação OpenAPI',
+  useApiLlms: 'Descoberta para agentes (llms.txt)',
+  useApiClaude:
+    'No Claude Desktop, adicione um conector personalizado com a URL da OpenAPI. As rotas públicas já descrevem quando chamar cada ferramenta, inclusive as duas perguntas-exemplo.',
+  useApiAttribution: 'Atribua Arquivo da Violência e linke a metodologia em qualquer reuso.',
   navMap: 'Mapa',
   navFeed: 'Linha do tempo',
   navData: 'Dados',
@@ -272,6 +308,25 @@ const EN: Strings = {
   searchPlaceholder: 'Search by city, neighborhood, state or ZIP',
   noResults: 'No place found',
   geocodeFailed: 'Could not locate that address',
+  askTitle: 'Ask the archive',
+  askPlaceholder: 'e.g. Is femicide going up in Ceará?',
+  askSubmit: 'Ask',
+  askFailed: 'Could not answer right now. Try again.',
+  askCaveats: 'Limitations',
+  askViewOnMap: 'View on map',
+  askViewEvents: 'View events',
+  askExamplePlace: 'Rua Umari 28, Rio de Janeiro',
+  askExampleTrend: 'O feminicídio está subindo no Ceará?',
+  navUseApi: 'Use this API',
+  useApiEyebrow: 'Public API',
+  useApiTitle: 'Use this API',
+  useApiIntro:
+    'One OpenAPI serves the website, Claude Desktop, and any internet client. No MCP required. This is a news-derived archive, not official SIM/FBSP statistics.',
+  useApiOpenapi: 'OpenAPI specification',
+  useApiLlms: 'Agent discovery (llms.txt)',
+  useApiClaude:
+    'In Claude Desktop, add a custom connector from the OpenAPI URL. Public routes document when to call each tool, including the two example questions.',
+  useApiAttribution: 'Attribute Arquivo da Violência and link the methodology on any reuse.',
   navMap: 'Map',
   navFeed: 'Timeline',
   navData: 'Data',
