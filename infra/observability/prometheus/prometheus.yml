@@ -15,7 +15,7 @@ scrape_configs:
     metrics_path: /metrics
     scheme: http
     static_configs:
-      - targets: ["77.42.72.111:8000"]
+      - targets: ["100.64.203.110:8000"]
         labels:
           environment: production
           service: api
@@ -24,7 +24,7 @@ scrape_configs:
     metrics_path: /metrics
     scheme: http
     static_configs:
-      - targets: ["77.42.72.111:9091"]
+      - targets: ["100.64.203.110:9091"]
         labels:
           environment: production
           service: worker
@@ -33,7 +33,7 @@ scrape_configs:
     metrics_path: /metrics
     scheme: http
     static_configs:
-      - targets: ["77.42.72.111:9100"]
+      - targets: ["100.64.203.110:9100"]
         labels:
           environment: production
           host: prod
@@ -51,7 +51,7 @@ scrape_configs:
     metrics_path: /metrics
     scheme: http
     static_configs:
-      - targets: ["77.42.72.111:8011"]
+      - targets: ["100.64.203.110:8011"]
         labels:
           environment: production
           service: api

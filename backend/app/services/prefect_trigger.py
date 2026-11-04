@@ -7,6 +7,7 @@ no ARQ Redis enqueue.
 
 from __future__ import annotations
 
+import base64
 import os
 from typing import Any
 
@@ -62,6 +63,14 @@ def resolve_deployment_name(task: str) -> str | None:
     return DEPLOYMENT_BY_TASK.get(task)
 
 
+def _auth_headers() -> dict[str, str]:
+    """Basic auth for a Prefect server started with PREFECT_SERVER_API_AUTH_STRING."""
+    auth = os.environ.get("PREFECT_API_AUTH_STRING")
+    if not auth:
+        return {}
+    return {"Authorization": "Basic " + base64.b64encode(auth.encode()).decode()}
+
+
 async def _find_deployment_id(client: httpx.AsyncClient, name: str) -> str:
     """Resolve ``flow_name/deployment_name`` to a deployment UUID."""
     if "/" not in name:
@@ -94,7 +103,7 @@ async def create_flow_run(
 
     Returns ``{job_id, deployment, status, orchestrator}``.
     """
-    async with httpx.AsyncClient(timeout=30.0) as client:
+    async with httpx.AsyncClient(timeout=30.0, headers=_auth_headers()) as client:
         dep_id = await _find_deployment_id(client, deployment)
         body: dict[str, Any] = {}
         if parameters:

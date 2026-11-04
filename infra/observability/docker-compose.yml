@@ -1,6 +1,6 @@
 services:
   node_exporter:
-    image: prom/node-exporter:v1.8.2
+    image: prom/node-exporter:v1.11.0
     container_name: obs-node-exporter
     restart: unless-stopped
     volumes:
@@ -16,7 +16,7 @@ services:
       - obs
 
   prometheus:
-    image: prom/prometheus:v3.2.1
+    image: prom/prometheus:v3.15.1
     container_name: obs-prometheus
     restart: unless-stopped
     depends_on:
@@ -34,7 +34,7 @@ services:
       - obs
 
   alertmanager:
-    image: prom/alertmanager:v0.28.1
+    image: prom/alertmanager:v0.32.0
     container_name: obs-alertmanager
     restart: unless-stopped
     command:
@@ -87,7 +87,7 @@ services:
       - obs
 
   grafana:
-    image: grafana/grafana:11.5.2
+    image: grafana/grafana:12.4.4
     container_name: obs-grafana
     restart: unless-stopped
     depends_on:
